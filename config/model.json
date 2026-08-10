@@ -41,6 +41,11 @@
     "bank_source": {
       "enabled": true,
       "$comment": "Au-dessus de la cote LiDAR, la grille est remplacée par le RGE ALTI : les berges découvertes à basse cote sont ainsi correctes."
+    },
+    "shoal_bias": {
+      "enabled": true,
+      "radius_m": 15.0,
+      "$comment": "Généralisation biaisée vers le haut-fond, comme sur les cartes marines. Le lissage gaussien moyenne, donc il aplatit les hauts-fonds et annonce plus d'eau qu'il n'y en a : c'est l'erreur dangereuse. On impose donc que le modèle ne soit jamais plus profond qu'une sonde réellement mesurée dans ce rayon. Le rayon couvre l'incertitude de position cumulée du levé de 2009 et du GPS du téléphone. Ne s'applique qu'aux sondes mesurées, jamais à la contrainte de bord qui est un artefact de modélisation."
     }
   },
 

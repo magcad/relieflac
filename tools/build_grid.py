@@ -28,7 +28,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from pyproj import Transformer
 from scipy.interpolate import LinearNDInterpolator
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, grey_dilation
 
 from common import (
     DATA_DIR,
@@ -48,12 +48,18 @@ LAMBERT93 = "EPSG:2154"
 # --------------------------------------------------------------------------- sondes
 
 
-def collect_points(config: dict) -> tuple[np.ndarray, dict]:
-    """Rassemble toutes les sondes, converties en altitude de fond (m NGF)."""
+def collect_points(config: dict) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Rassemble toutes les sondes, converties en altitude de fond (m NGF).
+
+    Retourne aussi un masque distinguant les sondes réellement mesurées de la
+    contrainte de bord : seules les premières alimentent la généralisation biaisée
+    vers le haut-fond, la seconde n'étant qu'un artefact de modélisation.
+    """
     history = LevelHistory()
     lons: list[float] = []
     lats: list[float] = []
     zs: list[float] = []
+    measured: list[bool] = []
     report: dict = {}
 
     for name in list_sounding_sets():
@@ -69,6 +75,7 @@ def collect_points(config: dict) -> tuple[np.ndarray, dict]:
             lons.append(lon)
             lats.append(lat)
             zs.append(ref - depth)
+            measured.append(True)
             ref_used.add(round(ref, 2))
             kept += 1
 
@@ -93,6 +100,7 @@ def collect_points(config: dict) -> tuple[np.ndarray, dict]:
                 lons.append(float(rec["lon"]))
                 lats.append(float(rec["lat"]))
                 zs.append(float(rec["z_bed_m_ngf"]))
+                measured.append(False)
                 count += 1
         report["shore_constraint"] = {"label": "Contrainte de bord (trait de côte)", "kept": count}
         print(f"    {'shore':16s} {count:6d} points de contour")
@@ -100,7 +108,7 @@ def collect_points(config: dict) -> tuple[np.ndarray, dict]:
     if not zs:
         raise SystemExit("ERREUR : aucune sonde exploitable")
 
-    return np.column_stack([lons, lats, zs]), report
+    return np.column_stack([lons, lats, zs]), np.array(measured, dtype=bool), report
 
 
 # --------------------------------------------------------------------------- masque
@@ -154,6 +162,69 @@ def smooth_masked(values: np.ndarray, sigma_px: float) -> np.ndarray:
     return np.where(valid & (denominator > 1e-6), smoothed, np.nan)
 
 
+# ------------------------------------------------- généralisation « haut-fond »
+
+
+def disk_footprint(radius_px: float) -> np.ndarray:
+    span = int(math.ceil(radius_px))
+    offsets = np.arange(-span, span + 1)
+    dy, dx = np.meshgrid(offsets, offsets, indexing="ij")
+    return (dx * dx + dy * dy) <= radius_px * radius_px
+
+
+def shoal_bias(
+    values: np.ndarray,
+    points: np.ndarray,
+    measured: np.ndarray,
+    bbox,
+    res: float,
+    radius_m: float,
+    to_mercator,
+) -> tuple[np.ndarray, dict]:
+    """Interdit au modèle d'être plus profond qu'une sonde mesurée du voisinage.
+
+    Le lissage et l'interpolation moyennent : un haut-fond ponctuel s'y dilue et le
+    modèle annonce alors plus d'eau qu'il n'y en a. C'est la seule erreur réellement
+    dangereuse pour un bateau, l'inverse ne faisant que rendre le modèle prudent.
+
+    On rastérise donc les sondes mesurées, on dilate leur altitude de fond dans un
+    rayon couvrant l'incertitude de position, et on retient le maximum avec le modèle
+    interpolé. Rien n'est inventé : le résultat ne s'écarte du modèle que vers moins
+    d'eau, et seulement à proximité d'une mesure réelle.
+    """
+    x0, _, _, y1 = bbox
+    height, width = values.shape
+
+    subset = points[measured]
+    mx, my = to_mercator.transform(subset[:, 0], subset[:, 1])
+    cols = np.floor((np.asarray(mx) - x0) / res).astype(np.int64)
+    rows = np.floor((y1 - np.asarray(my)) / res).astype(np.int64)
+
+    inside = (cols >= 0) & (cols < width) & (rows >= 0) & (rows < height)
+    cols, rows, zs = cols[inside], rows[inside], subset[inside, 2]
+
+    # Une cellule peut recevoir plusieurs sondes : on garde la moins profonde.
+    stamped = np.full(values.shape, -np.inf)
+    np.maximum.at(stamped, (rows, cols), zs)
+
+    radius_px = radius_m / res
+    dilated = grey_dilation(stamped, footprint=disk_footprint(radius_px), mode="constant", cval=-np.inf)
+
+    finite = np.isfinite(values)
+    raised = finite & np.isfinite(dilated) & (dilated > values)
+    result = np.where(raised, dilated, values)
+
+    deltas = (dilated - values)[raised]
+    stats = {
+        "radius_m": radius_m,
+        "cells_raised": int(raised.sum()),
+        "cells_valid": int(finite.sum()),
+        "max_shallower_m": round(float(deltas.max()), 2) if deltas.size else 0.0,
+        "mean_shallower_m": round(float(deltas.mean()), 3) if deltas.size else 0.0,
+    }
+    return result, stats
+
+
 # --------------------------------------------------------------------------- encodage
 
 
@@ -187,7 +258,7 @@ def main() -> int:
     margin = float(grid_cfg["margin_m"])
 
     print("sondes :")
-    points, report = collect_points(config)
+    points, measured, report = collect_points(config)
 
     with (DATA_DIR / "lake.geojson").open(encoding="utf-8") as fh:
         geometry = json.load(fh)["features"][0]["geometry"]
@@ -243,6 +314,21 @@ def main() -> int:
         print(f"lissage gaussien (σ = {grid_cfg['smoothing_sigma_m']} m = {sigma_px:.1f} px)…")
         values = np.where(mask, smooth_masked(values, sigma_px), np.nan)
 
+    shoal_cfg = grid_cfg.get("shoal_bias", {})
+    shoal_stats = None
+    if shoal_cfg.get("enabled"):
+        radius_m = float(shoal_cfg["radius_m"])
+        print(f"généralisation biaisée vers le haut-fond (rayon {radius_m} m)…")
+        values, shoal_stats = shoal_bias(
+            values, points, measured,
+            (x0, y0, x1, y1), res_merc, radius_m * scale, to_mercator,
+        )
+        values = np.where(mask, values, np.nan)
+        ratio = shoal_stats["cells_raised"] / max(shoal_stats["cells_valid"], 1)
+        print(f"  {shoal_stats['cells_raised']:,} cellules relevées ({ratio * 100:.1f} %) · "
+              f"moyenne {shoal_stats['mean_shallower_m']:.2f} m, "
+              f"maximum {shoal_stats['max_shallower_m']:.2f} m moins d'eau")
+
     valid = np.isfinite(values)
     coverage = valid.sum() / max(mask.sum(), 1)
     print(f"\ncouverture : {valid.sum():,} cellules valides "
@@ -284,6 +370,7 @@ def main() -> int:
             ],
             "coverage_ratio": round(float(coverage), 4),
             "smoothing_sigma_m": grid_cfg["smoothing_sigma_m"],
+            "shoal_bias": shoal_stats,
             "reference_levels": config["reference_levels"],
             "sources": report,
         },

@@ -176,6 +176,31 @@ Génération, **au moment du build** (GitHub Actions), d'une grille régulière 
 
 > Le pas de 5 m est un choix d'affichage, **pas** une résolution réelle. La résolution effective transversale reste de l'ordre de **100 m** (§ 3.1). L'app doit le dire à l'utilisateur.
 
+### 4.2 bis Généralisation biaisée vers le haut-fond
+
+L'interpolation et le lissage **moyennent** : un haut-fond ponctuel s'y dilue et le modèle
+annonce alors *plus* d'eau qu'il n'y en a. C'est la seule erreur réellement dangereuse —
+l'inverse ne fait que rendre le modèle prudent. Les cartes marines traitent ce cas par une
+généralisation asymétrique, qui retient la sonde la moins profonde plutôt que la moyenne.
+
+Règle appliquée après le lissage :
+
+> le modèle n'est **jamais plus profond** qu'une sonde réellement mesurée située à moins de
+> `radius_m` (défaut **15 m**, couvrant l'incertitude de position cumulée du levé de 2009 et
+> du GPS du téléphone).
+
+Mise en œuvre : rastérisation des sondes mesurées (altitude de fond la moins profonde par
+cellule), dilatation morphologique sur un disque de ce rayon, puis maximum avec la grille
+interpolée. Rien n'est inventé : le résultat ne s'écarte du modèle que vers **moins d'eau**,
+et uniquement à proximité d'une mesure réelle.
+
+La contrainte de bord du § 4.2 en est **exclue** : c'est un artefact de modélisation, pas une
+mesure, et la dilater ferait remonter artificiellement le fond sur 15 m au large des rives.
+
+Effet mesuré sur le levé de 2009 : **10,6 %** des cellules relevées, de **0,92 m** en moyenne,
+jusqu'à **9,46 m** au point le plus défavorable — un haut-fond que le lissage effaçait
+complètement. Désactivable par `grid.shoal_bias.enabled`.
+
 ### 4.3 Format de livraison de la grille
 
 Encodage **Terrain-RGB** (altitude sur 24 bits) dans un PNG, servi statiquement :
@@ -316,12 +341,16 @@ Valeurs par défaut, conformes à la demande :
 
 | Profondeur | Couleur | Rôle |
 |---|---|---|
-| ≤ 0 m | brun hachuré `#8a6a4f` | **fond émergé** (terre à cette cote) |
+| ≤ 0 m | brun `#8a6a4f` | **fond émergé** (terre à cette cote) |
 | 0 m | `#7a0000` rouge très sombre | limite d'eau |
 | 1 m | `#e01b1b` **rouge** | danger |
 | 3 m | `#22a02c` **vert** | sûr |
-| 10 m | `#000000` **noir** | très profond |
-| > 10 m | noir (clampé) | — |
+| 30 m | `#000000` **noir** | très profond |
+| > 30 m | noir (clampé) | — |
+
+Le palier noir a été porté de 10 à 30 m : à 10 m, près de 60 % du lac saturait en noir
+uniforme et les fosses n'étaient plus discernables. À 30 m, la fosse maximale du modèle
+(28,5 m) reste dans la rampe. Valeurs dans `config/palette.json`.
 
 Interpolation entre paliers : **dans l'espace perceptuel OKLab** (et non en RGB brut), pour un dégradé régulier à l'œil et sans virages de teinte parasites entre rouge et vert.
 

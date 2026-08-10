@@ -2,7 +2,9 @@
 
     python tools/preview_grid.py [cote_m_ngf]
 
-Sans argument, utilise la cote courante de data/level.json.
+Sans argument, utilise la cote courante de data/level.json. La rampe est celle de
+config/palette.json, interpolée en OKLab — le rendu est donc celui de l'application.
+
 Sortie : data/preview.png
 """
 
@@ -12,37 +14,10 @@ import json
 import sys
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from common import DATA_DIR
-
-# Paliers par défaut de l'application (profondeur en m → couleur RVB).
-STOPS = [
-    (0.0, (122, 0, 0)),
-    (1.0, (224, 27, 27)),
-    (3.0, (34, 160, 44)),
-    (10.0, (0, 0, 0)),
-]
-EMERGED = (138, 106, 79)
-
-
-def ramp(depth: np.ndarray) -> np.ndarray:
-    """Interpolation linéaire entre paliers (approximation RVB de la rampe OKLab)."""
-    height, width = depth.shape
-    out = np.zeros((height, width, 3), dtype=np.float64)
-
-    below = depth <= STOPS[0][0]
-    out[below] = STOPS[0][1]
-    out[depth >= STOPS[-1][0]] = STOPS[-1][1]
-
-    for (d0, c0), (d1, c1) in zip(STOPS, STOPS[1:]):
-        band = (depth > d0) & (depth < d1)
-        if not band.any():
-            continue
-        ratio = ((depth[band] - d0) / (d1 - d0))[:, None]
-        out[band] = np.array(c0) * (1 - ratio) + np.array(c1) * ratio
-
-    return out
+from palette import build_lut, hex_to_rgb, load_palette
 
 
 def main() -> int:
@@ -62,26 +37,29 @@ def main() -> int:
     valid = a > 0
     depth = np.where(valid, level - z, np.nan)
 
-    rgb = ramp(np.nan_to_num(depth, nan=0.0))
-    rgb[np.isfinite(depth) & (depth <= 0)] = EMERGED
+    palette = load_palette()
+    lut, depth_max = build_lut(palette)
+    ratio = np.clip(np.nan_to_num(depth, nan=0.0) / depth_max, 0.0, 1.0)
+    rgb = lut[np.rint(ratio * (len(lut) - 1)).astype(np.int32)]
+
+    emerged = np.rint(np.array(hex_to_rgb(palette["emerged_color"])) * 255).astype(np.uint8)
+    rgb[valid & (depth <= 0)] = emerged
     rgb[~valid] = (255, 255, 255)
 
-    preview = Image.fromarray(rgb.astype(np.uint8), mode="RGB")
-    draw = ImageDraw.Draw(preview)
-    draw.text((12, 12), f"cote {level:.2f} m NGF", fill=(255, 255, 255))
-
     path = DATA_DIR / "preview.png"
-    preview.save(path)
+    Image.fromarray(rgb, mode="RGB").save(path)
 
-    wet = np.isfinite(depth) & (depth > 0)
-    dry = np.isfinite(depth) & (depth <= 0)
-    cell_area = meta["resolution_ground_m"] ** 2
-    print(f"cote {level:.2f} m NGF")
-    print(f"  surface en eau : {wet.sum() * cell_area / 1e6:.2f} km²")
-    print(f"  fond émergé    : {dry.sum() * cell_area / 1e6:.2f} km²")
+    wet = valid & (depth > 0)
+    dry = valid & (depth <= 0)
+    cell = meta["resolution_ground_m"] ** 2
+    print(f"cote {level:.2f} m NGF · rampe 0 → {depth_max:g} m")
+    print(f"  surface en eau : {wet.sum() * cell / 1e6:.2f} km²")
+    print(f"  fond émergé    : {dry.sum() * cell / 1e6:.2f} km²")
     if wet.any():
-        print(f"  profondeur max : {np.nanmax(depth):.1f} m · "
-              f"moyenne {depth[wet].mean():.1f} m")
+        print(f"  profondeur max : {np.nanmax(depth):.1f} m · moyenne {depth[wet].mean():.1f} m")
+        deep = (depth > depth_max) & wet
+        print(f"  au-delà de la rampe ({depth_max:g} m) : "
+              f"{deep.sum() / max(wet.sum(), 1) * 100:.1f} % de la surface en eau")
     print(f"→ {path}")
     return 0
 

@@ -1,0 +1,18 @@
+{
+  "$comment": "Palette par défaut de l'application. L'utilisateur peut la modifier dans la page Paramètres ; ces valeurs sont le point de départ et la cible du bouton « réinitialiser ».",
+
+  "interpolation": "oklab",
+  "$interpolation_note": "Interpolation dans l'espace perceptuel OKLab : le dégradé est régulier à l'œil et ne traverse pas de teintes parasites entre le rouge et le vert.",
+
+  "stops": [
+    { "depth_m": 0.0,  "color": "#7a0000", "label": "limite d'eau" },
+    { "depth_m": 1.0,  "color": "#e01b1b", "label": "danger" },
+    { "depth_m": 3.0,  "color": "#22a02c", "label": "sûr" },
+    { "depth_m": 30.0, "color": "#000000", "label": "très profond" }
+  ],
+
+  "emerged_color": "#8a6a4f",
+  "$emerged_note": "Fond découvert : la cote du lac est descendue sous l'altitude du fond. À basse cote, cela concerne près de 10 % de la surface.",
+
+  "nodata_color": "#00000000"
+}

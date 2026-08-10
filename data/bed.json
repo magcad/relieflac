@@ -46,6 +46,13 @@
   ],
   "coverage_ratio": 0.9998,
   "smoothing_sigma_m": 15.0,
+  "shoal_bias": {
+    "radius_m": 21.51491703756115,
+    "cells_raised": 39835,
+    "cells_valid": 374698,
+    "max_shallower_m": 9.46,
+    "mean_shallower_m": 0.917
+  },
   "reference_levels": {
     "$comment": "Cote du plan d'eau au moment de chaque levé, en m NGF. C'est ce qui convertit une profondeur en altitude de fond.",
     "ofb2009": {
