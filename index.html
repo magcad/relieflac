@@ -2,184 +2,284 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <title>ReliefLac — lac de Vassivière</title>
 <meta name="description" content="Profondeur d'eau réelle sur le lac de Vassivière, recalculée depuis la cote EDF du jour.">
-<meta name="color-scheme" content="dark light">
-<style>
-  :root {
-    --bg: #0f1417; --panel: #182027; --line: #2a353e;
-    --text: #e8eef2; --muted: #93a4b1; --accent: #4db3ff;
-    --ok: #22a02c; --warn: #e08b1b; --danger: #e01b1b;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f5f7f9; --panel: #ffffff; --line: #dde4ea;
-      --text: #16212b; --muted: #5b6e7d; --accent: #0a6ebd;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 1.5rem 1rem 3rem;
-    background: var(--bg); color: var(--text);
-    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-  main { max-width: 46rem; margin: 0 auto; }
-  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
-  h2 { font-size: 1.05rem; margin: 2rem 0 .75rem; }
-  .sub { color: var(--muted); margin: 0 0 1.75rem; }
-  .card {
-    background: var(--panel); border: 1px solid var(--line);
-    border-radius: 12px; padding: 1.25rem;
-  }
-  .level { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
-  .level .value { font-size: 2.75rem; font-weight: 650; letter-spacing: -.02em; }
-  .level .unit { color: var(--muted); font-size: 1.1rem; }
-  .badge {
-    display: inline-block; padding: .15rem .6rem; border-radius: 999px;
-    font-size: .8rem; font-weight: 600; color: #fff;
-  }
-  .meta { color: var(--muted); font-size: .875rem; margin-top: .6rem; }
-  .gauge { height: 8px; border-radius: 4px; background: var(--line); margin: 1rem 0 .4rem; overflow: hidden; }
-  .gauge > i { display: block; height: 100%; border-radius: 4px; }
-  .scale { display: flex; justify-content: space-between; color: var(--muted); font-size: .75rem; }
-  figure { margin: 0; }
-  figure img {
-    width: 100%; height: auto; display: block;
-    border: 1px solid var(--line); border-radius: 12px; background: #fff;
-  }
-  figcaption { color: var(--muted); font-size: .8rem; margin-top: .5rem; }
-  .legend {
-    list-style: none; display: flex; flex-wrap: wrap; gap: .35rem .9rem;
-    padding: 0; margin: .75rem 0 0; font-size: .78rem; color: var(--muted);
-  }
-  .legend li { display: flex; align-items: center; gap: .35rem; margin: 0; }
-  .legend i {
-    width: .95rem; height: .95rem; border-radius: 3px;
-    border: 1px solid var(--line); flex: none;
-  }
-  ul { padding-left: 1.15rem; }
-  li { margin: .3rem 0; }
-  .warn {
-    border-left: 3px solid var(--warn); background: var(--panel);
-    padding: .9rem 1rem; border-radius: 0 8px 8px 0; margin: 1.5rem 0;
-  }
-  a { color: var(--accent); }
-  footer { color: var(--muted); font-size: .8rem; margin-top: 2.5rem;
-           border-top: 1px solid var(--line); padding-top: 1rem; }
-  code { background: var(--line); padding: .1rem .35rem; border-radius: 4px; font-size: .85em; }
-</style>
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0f1417">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
-<main>
-  <h1>ReliefLac</h1>
-  <p class="sub">Profondeur d'eau sur le lac de Vassivière, recalculée depuis la cote du jour.</p>
 
-  <section class="card" id="level-card" aria-live="polite">
-    <div class="level">
-      <span class="value" id="level-value">—</span>
-      <span class="unit">m NGF</span>
-      <span class="badge" id="level-badge" hidden></span>
+<!-- ------------------------------------------------------------ écran carte -->
+<section id="vue-carte" class="view is-active">
+  <div id="map"></div>
+
+  <header class="topbar">
+    <button class="chip chip--level" id="btn-cote" type="button">
+      <span class="chip__value" id="cote-value">—</span>
+      <span class="chip__unit">m NGF</span>
+      <span class="chip__meta" id="cote-meta">chargement…</span>
+    </button>
+    <div class="topbar__actions">
+      <button class="icon" id="btn-fond" type="button" title="Fond de carte" aria-label="Basculer plan / photo">🛰</button>
+      <a class="icon" href="#/etalonnage" title="Étalonnage" aria-label="Étalonnage">🎯</a>
+      <a class="icon" href="#/parametres" title="Paramètres" aria-label="Paramètres">⚙</a>
     </div>
-    <div class="gauge"><i id="level-bar" style="width:0"></i></div>
-    <div class="scale"><span>642 — navigation interdite</span><span>650 — retenue normale</span></div>
-    <p class="meta" id="level-meta">Chargement de la cote…</p>
-  </section>
+  </header>
 
-  <h2>Modèle bathymétrique</h2>
-  <figure>
-    <img src="data/preview.png" alt="Carte des profondeurs du lac de Vassivière en bandes de couleur, du beige (émergé) au blanc (très profond)">
-    <ul class="legend">
-      <li><i style="background:#c8a165"></i>émergé</li>
-      <li><i style="background:#ff1f1f"></i>&lt; 1 m</li>
-      <li><i style="background:#ff8a3d"></i>1–2 m</li>
-      <li><i style="background:#1f6fb2"></i>2–5 m</li>
-      <li><i style="background:#4b9fd5"></i>5–10 m</li>
-      <li><i style="background:#9fcbe8"></i>10–20 m</li>
-      <li><i style="background:#e8f3fb"></i>&gt; 20 m</li>
-      <li><i style="background:#ff00d0"></i>contour de sécurité</li>
-    </ul>
-    <figcaption>
-      Aperçu de contrôle à la cote courante&nbsp;: 8&nbsp;118 sondes du levé OFB du 22 avril 2009,
-      complétées par le terrain mesuré au LiDAR IGN là où le bateau sondeur ne pouvait pas passer,
-      interpolées sur une grille de 5&nbsp;m. Bandes discrètes et contour de sécurité selon les
-      conventions des cartes marines. À cette cote, 110&nbsp;ha de fond sont découverts.
-    </figcaption>
-  </figure>
-
-  <div class="warn">
-    <strong>Ce n'est pas un document nautique officiel.</strong> Les sondes de 2009 sont espacées
-    d'environ 100&nbsp;m entre traces&nbsp;: un haut-fond isolé peut être absent du modèle. La cote
-    de référence du levé reste à confirmer, ce qui décale les profondeurs d'une constante.
-    Ne remplace ni un sondeur, ni la prudence.
+  <div class="alarm" id="alarme" hidden>
+    <strong>HAUT-FOND</strong> <span id="alarme-detail"></span>
   </div>
 
-  <h2>État du chantier</h2>
-  <ul>
-    <li><strong>L0 — Données</strong>&nbsp;: terminé. Levé OFB, contour IGN, contrainte de bord,
-        grille 5&nbsp;m, relevé horaire de la cote.</li>
-    <li><strong>L1 — Carte et GPS</strong>&nbsp;: en cours. Position du bateau, fonds coloriés,
-        mode Étalonnage.</li>
-    <li><strong>L2 à L4</strong>&nbsp;: paramètres, fonctionnement hors ligne, calage au sondeur.</li>
-  </ul>
+  <div class="fabs">
+    <button class="fab" id="btn-suivi" type="button" title="Suivre le bateau" aria-label="Suivre le bateau">◎</button>
+    <button class="fab" id="btn-cap" type="button" title="Cap en haut / nord en haut" aria-label="Orientation">↑</button>
+  </div>
 
-  <footer>
-    Bathymétrie&nbsp;: <a href="https://data.eaufrance.fr/jdd/c31746f7-311a-41c7-b995-6cb78a2ddc25">OFB — Bathymétrie plans d'eau</a>, Licence Ouverte 2.0 ·
-    Cote&nbsp;: <a href="https://mariviereetmoi.edf.fr/#/map/place/PRACTICABILITY/31856100">EDF — Ma Rivière et Moi</a> ·
-    Contour et altimétrie&nbsp;: IGN BD TOPO® et RGE ALTI®, Etalab 2.0 ·
-    <a href="https://github.com/magcad/relieflac">code source</a>
+  <footer class="bottombar">
+    <div class="depth">
+      <span class="depth__value" id="prof-value">—</span>
+      <span class="depth__unit">m</span>
+      <span class="depth__label" id="prof-label">sous le bateau</span>
+    </div>
+    <dl class="readouts">
+      <div><dt>Sous quille</dt><dd id="quille-value">—</dd></div>
+      <div><dt>Vitesse</dt><dd id="vitesse-value">—</dd></div>
+      <div><dt>Cap</dt><dd id="cap-value">—</dd></div>
+    </dl>
   </footer>
-</main>
 
-<script type="module">
-const FORBIDDEN = 642, NORMAL = 650;
+  <div class="toast" id="toast" hidden></div>
+</section>
 
-const fmtAge = (ms) => {
-  const min = Math.round(ms / 60000);
-  if (min < 60) return `il y a ${min} min`;
-  const h = Math.round(min / 60);
-  if (h < 48) return `il y a ${h} h`;
-  return `il y a ${Math.round(h / 24)} jours`;
-};
+<!-- ------------------------------------------------------- écran paramètres -->
+<section id="vue-parametres" class="view panel">
+  <header class="panel__head">
+    <a class="icon" href="#/" aria-label="Retour à la carte">←</a>
+    <h1>Paramètres</h1>
+  </header>
+  <div class="panel__body">
 
-try {
-  const res = await fetch('data/level.json', { cache: 'no-cache' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
+    <fieldset>
+      <legend>Couleurs des fonds</legend>
+      <label class="row">
+        <span>Préréglage</span>
+        <select id="set-preset"></select>
+      </label>
+      <ul class="legend" id="legende"></ul>
+      <label class="row">
+        <span>Opacité <output id="out-opacity"></output></span>
+        <input type="range" id="set-opacity" min="20" max="100" step="5">
+      </label>
+      <label class="row row--switch">
+        <span>Contours de bande</span>
+        <input type="checkbox" id="set-outlines">
+      </label>
+      <label class="row row--switch">
+        <span>Contour de sécurité</span>
+        <input type="checkbox" id="set-safety">
+      </label>
+      <label class="row row--switch">
+        <span>Traces du levé 2009</span>
+        <input type="checkbox" id="set-soundings">
+      </label>
+      <p class="hint">
+        Les sondes de 2009 sont espacées d'environ 100 m entre traces. Les afficher permet
+        de naviguer dessus pour étalonner là où la donnée est mesurée et non interpolée.
+      </p>
+    </fieldset>
 
-  const level = Number(data.level_m_ngf);
-  const measured = new Date(data.measured_at);
-  const age = Date.now() - measured.getTime();
-  const low = data.thresholds?.forbidden_below ?? FORBIDDEN;
-  const high = data.thresholds?.normal_max ?? NORMAL;
+    <fieldset>
+      <legend>Bateau et sécurité</legend>
+      <label class="row">
+        <span>Tirant d'eau (m)</span>
+        <input type="number" id="set-draft" min="0" max="3" step="0.05">
+      </label>
+      <label class="row">
+        <span>Marge de sécurité (m)</span>
+        <input type="number" id="set-margin" min="0" max="5" step="0.1">
+      </label>
+      <p class="hint" id="hint-safety"></p>
+      <label class="row row--switch">
+        <span>Alarme haut-fond</span>
+        <input type="checkbox" id="set-alarm">
+      </label>
+      <label class="row">
+        <span>Seuil d'alarme (m)</span>
+        <input type="number" id="set-alarm-depth" min="0.2" max="10" step="0.1">
+      </label>
+      <label class="row">
+        <span>Unité de vitesse</span>
+        <select id="set-speed-unit">
+          <option value="kmh">km/h</option>
+          <option value="kn">nœuds</option>
+        </select>
+      </label>
+    </fieldset>
 
-  document.getElementById('level-value').textContent =
-    level.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    <fieldset>
+      <legend>Cote du lac</legend>
+      <p class="hint" id="hint-level"></p>
+      <label class="row">
+        <span>Cote manuelle (m NGF)</span>
+        <input type="number" id="set-manual-level" min="630" max="655" step="0.01" placeholder="automatique">
+      </label>
+      <div class="actions">
+        <button type="button" id="btn-clear-manual">Revenir à la cote EDF</button>
+        <button type="button" id="btn-refresh-level">Rafraîchir</button>
+      </div>
+    </fieldset>
 
-  const bar = document.getElementById('level-bar');
-  const span = high - (low - 2);
-  bar.style.width = `${Math.max(0, Math.min(1, (level - (low - 2)) / span)) * 100}%`;
+    <fieldset>
+      <legend>Calage bathymétrique</legend>
+      <p class="hint">
+        La cote du lac le 22 avril 2009, jour du levé, n'est pas connue : elle décale
+        toutes les profondeurs d'une constante. Le décalage ci-dessous s'obtient par
+        <a href="#/etalonnage">étalonnage au sondeur</a>. Il ne s'applique qu'aux fonds
+        issus du levé, pas au terrain mesuré au LiDAR.
+      </p>
+      <label class="row">
+        <span>Décalage (m)</span>
+        <input type="number" id="set-offset" min="-5" max="5" step="0.05">
+      </label>
+      <p class="hint" id="hint-z2009"></p>
+    </fieldset>
 
-  const [label, colour] =
-      level < low  ? ['Navigation interdite', 'var(--danger)']
-    : level < (data.thresholds?.delicate_below ?? low + 1) ? ['Délicat', 'var(--warn)']
-    : ['Navigable', 'var(--ok)'];
+    <fieldset>
+      <legend>Profil</legend>
+      <div class="actions">
+        <button type="button" id="btn-export">Exporter</button>
+        <button type="button" id="btn-import">Importer</button>
+        <button type="button" class="danger" id="btn-reset">Réinitialiser</button>
+      </div>
+      <input type="file" id="file-import" accept="application/json" hidden>
+    </fieldset>
 
-  bar.style.background = colour;
-  const badge = document.getElementById('level-badge');
-  badge.textContent = label;
-  badge.style.background = colour;
-  badge.hidden = false;
+    <p class="hint"><a href="#/a-propos">À propos, sources et limites</a></p>
+  </div>
+</section>
 
-  const stale = data.stale || age > 6 * 3600e3;
-  document.getElementById('level-meta').innerHTML =
-    `Mesure du ${measured.toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}, ` +
-    `${fmtAge(age)}${stale ? ' — <strong>donnée périmée</strong>' : ''}. ` +
-    `Source&nbsp;: ${data.source ?? 'EDF'}.`;
-} catch (err) {
-  document.getElementById('level-meta').textContent =
-    `Cote indisponible (${err.message}). Relevez-la sur place ou consultez EDF directement.`;
-}
-</script>
+<!-- ------------------------------------------------------- écran étalonnage -->
+<section id="vue-etalonnage" class="view panel">
+  <header class="panel__head">
+    <a class="icon" href="#/" aria-label="Retour à la carte">←</a>
+    <h1>Étalonnage</h1>
+  </header>
+  <div class="panel__body">
+
+    <p class="hint">
+      Comparez la profondeur lue au sondeur à celle du modèle. Si les écarts se groupent
+      autour d'une même valeur, c'est le décalage de référence cherché. S'ils se dispersent,
+      le problème est l'interpolation et aucune constante ne le corrigera.
+    </p>
+    <p class="hint">
+      <strong>Relevez sur les traces de 2009</strong> (activables dans les Paramètres) et
+      sur des fonds plats de 10 à 20 m. Entre deux traces ou sur une pente, une erreur de
+      position de 20 m change tout.
+    </p>
+
+    <fieldset>
+      <legend>Nouveau relevé</legend>
+      <label class="row">
+        <span>Immersion de la sonde (m)</span>
+        <input type="number" id="cal-transducer" min="0" max="2" step="0.05" value="0.3">
+      </label>
+      <label class="row">
+        <span>Profondeur au sondeur (m)</span>
+        <input type="number" id="cal-depth" min="0" max="40" step="0.1" inputmode="decimal">
+      </label>
+      <p class="hint" id="cal-context">Position en attente…</p>
+      <button type="button" class="primary big" id="btn-releve">Relever</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Résultat</legend>
+      <div class="stats" id="cal-stats"><p class="hint">Aucun relevé.</p></div>
+      <div class="actions">
+        <button type="button" class="primary" id="btn-apply-offset" disabled>Appliquer la correction</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Relevés</legend>
+      <ol class="records" id="cal-records"></ol>
+      <div class="actions">
+        <button type="button" id="btn-cal-csv">Exporter CSV</button>
+        <button type="button" id="btn-cal-json">Exporter JSON</button>
+        <button type="button" class="danger" id="btn-cal-clear">Tout effacer</button>
+      </div>
+    </fieldset>
+  </div>
+</section>
+
+<!-- --------------------------------------------------------- écran à propos -->
+<section id="vue-apropos" class="view panel">
+  <header class="panel__head">
+    <a class="icon" href="#/" aria-label="Retour à la carte">←</a>
+    <h1>À propos</h1>
+  </header>
+  <div class="panel__body prose">
+
+    <div class="warn">
+      <strong>Ce n'est pas un document nautique officiel.</strong> Les sondes de 2009 sont
+      espacées d'environ 100 m entre traces : un haut-fond isolé peut être absent du modèle.
+      La cote de référence du levé reste à confirmer, ce qui décale les profondeurs d'une
+      constante. Ne remplace ni un sondeur, ni la prudence.
+    </div>
+
+    <h2>Principe</h2>
+    <p>
+      Le lac marne de plusieurs mètres dans l'année : une carte des profondeurs figée y est
+      fausse la plupart du temps. L'application stocke donc l'<strong>altitude du fond</strong>,
+      invariante, et recalcule la profondeur à chaque instant depuis la cote publiée par EDF.
+    </p>
+    <pre><code>z_fond     = Z_référence − profondeur_mesurée
+profondeur = cote_du_jour − z_fond</code></pre>
+
+    <h2>Sources</h2>
+    <ul>
+      <li><strong>Bathymétrie</strong> — 8 118 sondes du levé OFB / Onema du 22 avril 2009,
+        <a href="https://data.eaufrance.fr/jdd/c31746f7-311a-41c7-b995-6cb78a2ddc25">Bathymétrie plans d'eau</a>,
+        Licence Ouverte 2.0.</li>
+      <li><strong>Hauts-fonds</strong> — MNT IGN RGE ALTI®, qui mesure le terrain que le
+        bateau sondeur ne pouvait pas atteindre. Etalab 2.0.</li>
+      <li><strong>Cote du lac</strong> — EDF Hydro,
+        <a href="https://mariviereetmoi.edf.fr/#/map/place/PRACTICABILITY/31856100">Ma Rivière et Moi</a>,
+        relevée toutes les heures.</li>
+      <li><strong>Contour et fonds de carte</strong> — IGN BD TOPO® et Géoplateforme, Etalab 2.0.</li>
+    </ul>
+
+    <h2>Limites connues</h2>
+    <ul>
+      <li>Levé de <strong>2009</strong> : les fonds ont pu évoluer.</li>
+      <li>Environ <strong>100 m entre traces</strong> : tout ce qui est entre deux traces est interpolé.</li>
+      <li>Une <strong>bande aveugle</strong> subsiste entre la cote actuelle et 648,80 m : ce
+        terrain était sous l'eau au moment du vol LiDAR et hors d'atteinte du bateau en 2009.</li>
+      <li>La cote EDF peut être <strong>périmée</strong> ou indisponible ; l'application affiche
+        toujours son âge et accepte une saisie manuelle.</li>
+      <li><strong>Navigation interdite sous 642 m NGF.</strong></li>
+    </ul>
+
+    <p class="hint">
+      Le modèle applique une généralisation biaisée vers le haut-fond : il n'est jamais plus
+      profond qu'une sonde réellement mesurée à moins de 15 m. Les écarts vont donc toujours
+      dans le sens prudent.
+    </p>
+
+    <p class="hint">
+      <a href="https://github.com/magcad/relieflac">Code source et spécification</a> ·
+      <span id="apropos-version"></span>
+    </p>
+  </div>
+</section>
+
+<div id="chargement" class="loading"><p>Chargement du modèle bathymétrique…</p></div>
+
+<script type="module" src="src/main.js"></script>
 </body>
 </html>

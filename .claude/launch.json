@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "relieflac",
+      "runtimeExecutable": "C:\\Users\\as\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "runtimeArgs": ["tools/serve.py", "8123"],
+      "port": 8123
+    }
+  ]
+}

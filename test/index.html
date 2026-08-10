@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReliefLac — vérifications</title>
+<style>
+  body { margin: 0; padding: 1.5rem 1rem 3rem; background: #0f1417; color: #eaf1f6;
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 { font-size: 1.2rem; margin: 0 0 .3rem; }
+  .sub { color: #93a4b1; font-size: .85rem; margin: 0 0 1.2rem; }
+  #resume { padding: .7rem .9rem; border-radius: 10px; font-weight: 600; margin-bottom: 1rem; }
+  .pass { background: #14361f; color: #a7f3c0; }
+  .fail { background: #3a1d1d; color: #ffc2c2; }
+  .running { background: #1f2a33; color: #93a4b1; }
+  ol { list-style: none; padding: 0; margin: 0; display: grid; gap: .3rem; }
+  li { display: grid; grid-template-columns: 1.6rem 1fr; gap: .5rem; align-items: start;
+       padding: .5rem .7rem; background: #182027; border: 1px solid #2c3841; border-radius: 8px; }
+  li.ko { border-color: #6b2b2b; }
+  .mark { font-weight: 700; }
+  li.ok .mark { color: #22c55e; }
+  li.ko .mark { color: #ef4444; }
+  .detail { grid-column: 2; color: #93a4b1; font-size: .8rem; font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ReliefLac — vérifications</h1>
+  <p class="sub">
+    Logique de l'application comparée aux références produites par la chaîne Python.
+    Le rendu cartographique n'est pas couvert : MapLibre s'initialise depuis la boucle
+    de rendu, suspendue tant que la page n'est pas affichée.
+  </p>
+  <div id="resume" class="running">Exécution…</div>
+  <ol id="liste"></ol>
+</main>
+
+<script type="module">
+import { run } from './selftest.js';
+
+const liste = document.getElementById('liste');
+const resume = document.getElementById('resume');
+
+try {
+  const results = await run('..');
+  const failed = results.filter((r) => !r.ok);
+
+  resume.className = failed.length ? 'fail' : 'pass';
+  resume.textContent = failed.length
+    ? `${failed.length} vérification(s) en échec sur ${results.length}`
+    : `${results.length} vérifications passées`;
+
+  liste.replaceChildren(...results.map((r) => {
+    const item = document.createElement('li');
+    item.className = r.ok ? 'ok' : 'ko';
+    item.innerHTML = `<span class="mark">${r.ok ? '✓' : '✕'}</span><span>${r.name}</span>`;
+    if (r.detail) {
+      const detail = document.createElement('span');
+      detail.className = 'detail';
+      detail.textContent = r.detail;
+      item.append(detail);
+    }
+    return item;
+  }));
+
+  window.__resultats = { total: results.length, echecs: failed.length, details: failed };
+} catch (err) {
+  resume.className = 'fail';
+  resume.textContent = `Erreur : ${err.message}`;
+  window.__resultats = { erreur: err.message, stack: err.stack };
+  console.error(err);
+}
+</script>
+</body>
+</html>

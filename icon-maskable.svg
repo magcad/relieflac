@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ReliefLac">
+  <!-- Version masquable : le motif tient dans la zone sûre de 80 %, le fond déborde. -->
+  <rect width="512" height="512" fill="#0f1417"/>
+  <g transform="translate(256 256) scale(0.72) translate(-256 -256)">
+    <path d="M56 336h400v40H56z" fill="#1f6fb2"/>
+    <path d="M56 296h400v40H56z" fill="#4b9fd5"/>
+    <path d="M56 256h400v40H56z" fill="#9fcbe8"/>
+    <path d="M56 216h400v40H56z" fill="#e8f3fb"/>
+    <path d="M56 376h400v40H56z" fill="#ff8a3d"/>
+    <path d="M56 416h400v40H56z" fill="#ff1f1f"/>
+    <path d="M150 216c28-46 62-70 106-70s78 24 106 70z" fill="#c8a165"/>
+    <path d="M256 74l44 118-44-24-44 24z" fill="#ff2d55" stroke="#fff" stroke-width="10" stroke-linejoin="round"/>
+  </g>
+</svg>

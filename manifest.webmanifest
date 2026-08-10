@@ -1,0 +1,16 @@
+{
+  "name": "ReliefLac — lac de Vassivière",
+  "short_name": "ReliefLac",
+  "description": "Profondeur d'eau réelle sur le lac de Vassivière, recalculée depuis la cote EDF du jour.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1417",
+  "theme_color": "#0f1417",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

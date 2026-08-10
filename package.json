@@ -1,0 +1,24 @@
+{
+  "name": "@none/relieflac",
+  "version": "1.0.0",
+  "description": "Application web de navigation affichant, sur téléphone, la **profondeur d'eau réelle** sous le bateau — recalculée en continu à partir de la cote du lac pilotée par EDF.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/magcad/relieflac.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/magcad/relieflac/issues"
+  },
+  "homepage": "https://github.com/magcad/relieflac#readme",
+  "dependencies": {
+    "maplibre-gl": "^6.3.0"
+  }
+}

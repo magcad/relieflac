@@ -1,0 +1,3 @@
+maplibre-gl 6.3.0
+Copié depuis node_modules par tools/vendor_maplibre.py.
+Renommé .mjs → .js : voir l'en-tête du script.

@@ -31,6 +31,23 @@ from common import CONFIG_DIR
 LUT_SIZE = 256
 
 
+def lut_index(depth: float | np.ndarray, lut_max: float):
+    """Indice de table pour une profondeur.
+
+    Règle unique, partagée par le Python, le JavaScript et le shader : l'entrée i couvre
+    l'intervalle [i/256, (i+1)/256) du domaine, donc indice = floor(ratio × 256). C'est
+    exactement ce que fait un échantillonnage de texture en NEAREST, ce qui évite au
+    shader de faire un calcul différent des deux autres.
+
+    Toute autre convention se paie : diviser par 255 à la construction et indexer par 256
+    au rendu décale les bandes d'un demi-texel, et `round()` diffère entre Python
+    (arrondi au pair) et JavaScript (arrondi supérieur) — les deux implémentations ne
+    tombaient alors pas dans la même bande aux profondeurs pile sur une borne.
+    """
+    ratio = np.clip(np.asarray(depth, dtype=np.float64) / lut_max, 0.0, 1.0)
+    return np.minimum((ratio * LUT_SIZE).astype(np.int32), LUT_SIZE - 1)
+
+
 def load_palette() -> dict:
     with (CONFIG_DIR / "palette.json").open(encoding="utf-8") as fh:
         return json.load(fh)
@@ -121,7 +138,9 @@ def build_lut(palette: dict | None = None, preset_name: str | None = None) -> tu
     palette = palette or load_palette()
     _, preset = get_preset(palette, preset_name)
     lut_max = float(palette["lut_max_depth_m"])
-    samples = np.linspace(0.0, lut_max, LUT_SIZE)
+    # Chaque entrée est évaluée au centre de l'intervalle qu'elle couvre, en cohérence
+    # avec lut_index().
+    samples = (np.arange(LUT_SIZE) + 0.5) / LUT_SIZE * lut_max
 
     if preset["mode"] == "banded":
         limits = band_limits(preset, lut_max)
@@ -190,8 +209,7 @@ def render(
     _, preset = get_preset(palette, preset_name)
     lut, lut_max = build_lut(palette, preset_name)
 
-    ratio = np.clip(np.nan_to_num(depth, nan=0.0) / lut_max, 0.0, 1.0)
-    out = lut[np.rint(ratio * (LUT_SIZE - 1)).astype(np.int32)]
+    out = lut[lut_index(np.nan_to_num(depth, nan=0.0), lut_max)]
 
     emerged = valid & (depth <= 0)
     out[emerged] = rgb8(preset["emerged_color"])
@@ -227,6 +245,6 @@ if __name__ == "__main__":
         lut, lut_max = build_lut(palette, name)
         print(f"{name}  ({preset['mode']}){active}")
         for depth in (0.5, 1, 2, 3, 5, 8, 12, 18, 25, 30):
-            r, g, b = lut[min(int(round(depth / lut_max * (LUT_SIZE - 1))), LUT_SIZE - 1)]
+            r, g, b = lut[int(lut_index(depth, lut_max))]
             print(f"    {depth:5.1f} m  #{r:02x}{g:02x}{b:02x}")
         print()
