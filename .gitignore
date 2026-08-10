@@ -20,5 +20,5 @@ __pycache__/
 Thumbs.db
 .DS_Store
 
-# MNT de travail, retéléchargeable via tools/fetch_rge_alti.py (4,9 Mo)
+# MNT de travail, retÃ©lÃ©chargeable via tools/fetch_rge_alti.py (4,9 Mo)
 data/rge_alti.npy
