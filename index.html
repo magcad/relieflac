@@ -49,6 +49,15 @@
     border: 1px solid var(--line); border-radius: 12px; background: #fff;
   }
   figcaption { color: var(--muted); font-size: .8rem; margin-top: .5rem; }
+  .legend {
+    list-style: none; display: flex; flex-wrap: wrap; gap: .35rem .9rem;
+    padding: 0; margin: .75rem 0 0; font-size: .78rem; color: var(--muted);
+  }
+  .legend li { display: flex; align-items: center; gap: .35rem; margin: 0; }
+  .legend i {
+    width: .95rem; height: .95rem; border-radius: 3px;
+    border: 1px solid var(--line); flex: none;
+  }
   ul { padding-left: 1.15rem; }
   li { margin: .3rem 0; }
   .warn {
@@ -79,10 +88,22 @@
 
   <h2>Modèle bathymétrique</h2>
   <figure>
-    <img src="data/preview.png" alt="Carte des profondeurs du lac de Vassivière, du rouge (faible) au noir (profond)">
+    <img src="data/preview.png" alt="Carte des profondeurs du lac de Vassivière en bandes de couleur, du beige (émergé) au blanc (très profond)">
+    <ul class="legend">
+      <li><i style="background:#c8a165"></i>émergé</li>
+      <li><i style="background:#ff1f1f"></i>&lt; 1 m</li>
+      <li><i style="background:#ff8a3d"></i>1–2 m</li>
+      <li><i style="background:#1f6fb2"></i>2–5 m</li>
+      <li><i style="background:#4b9fd5"></i>5–10 m</li>
+      <li><i style="background:#9fcbe8"></i>10–20 m</li>
+      <li><i style="background:#e8f3fb"></i>&gt; 20 m</li>
+      <li><i style="background:#ff00d0"></i>contour de sécurité</li>
+    </ul>
     <figcaption>
-      Aperçu de contrôle&nbsp;: 8&nbsp;118 sondes du levé OFB du 22 avril 2009, interpolées sur
-      une grille de 5&nbsp;m et coloriées à la cote courante. Le brun marque le fond émergé.
+      Aperçu de contrôle à la cote courante&nbsp;: 8&nbsp;118 sondes du levé OFB du 22 avril 2009,
+      complétées par le terrain mesuré au LiDAR IGN là où le bateau sondeur ne pouvait pas passer,
+      interpolées sur une grille de 5&nbsp;m. Bandes discrètes et contour de sécurité selon les
+      conventions des cartes marines. À cette cote, 110&nbsp;ha de fond sont découverts.
     </figcaption>
   </figure>
 

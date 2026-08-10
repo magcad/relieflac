@@ -333,28 +333,77 @@ Résultat : changement de palette ou de cote = **recoloration en < 16 ms**, sans
 - **Appui long sur la carte** : affiche la profondeur au point touché (« sonde ponctuelle »).
 - **Maintien de l'écran allumé** (Screen Wake Lock API) tant que l'app est au premier plan.
 
-### 6.2 Page Paramètres — Palette de couleurs (exigence n°4)
+### 6.2 Page Paramètres — Couleurs des fonds (exigence n°4)
 
-Modèle : une **liste ordonnée de paliers** `{ profondeur_m, couleur }`, éditable (ajout / suppression / déplacement / choix de couleur), plus deux couleurs spéciales.
+Tout est dans `config/palette.json`, éditable dans l'application et rechargeable aux
+valeurs par défaut.
 
-Valeurs par défaut, conformes à la demande :
+#### Principe : des bandes, pas un dégradé
+
+Le premier schéma retenu était un dégradé continu rouge → vert → noir. Il a été
+abandonné comme défaut après contrôle visuel : **un dégradé cache par construction la
+transition qu'on a besoin de voir**. L'œil détecte un bord instantanément et une
+variation progressive très mal.
+
+Les cartes marines — norme S-52 des cartes électroniques officielles, Garmin BlueChart,
+Navionics — reposent toutes sur trois règles reprises ici :
+
+1. **Bandes discrètes** de couleur uniforme, séparées par des contours.
+2. **Contour de sécurité** tracé en gras à `tirant d'eau + marge`, objet central de la
+   carte, qui sépare le navigable du reste. C'est le *shallow water shading* des Garmin :
+   un seuil franc, pas une nuance.
+3. **Familles de couleurs porteuses de sens** : beige pour la terre et les zones
+   découvertes, jamais confondable avec de l'eau ; rouge et orange réservés au danger ;
+   bleus pour l'eau navigable, le **plus foncé pour le moins profond** afin que l'eau
+   profonde reste claire et lisible au soleil.
+
+#### Préréglage par défaut : « Carte marine »
 
 | Profondeur | Couleur | Rôle |
 |---|---|---|
-| ≤ 0 m | brun `#8a6a4f` | **fond émergé** (terre à cette cote) |
-| 0 m | `#7a0000` rouge très sombre | limite d'eau |
-| 1 m | `#e01b1b` **rouge** | danger |
-| 3 m | `#22a02c` **vert** | sûr |
-| 30 m | `#000000` **noir** | très profond |
-| > 30 m | noir (clampé) | — |
+| ≤ 0 m | `#c8a165` beige | **fond émergé** — îlots découverts |
+| 0 → 1 m | `#ff1f1f` rouge | danger |
+| 1 → 2 m | `#ff8a3d` orange | marge |
+| 2 → 5 m | `#1f6fb2` bleu soutenu | peu profond |
+| 5 → 10 m | `#4b9fd5` bleu moyen | moyen |
+| 10 → 20 m | `#9fcbe8` bleu clair | profond |
+| > 20 m | `#e8f3fb` quasi blanc | très profond |
 
-Le palier noir a été porté de 10 à 30 m : à 10 m, près de 60 % du lac saturait en noir
-uniforme et les fosses n'étaient plus discernables. À 30 m, la fosse maximale du modèle
-(28,5 m) reste dans la rampe. Valeurs dans `config/palette.json`.
+Contour de bande `#182028`, contour de sécurité `#ff00d0` sur 2 px.
 
-Interpolation entre paliers : **dans l'espace perceptuel OKLab** (et non en RGB brut), pour un dégradé régulier à l'œil et sans virages de teinte parasites entre rouge et vert.
+> Le contour de sécurité est tracé sur la limite **interne** de la zone peu profonde, et
+> non sur le rivage. Sans cette distinction il suit tout le trait de côte, où la
+> profondeur est de toute façon inférieure à la cote de sécurité — il devient alors un
+> simple liseré décoratif au lieu d'une information.
 
-Réglages complémentaires de la page :
+#### Autres préréglages fournis
+
+- **« Rouge / vert, en bandes »** — la sémantique demandée à l'origine, mais en bandes.
+  Réserve : le vert couvre 3 à 12 m, donc 6 m et 20 m restent difficiles à distinguer ; et
+  le rouge-vert est la forme de daltonisme la plus répandue (~8 % des hommes).
+- **« Dégradé continu »** — le premier schéma, conservé pour comparaison. Toute la
+  discrimination visuelle s'y joue entre 3 et 15 m ; au-delà, du vert très sombre puis du
+  noir, indistinguables sur un téléphone en plein soleil.
+
+`tools/compare_palettes.py` rend les trois côte à côte sur un extrait du lac, à une cote
+donnée, pour trancher sur pièces plutôt que sur intuition.
+
+#### Mise en œuvre
+
+Les deux modes passent par la **même table de correspondance de 256 entrées** couvrant
+0 → `lut_max_depth_m` (30 m) : un préréglage en bandes produit une table en marches, un
+préréglage continu une table lissée. Le shader de l'application est donc identique dans
+les deux cas, et changer de préréglage ne coûte qu'une régénération de table.
+
+Les dégradés sont interpolés dans l'espace perceptuel **OKLab** et non en RVB brut, pour
+éviter les virages de teinte parasites — un rouge → vert en RVB passe par un brun sale.
+`tools/palette.py` est la référence de calcul ; l'application en porte l'équivalent en
+JavaScript.
+
+Les contours de bande sont obtenus dans le shader en comparant l'indice de bande des
+pixels voisins — pas de géométrie vectorielle à produire.
+
+#### Réglages complémentaires de la page
 
 - **opacité** de l'overlay (0–100 %) ;
 - **mode lignes de sonde** : superposer les isobathes (1, 2, 3, 5, 10, 15, 20 m) avec étiquettes ;

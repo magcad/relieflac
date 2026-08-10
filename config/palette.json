@@ -1,18 +1,67 @@
 {
-  "$comment": "Palette par défaut de l'application. L'utilisateur peut la modifier dans la page Paramètres ; ces valeurs sont le point de départ et la cible du bouton « réinitialiser ».",
+  "$comment": "Schémas de couleurs de l'application. Le préréglage actif est le point de départ ; l'utilisateur peut basculer et modifier dans la page Paramètres, et `active_preset` est la cible du bouton « réinitialiser ».",
 
-  "interpolation": "oklab",
-  "$interpolation_note": "Interpolation dans l'espace perceptuel OKLab : le dégradé est régulier à l'œil et ne traverse pas de teintes parasites entre le rouge et le vert.",
+  "active_preset": "marine",
 
-  "stops": [
-    { "depth_m": 0.0,  "color": "#7a0000", "label": "limite d'eau" },
-    { "depth_m": 1.0,  "color": "#e01b1b", "label": "danger" },
-    { "depth_m": 3.0,  "color": "#22a02c", "label": "sûr" },
-    { "depth_m": 30.0, "color": "#000000", "label": "très profond" }
-  ],
+  "lut_max_depth_m": 30.0,
+  "$lut_note": "Domaine de la table de correspondance de 256 entrées utilisée par le rendu. Une profondeur d se lit à l'indice round(min(d / lut_max_depth_m, 1) * 255). Un préréglage en bandes produit une table en marches, un préréglage continu une table lissée : le shader est identique dans les deux cas.",
 
-  "emerged_color": "#8a6a4f",
-  "$emerged_note": "Fond découvert : la cote du lac est descendue sous l'altitude du fond. À basse cote, cela concerne près de 10 % de la surface.",
+  "safety_contour": {
+    "draft_m": 0.5,
+    "margin_m": 1.0,
+    "color": "#ff00d0",
+    "width_px": 2,
+    "$comment": "Profondeur de sécurité = tirant d'eau + marge. Objet central des cartes marines : un trait franc qui sépare le navigable du reste. Tracé sur la limite *interne* de la zone peu profonde et non sur le rivage, sinon il suit tout le trait de côte où la profondeur est de toute façon inférieure. Tirant d'eau et marge se règlent dans l'application."
+  },
+
+  "presets": {
+    "marine": {
+      "label": "Carte marine",
+      "mode": "banded",
+      "note": "Convention S-52 / Garmin BlueChart adaptée au lac : terre en beige, jamais confondable avec de l'eau ; rouge et orange réservés au danger ; bleus pour l'eau navigable, le plus foncé pour le moins profond afin que l'eau profonde reste claire et lisible au soleil.",
+      "emerged_color": "#c8a165",
+      "band_outline_color": "#182028",
+      "bands": [
+        { "max_depth_m": 1.0,  "color": "#ff1f1f", "label": "danger" },
+        { "max_depth_m": 2.0,  "color": "#ff8a3d", "label": "marge" },
+        { "max_depth_m": 5.0,  "color": "#1f6fb2", "label": "peu profond" },
+        { "max_depth_m": 10.0, "color": "#4b9fd5", "label": "moyen" },
+        { "max_depth_m": 20.0, "color": "#9fcbe8", "label": "profond" },
+        { "max_depth_m": null, "color": "#e8f3fb", "label": "très profond" }
+      ]
+    },
+
+    "rouge-vert": {
+      "label": "Rouge / vert, en bandes",
+      "mode": "banded",
+      "note": "Sémantique demandée à l'origine — rouge pour le danger, vert pour le sûr — mais en bandes discrètes pour que les transitions se voient. Le vert couvre une large plage : 6 m et 20 m restent difficiles à distinguer.",
+      "emerged_color": "#c8a165",
+      "band_outline_color": "#182028",
+      "bands": [
+        { "max_depth_m": 1.0,  "color": "#c1121f" },
+        { "max_depth_m": 2.0,  "color": "#f06a2a" },
+        { "max_depth_m": 3.0,  "color": "#e0c020" },
+        { "max_depth_m": 6.0,  "color": "#22a02c" },
+        { "max_depth_m": 12.0, "color": "#14722a" },
+        { "max_depth_m": 20.0, "color": "#0e4f52" },
+        { "max_depth_m": null, "color": "#08262f" }
+      ]
+    },
+
+    "degrade": {
+      "label": "Dégradé continu",
+      "mode": "continuous",
+      "interpolation": "oklab",
+      "note": "Premier schéma retenu. Élégant, mais un dégradé cache par construction la transition qu'on a besoin de voir, et toute la discrimination se joue entre 3 et 15 m.",
+      "emerged_color": "#8a6a4f",
+      "stops": [
+        { "depth_m": 0.0,  "color": "#7a0000", "label": "limite d'eau" },
+        { "depth_m": 1.0,  "color": "#e01b1b", "label": "danger" },
+        { "depth_m": 3.0,  "color": "#22a02c", "label": "sûr" },
+        { "depth_m": 30.0, "color": "#000000", "label": "très profond" }
+      ]
+    }
+  },
 
   "nodata_color": "#00000000"
 }
