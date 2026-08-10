@@ -70,6 +70,12 @@ function oklabToSrgb([L, A, B]) {
 
 // --- table -------------------------------------------------------------------
 
+/** Couleurs des bandes, en vec4, dans le même ordre que bandLimits(). */
+export function bandColors(preset) {
+  if (preset.mode !== 'banded') return [];
+  return preset.bands.map((band) => hexToVec4(band.color));
+}
+
 /** Bornes supérieures des bandes ; `null` dans la config signifie « jusqu'au fond ». */
 export function bandLimits(preset, lutMax) {
   if (preset.mode !== 'banded') return [];

@@ -33,7 +33,7 @@ precision highp float;
 
 uniform sampler2D u_bed;
 uniform sampler2D u_lut;
-uniform vec2 u_texel;
+uniform vec2 u_texSize;
 uniform float u_base;
 uniform float u_interval;
 uniform float u_level;
@@ -47,74 +47,107 @@ uniform vec4 u_outline;
 uniform vec4 u_safetyColor;
 uniform int u_bandCount;
 uniform float u_bands[${MAX_BANDS}];
+uniform vec4 u_bandColors[${MAX_BANDS}];
 uniform bool u_showOutlines;
 uniform bool u_showSafety;
 
 in vec2 v_uv;
 out vec4 fragColor;
 
-// Profondeur d'eau au texel visé. Le décalage d'étalonnage ne s'applique qu'aux
-// altitudes issues du levé de 2009 : au-dessus du plan d'eau LiDAR, la grille vient
-// du MNT ou de la contrainte de bord et ce sont des altitudes absolues.
-float depthAt(vec2 uv, out bool inside) {
-  vec4 t = texture(u_bed, uv);
-  inside = t.a > 0.5;
+// Altitude d'un texel. Le décalage d'étalonnage ne s'applique qu'aux altitudes issues
+// du levé de 2009 : au-dessus du plan d'eau LiDAR, la grille vient du MNT ou de la
+// contrainte de bord, et ce sont des altitudes absolues.
+float decode(vec4 t) {
   float raw = u_base + (t.r * 255.0 * 65536.0 + t.g * 255.0 * 256.0 + t.b * 255.0) * u_interval;
-  float z = raw < u_waterPlane ? raw + u_offset : raw;
-  return u_level - z;
+  return raw < u_waterPlane ? raw + u_offset : raw;
 }
 
-// -2 hors du lac · -1 émergé · sinon indice de bande
-int classify(float depth, bool inside) {
-  if (!inside) return -2;
-  if (depth <= 0.0) return -1;
-  for (int i = 0; i < ${MAX_BANDS}; i++) {
-    if (i >= u_bandCount) break;
-    if (depth <= u_bands[i]) return i;
+// Altitude interpolée bilinéairement, à partir des altitudes *décodées*.
+//
+// L'échantillonnage matériel est en NEAREST et doit le rester : interpoler les octets
+// d'un encodage Terrain-RGB donnerait des altitudes absurdes. On décode donc les quatre
+// texels voisins avant de les mélanger — d'où un champ de profondeur continu, sans les
+// carrés de 5 m qui rendaient la carte illisible au zoom de navigation.
+//
+// La pondération exclut les texels hors du lac : sans cela, le fond se mettrait à
+// plonger le long des rives en se mélangeant à des cellules sans donnée. Le paramètre
+// de sortie vaut la somme des poids retenus, ce qui antialiase le bord au passage.
+float bedAltitude(vec2 uv, out float coverage) {
+  vec2 pos = uv * u_texSize - 0.5;
+  vec2 base = floor(pos);
+  vec2 f = pos - base;
+
+  float weights[4] = float[4](
+    (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y),
+    (1.0 - f.x) * f.y,         f.x * f.y
+  );
+  vec2 corners[4] = vec2[4](vec2(0.0), vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(1.0));
+
+  float sum = 0.0;
+  float total = 0.0;
+  for (int i = 0; i < 4; i++) {
+    vec4 t = texture(u_bed, (base + corners[i] + 0.5) / u_texSize);
+    float w = weights[i] * step(0.5, t.a);
+    sum += decode(t) * w;
+    total += w;
   }
-  return max(u_bandCount - 1, 0);
+  coverage = total;
+  return total > 0.001 ? sum / total : 0.0;
+}
+
+// Trait d'épaisseur constante à l'écran, quel que soit le zoom.
+//
+// fwidth(value) donne la variation de la profondeur d'un pixel écran au suivant :
+// diviser l'écart au seuil par cette pente convertit une distance en mètres d'eau en
+// une distance en pixels. C'est ce qui remplace le contour vectoriel — le trait reste
+// fin et net en zoomant, au lieu de s'épaissir avec les cellules de la grille.
+float contourLine(float value, float target, float widthPx) {
+  float slope = max(fwidth(value), 1e-7);
+  float distancePx = abs(value - target) / slope;
+  return 1.0 - smoothstep(widthPx * 0.5 - 0.5, widthPx * 0.5 + 0.5, distancePx);
 }
 
 void main() {
-  bool inside;
-  float depth = depthAt(v_uv, inside);
-  if (!inside) { fragColor = vec4(0.0); return; }
+  float coverage;
+  float bed = bedAltitude(v_uv, coverage);
+  if (coverage <= 0.001) { fragColor = vec4(0.0); return; }
+  float depth = u_level - bed;
 
-  vec4 colour = depth <= 0.0
-    ? u_emerged
-    : texture(u_lut, vec2(clamp(depth / u_lutMax, 0.0, 1.0), 0.5));
+  // Les dérivées doivent être évaluées hors de tout branchement.
+  float slopePx = max(fwidth(depth), 1e-7);
 
-  vec2 offsets[4] = vec2[4](
-    vec2(u_texel.x, 0.0), vec2(-u_texel.x, 0.0),
-    vec2(0.0, u_texel.y), vec2(0.0, -u_texel.y)
-  );
-
-  // Contour de bande : l'œil lit un bord, pas un dégradé. C'est ce qui rend les
-  // paliers de profondeur lisibles d'un coup d'œil.
-  if (u_showOutlines && u_bandCount > 0) {
-    int here = classify(depth, true);
-    for (int i = 0; i < 4; i++) {
-      bool near;
-      int there = classify(depthAt(v_uv + offsets[i], near), near);
-      if (there != here) { colour = u_outline; break; }
+  vec4 colour;
+  if (u_bandCount > 0) {
+    // Choix analytique de la bande : les aplats et les traits partagent exactement les
+    // mêmes bornes, sans le décalage qu'introduirait la quantification de la table.
+    colour = u_bandColors[u_bandCount - 1];
+    for (int i = 0; i < ${MAX_BANDS}; i++) {
+      if (i >= u_bandCount) break;
+      if (depth <= u_bands[i]) { colour = u_bandColors[i]; break; }
     }
+  } else {
+    colour = texture(u_lut, vec2(clamp(depth / u_lutMax, 0.0, 1.0), 0.5));
+  }
+  if (depth <= 0.0) colour = u_emerged;
+
+  if (u_showOutlines) {
+    // Trait de rive à la limite d'eau, puis un trait par palier de profondeur.
+    float line = contourLine(depth, 0.0, 1.6);
+    for (int i = 0; i < ${MAX_BANDS}; i++) {
+      if (i >= u_bandCount - 1) break;
+      line = max(line, contourLine(depth, u_bands[i], 1.2));
+    }
+    colour = mix(colour, u_outline, line * u_outline.a);
   }
 
-  // Contour de sécurité : limite *interne* de la zone peu profonde, jamais le rivage.
-  // Tracé depuis le côté profond, il sépare vraiment le navigable du reste.
-  if (u_showSafety && depth > u_safe) {
-    bool found = false;
-    for (int i = 0; i < 4 && !found; i++) {
-      for (int step = 1; step <= 2; step++) {
-        bool near;
-        float d = depthAt(v_uv + offsets[i] * float(step), near);
-        if (near && d > 0.0 && d <= u_safe) { found = true; break; }
-      }
-    }
-    if (found) colour = u_safetyColor;
+  // Contour de sécurité : tracé uniquement du côté profond, il marque la limite interne
+  // de la zone peu profonde et non le rivage — où la profondeur passe de toute façon
+  // sous le seuil, ce qui en ferait un simple liseré décoratif.
+  if (u_showSafety && depth > 0.0) {
+    colour = mix(colour, u_safetyColor, contourLine(depth, u_safe, 2.4) * u_safetyColor.a);
   }
 
-  fragColor = vec4(colour.rgb, colour.a * u_opacity);
+  fragColor = vec4(colour.rgb, colour.a * u_opacity * clamp(coverage, 0.0, 1.0));
 }`;
 
 function compile(gl, type, source, label) {
@@ -128,9 +161,10 @@ function compile(gl, type, source, label) {
 }
 
 const UNIFORMS = [
-  'u_matrix', 'u_bed', 'u_lut', 'u_texel', 'u_base', 'u_interval', 'u_level',
+  'u_matrix', 'u_bed', 'u_lut', 'u_texSize', 'u_base', 'u_interval', 'u_level',
   'u_offset', 'u_waterPlane', 'u_lutMax', 'u_safe', 'u_opacity', 'u_emerged',
-  'u_outline', 'u_safetyColor', 'u_bandCount', 'u_bands', 'u_showOutlines', 'u_showSafety',
+  'u_outline', 'u_safetyColor', 'u_bandCount', 'u_bands', 'u_bandColors',
+  'u_showOutlines', 'u_showSafety',
 ];
 
 export class DepthLayer {
@@ -233,7 +267,7 @@ export class DepthLayer {
     gl.bindTexture(gl.TEXTURE_2D, this.lutTexture);
     gl.uniform1i(u.u_lut, 1);
 
-    gl.uniform2f(u.u_texel, 1 / this.bed.width, 1 / this.bed.height);
+    gl.uniform2f(u.u_texSize, this.bed.width, this.bed.height);
     gl.uniform1f(u.u_base, this.bed.meta.encoding.base);
     gl.uniform1f(u.u_interval, this.bed.meta.encoding.interval);
     gl.uniform1f(u.u_level, s.level);
@@ -249,6 +283,11 @@ export class DepthLayer {
     const bands = new Float32Array(MAX_BANDS);
     s.bands.slice(0, MAX_BANDS).forEach((limit, i) => { bands[i] = limit; });
     gl.uniform1fv(u.u_bands, bands);
+
+    const colours = new Float32Array(MAX_BANDS * 4);
+    (s.bandColors ?? []).slice(0, MAX_BANDS).forEach((rgba, i) => colours.set(rgba, i * 4));
+    gl.uniform4fv(u.u_bandColors, colours);
+
     gl.uniform1i(u.u_bandCount, Math.min(s.bands.length, MAX_BANDS));
     gl.uniform1i(u.u_showOutlines, s.showOutlines ? 1 : 0);
     gl.uniform1i(u.u_showSafety, s.showSafety ? 1 : 0);

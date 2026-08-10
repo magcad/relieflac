@@ -6,7 +6,7 @@ import { DepthLayer } from './depth-layer.js';
 import { formatSpeed, Geolocator } from './geo.js';
 import { formatAge, Level, LevelSource } from './level.js';
 import { LakeMap } from './map.js';
-import { bandLimits, buildLut, depthColor, hexToVec4, legendEntries } from './palette.js';
+import { bandColors, bandLimits, buildLut, depthColor, hexToVec4, legendEntries } from './palette.js';
 import { Soundings } from './soundings.js';
 import { defaultsFrom, Settings } from './settings.js';
 
@@ -114,10 +114,15 @@ function currentLevel() {
   return app.level.current();
 }
 
-/** Altitude du fond corrigée du décalage d'étalonnage, en m NGF. */
+/**
+ * Altitude du fond corrigée du décalage d'étalonnage, en m NGF.
+ *
+ * Interpolation bilinéaire, comme le shader : la profondeur annoncée sous le bateau
+ * doit être exactement celle que montre la couleur au même endroit.
+ */
 function bedAltitude(lon, lat) {
   return correctedAltitude(
-    app.bed.rawAltitudeAt(lon, lat),
+    app.bed.altitudeAt(lon, lat),
     app.settings.get('calibrationOffset_m'),
     app.settings.get('waterPlane_m_ngf'),
   );
@@ -138,6 +143,7 @@ function styleFromSettings() {
   return {
     lut: buildLut(palette, presetName),
     bands: bandLimits(preset, palette.lut_max_depth_m),
+    bandColors: bandColors(preset),
     lutMax: palette.lut_max_depth_m,
     level: currentLevel().value ?? app.model.lake.normal_level_m_ngf,
     offset: app.settings.get('calibrationOffset_m'),
@@ -388,7 +394,7 @@ function recordCalibration() {
   if (state.value == null) { toast('Cote du lac inconnue'); return; }
 
   // Altitude brute : le décalage cherché est précisément celui qu'on appliquera ensuite.
-  const modelBedZ = app.bed.rawAltitudeAt(position.lon, position.lat);
+  const modelBedZ = app.bed.altitudeAt(position.lon, position.lat);
   if (!Number.isFinite(modelBedZ)) { toast('Hors emprise du modèle'); return; }
 
   app.calibration.add(makeRecord({

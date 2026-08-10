@@ -15,6 +15,7 @@ import { bearing, distanceMeters, formatSpeed } from '../src/geo.js';
 import { formatAge, Level } from '../src/level.js';
 import { bandLimits, buildLut, LUT_SIZE, lutIndex } from '../src/palette.js';
 import { Soundings } from '../src/soundings.js';
+import { runShaderChecks } from './shader.js';
 
 const results = [];
 
@@ -149,6 +150,9 @@ export async function run(base = '..') {
   check('cap vers l\'est', near(bearing(1.87, 45.8, 1.88, 45.8), 90, 0.5));
   check('vitesse en nœuds', formatSpeed(5, 'kn') === '9.7 nd', formatSpeed(5, 'kn'));
   check('vitesse en km/h', formatSpeed(5, 'kmh') === '18.0 km/h', formatSpeed(5, 'kmh'));
+
+  // --- shader de profondeur -----------------------------------------------------
+  await runShaderChecks(base, check);
 
   return results;
 }

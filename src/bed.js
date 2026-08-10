@@ -75,10 +75,49 @@ export class BedGrid {
     return row * this.width + col;
   }
 
-  /** Altitude brute du fond en m NGF, ou NaN hors du lac. */
+  /** Altitude brute du fond en m NGF à la cellule contenant le point, ou NaN hors du lac. */
   rawAltitudeAt(lon, lat) {
     const index = this.indexAt(lon, lat);
     return index < 0 ? NaN : this.altitudes[index];
+  }
+
+  /**
+   * Altitude brute interpolée bilinéairement — la même valeur que celle qu'affiche la
+   * carte.
+   *
+   * Le shader interpole entre les quatre cellules voisines pour supprimer la maille de
+   * 5 m ; lire ici la cellule la plus proche donnerait au bateau une profondeur
+   * différente de celle sous ses pieds sur la carte, avec des sauts brusques au passage
+   * d'une cellule à l'autre.
+   *
+   * Les cellules hors du lac sont exclues de la moyenne, sinon le fond plongerait
+   * artificiellement le long des rives.
+   */
+  altitudeAt(lon, lat) {
+    const [mx, my] = toMercator(lon, lat);
+    const x = ((mx - this.x0) / (this.x1 - this.x0)) * this.width - 0.5;
+    const y = ((this.y1 - my) / (this.y1 - this.y0)) * this.height - 0.5;
+
+    const col = Math.floor(x);
+    const row = Math.floor(y);
+    const fx = x - col;
+    const fy = y - row;
+
+    let sum = 0;
+    let total = 0;
+    for (let dy = 0; dy <= 1; dy += 1) {
+      for (let dx = 0; dx <= 1; dx += 1) {
+        const c = col + dx;
+        const r = row + dy;
+        if (c < 0 || c >= this.width || r < 0 || r >= this.height) continue;
+        const z = this.altitudes[r * this.width + c];
+        if (!Number.isFinite(z)) continue;
+        const weight = (dx ? fx : 1 - fx) * (dy ? fy : 1 - fy);
+        sum += z * weight;
+        total += weight;
+      }
+    }
+    return total > 0.001 ? sum / total : NaN;
   }
 }
 

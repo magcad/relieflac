@@ -305,14 +305,48 @@ Le cron GitHub Actions n'est pas garanti à la minute près et peut être suspen
 
 ### 5.4 Rendu de la coloration
 
-Le shader de l'overlay raster reçoit :
-- la texture Terrain-RGB (altitude du fond) ;
-- l'uniform `u_level` = cote courante (+ offset de calage) ;
-- une **texture LUT 1D de 256 px** représentant la palette utilisateur, régénérée en JS à chaque modification des paramètres.
+Le shader de l'overlay raster reçoit la texture Terrain-RGB, la cote courante, le décalage
+de calage, les bornes et couleurs de bandes, et une table de 256 entrées pour les
+préréglages continus. Changement de palette, de cote ou de tirant d'eau = mise à jour
+d'uniforme, donc **recoloration en moins d'une image**, sans rien retélécharger.
 
-Par pixel : `d = u_level - z_fond` → si `d <= 0` couleur « émergé » ; sinon `couleur = LUT[clamp(d / d_max, 0, 1)]`.
+Deux points décident de la qualité visuelle, et le premier a dû être corrigé après essai
+sur téléphone — le rendu apparaissait en gros carrés, inutilisable pour naviguer.
 
-Résultat : changement de palette ou de cote = **recoloration en < 16 ms**, sans retélécharger quoi que ce soit.
+**Champ de profondeur continu.** L'échantillonnage matériel est en `NEAREST` et doit le
+rester : interpoler les octets d'un encodage Terrain-RGB donnerait des altitudes absurdes.
+Le shader **décode donc les quatre texels voisins puis interpole les altitudes**, ce qui
+supprime la maille de 5 m. La pondération exclut les texels hors du lac, sinon le fond
+plongerait le long des rives en se mélangeant à des cellules sans donnée ; la somme des
+poids retenus sert au passage à antialiaser le trait de côte.
+
+> `BedGrid.altitudeAt()` applique exactement la même interpolation côté processeur. Sans
+> cela, la profondeur annoncée sous le bateau différerait de la couleur affichée au même
+> endroit, avec des sauts au passage d'une cellule à l'autre.
+
+**Contours à épaisseur constante.** Plutôt que de comparer les bandes de pixels voisins —
+ce qui donne un trait dont l'épaisseur suit la maille et s'élargit au zoom — le trait est
+tracé analytiquement :
+
+```glsl
+float distancePx = abs(profondeur - seuil) / max(fwidth(profondeur), 1e-7);
+float trait = 1.0 - smoothstep(largeur * 0.5 - 0.5, largeur * 0.5 + 0.5, distancePx);
+```
+
+`fwidth` donne la variation de profondeur d'un pixel écran au suivant : diviser l'écart au
+seuil par cette pente convertit des mètres d'eau en pixels. Le trait reste **fin, net et
+antialiasé à tous les zooms** — c'est ce qui remplace une vectorisation, sans données
+supplémentaires ni recalcul à chaque changement de cote.
+
+Les aplats sont choisis analytiquement à partir des mêmes bornes que les traits, et non via
+la table : la quantification de celle-ci (0,12 m) décalerait sinon les traits des aplats
+d'un mince liseré.
+
+**Vérification** — `test/shader.js` rend le shader hors MapLibre, dans un canvas WebGL2
+piloté directement, et mesure les deux propriétés : le rendu s'accorde avec l'interpolation
+bilinéaire calculée côté processeur (21 pixels sur 23, contre 2 sur 23 pour le plus proche
+voisin, sur des pixels choisis pour départager les deux hypothèses), et l'épaisseur des
+contours reste de 2 à 3 px pour un rapport de zoom de 5.
 
 ---
 
