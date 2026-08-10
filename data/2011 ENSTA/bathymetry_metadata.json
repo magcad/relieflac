@@ -1,0 +1,35 @@
+{
+  "dataset_name": "Lac de Vassivière - bathymetric survey reference",
+  "source_survey": {
+    "year": 2011,
+    "institutions": [
+      "ENSTA Bretagne",
+      "Ghent University",
+      "HafenCity University Hamburg",
+      "CIDCO"
+    ],
+    "client_context": "EDF / Lac de Vassivière authorities",
+    "survey_method": "Multibeam echosounder (Kongsberg EM3002) + vessel mounted LiDAR",
+    "published_chart_scale": "1:10,000",
+    "vertical_datum": "646 m IGN69",
+    "horizontal_reference": "Local geodetic network / French geodetic reference systems",
+    "reported_quality": {
+      "TPU_95_percent": "0.15 m",
+      "navigation_DTM_cell_size": "1 m",
+      "infrastructure_DTM_cell_size": "0.5 m"
+    }
+  },
+  "important_limitation": "This package contains the published nautical chart and the source report, not the original multibeam sounding/DTM dataset. The original survey data were delivered to EDF and the lake authorities according to the publication.",
+  "application_model": {
+    "recommended_internal_quantity": "bottom_elevation_IGN69_m",
+    "water_surface_level_variable": "water_level_IGN69_m",
+    "depth_formula": "depth_m = water_level_IGN69_m - bottom_elevation_IGN69_m",
+    "zeroing": "If the current water level is known, use it directly. Otherwise, calibrate an offset against a measured sonar depth at a known position or against a reliable lake-level reference.",
+    "example": {
+      "chart_datum_level_m": 646.0,
+      "current_water_level_m": 648.2,
+      "bottom_elevation_m": 640.0,
+      "computed_depth_m": 8.2
+    }
+  }
+}

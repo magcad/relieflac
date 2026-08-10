@@ -73,6 +73,10 @@ export function defaultsFrom(palette, model) {
     showOutlines: true,
     showSafety: true,
     showSoundings: false,
+    // Signalement des zones où le modèle n'est plus adossé à une mesure. Actif par
+    // défaut : 38 % du lac est à plus de 60 m de toute sonde de 2009.
+    showVoids: true,
+    voidRadius_m: 60,
     alarmEnabled: true,
     alarmDepth_m: 1.5,
     speedUnit: 'kmh',

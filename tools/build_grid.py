@@ -29,6 +29,7 @@ from PIL import Image, ImageDraw
 from pyproj import Transformer
 from scipy.interpolate import LinearNDInterpolator
 from scipy.ndimage import gaussian_filter, grey_dilation
+from scipy.spatial import cKDTree
 
 from common import (
     DATA_DIR,
@@ -218,6 +219,29 @@ def fuse_terrain(
         "max_shallower_m": round(float(deltas.max()), 2) if deltas.size else 0.0,
         "median_shallower_m": round(float(np.median(deltas)), 2) if deltas.size else 0.0,
     }
+
+
+# --------------------------------------------------------- couverture du levé
+
+
+def coverage_map(points, measured, grid_x, grid_y, to_mercator, ground_res, res_merc):
+    """Distance à la sonde mesurée la plus proche, en mètres au sol, par cellule.
+
+    Le levé de 2009 est fait de traces largement espacées : dans les grands bassins,
+    plus de 150 m séparent deux passages. Entre elles, la triangulation relie des sondes
+    éloignées et produit une valeur qui ne repose sur aucune mesure — un haut-fond y est
+    non seulement invisible, mais hérite de la profondeur des fosses voisines.
+
+    Cette distance est le seul indicateur honnête de ce que vaut le modèle localement.
+    Elle est embarquée avec la grille pour que l'application puisse le signaler à
+    l'écran plutôt que de présenter une interpolation avec l'aplomb d'une mesure.
+    """
+    subset = points[measured]
+    mx, my = to_mercator.transform(subset[:, 0], subset[:, 1])
+    tree = cKDTree(np.column_stack([mx, my]))
+    distances, _ = tree.query(np.column_stack([grid_x.ravel(), grid_y.ravel()]))
+    # Le mercator dilate les distances ; on repasse en mètres au sol.
+    return (distances.reshape(grid_x.shape) * (ground_res / res_merc)).astype(np.float32)
 
 
 # ------------------------------------------------- généralisation « haut-fond »
@@ -413,6 +437,26 @@ def main() -> int:
         print(f"ATTENTION : {(1 - coverage) * 100:.1f} % de la surface du lac reste sans valeur",
               file=sys.stderr)
 
+    print("\ndistance à la sonde mesurée la plus proche…")
+    distance_map = coverage_map(points, measured, grid_x, grid_y, to_mercator, ground_res, res_merc)
+    in_lake = distance_map[mask]
+    coverage_stats = {
+        "unit": "m",
+        "max_encoded_m": 255,
+        "median_m": round(float(np.median(in_lake)), 1),
+        "max_m": round(float(in_lake.max()), 1),
+        "share_within_25m": round(float((in_lake <= 25).mean()), 4),
+        "share_within_60m": round(float((in_lake <= 60).mean()), 4),
+        "share_beyond_60m": round(float((in_lake > 60).mean()), 4),
+    }
+    for limit in (25, 50, 100, 150):
+        print(f"  à moins de {limit:3d} m : {(in_lake <= limit).mean() * 100:5.1f} %")
+    print(f"  médiane {coverage_stats['median_m']:.0f} m · maximum {coverage_stats['max_m']:.0f} m")
+
+    Image.fromarray(
+        np.where(mask, np.clip(distance_map, 0, 255), 255).astype(np.uint8), mode="L",
+    ).save(DATA_DIR / "coverage.png", optimize=True)
+
     image = encode_terrain_rgb(values, float(encoding["base"]), float(encoding["interval"]))
     png_path = DATA_DIR / "bed.png"
     image.save(png_path, optimize=True)
@@ -445,6 +489,16 @@ def main() -> int:
             "smoothing_sigma_m": grid_cfg["smoothing_sigma_m"],
             "terrain_source": terrain_stats,
             "shoal_bias": shoal_stats,
+            "coverage": {
+                **coverage_stats,
+                "file": "coverage.png",
+                "note": (
+                    "Image en niveaux de gris, même emprise et même taille que bed.png : "
+                    "distance en mètres à la sonde mesurée la plus proche, plafonnée à 255. "
+                    "Au-delà de quelques dizaines de mètres, la valeur du modèle est "
+                    "interpolée et non mesurée."
+                ),
+            },
             "reference_levels": config["reference_levels"],
             "sources": report,
         },

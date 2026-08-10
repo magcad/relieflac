@@ -75,6 +75,21 @@ export async function run(base = '..') {
   check(`altitude correcte sur ${reference.bed.probes.length} points de contrôle`, bad.length === 0,
     bad.map((p) => `${p.lat},${p.lon} attendu ${p.z}`).join(' · '));
 
+  // Couverture du levé : c'est ce qui distingue une valeur mesurée d'une invention.
+  check('carte de couverture chargée', bed.coverage instanceof Uint8Array,
+    bed.coverage ? `${bed.coverage.length} cellules` : 'absente');
+  if (bed.coverage) {
+    const stats = reference.coverage;
+    const inLake = Array.from(bed.coverage).filter((_, i) => Number.isFinite(bed.altitudes[i]));
+    const beyond = inLake.filter((d) => d > 60).length / inLake.length;
+    check('part du lac à plus de 60 m d\'une sonde conforme au calcul Python',
+      Math.abs(beyond - stats.share_beyond_60m) < 0.01,
+      `${(beyond * 100).toFixed(1)} % · attendu ${(stats.share_beyond_60m * 100).toFixed(1)} %`);
+    check('distance nulle sur une trace du levé',
+      bed.soundingDistanceAt(1.87132, 45.79328) <= 6,
+      `${bed.soundingDistanceAt(1.87132, 45.79328)} m`);
+  }
+
   // Le décalage d'étalonnage ne doit toucher que ce qui vient du levé de 2009.
   const waterPlane = model.reference_levels.rge_alti.value_m_ngf;
   check('décalage appliqué sous le plan d\'eau LiDAR',

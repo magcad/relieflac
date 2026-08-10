@@ -22,11 +22,14 @@ export function toMercator(lon, lat) {
 }
 
 export class BedGrid {
-  constructor(meta, bitmap, altitudes, alpha) {
+  constructor(meta, bitmap, altitudes, alpha, coverage = null, coverageBitmap = null) {
     this.meta = meta;
     this.bitmap = bitmap;
     this.altitudes = altitudes; // Float32Array, NaN hors du lac
     this.alpha = alpha;
+    // Distance en mètres à la sonde mesurée la plus proche, plafonnée à 255.
+    this.coverage = coverage;
+    this.coverageBitmap = coverageBitmap;
     [this.x0, this.y0, this.x1, this.y1] = meta.bbox_3857;
     this.width = meta.width;
     this.height = meta.height;
@@ -63,7 +66,25 @@ export class BedGrid {
         : base + (data[o] * 65536 + data[o + 1] * 256 + data[o + 2]) * interval;
     }
 
-    return new BedGrid(meta, bitmap, altitudes, alpha);
+    // Carte de couverture : distance à la sonde mesurée la plus proche. Facultative —
+    // l'application reste utilisable sans, elle perd seulement l'indication de fiabilité.
+    let coverage = null;
+    let coverageBitmap = null;
+    try {
+      const response = await fetch(`${baseUrl}/data/coverage.png`);
+      if (response.ok) {
+        coverageBitmap = await createImageBitmap(await response.blob());
+        context.clearRect(0, 0, meta.width, meta.height);
+        context.drawImage(coverageBitmap, 0, 0);
+        const grey = context.getImageData(0, 0, meta.width, meta.height).data;
+        coverage = new Uint8Array(count);
+        for (let i = 0; i < count; i += 1) coverage[i] = grey[i * 4];
+      }
+    } catch {
+      // Sans couverture, on n'affiche simplement aucune mise en garde.
+    }
+
+    return new BedGrid(meta, bitmap, altitudes, alpha, coverage, coverageBitmap);
   }
 
   /** Indice de cellule contenant ce point, ou -1 hors emprise. */
@@ -118,6 +139,19 @@ export class BedGrid {
       }
     }
     return total > 0.001 ? sum / total : NaN;
+  }
+
+  /**
+   * Distance en mètres à la sonde mesurée la plus proche, ou NaN si inconnue.
+   *
+   * C'est le seul indicateur honnête de ce que vaut le modèle localement : au-delà de
+   * quelques dizaines de mètres, la valeur affichée est interpolée entre des traces
+   * éloignées et non mesurée. Un haut-fond y est invisible.
+   */
+  soundingDistanceAt(lon, lat) {
+    if (!this.coverage) return NaN;
+    const index = this.indexAt(lon, lat);
+    return index < 0 ? NaN : this.coverage[index];
   }
 }
 

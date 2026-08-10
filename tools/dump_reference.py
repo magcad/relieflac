@@ -65,9 +65,15 @@ def main() -> int:
             "z": None if not np.isfinite(z) else round(z, 2),
         })
 
+    coverage = meta.get("coverage", {})
+
     reference = {
         "generated_by": "tools/dump_reference.py",
         "lut_max_depth_m": lut_max,
+        "coverage": {
+            key: coverage.get(key)
+            for key in ("median_m", "max_m", "share_within_25m", "share_beyond_60m")
+        },
         "safety_depth_m": palette["safety_contour"]["draft_m"] + palette["safety_contour"]["margin_m"],
         "presets": presets,
         "bed": {"width": meta["width"], "height": meta["height"], "probes": probes},

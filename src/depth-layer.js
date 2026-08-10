@@ -33,7 +33,11 @@ precision highp float;
 
 uniform sampler2D u_bed;
 uniform sampler2D u_lut;
+uniform sampler2D u_coverage;
 uniform vec2 u_texSize;
+uniform float u_voidRadius;
+uniform bool u_showVoids;
+uniform bool u_hasCoverage;
 uniform float u_base;
 uniform float u_interval;
 uniform float u_level;
@@ -147,6 +151,26 @@ void main() {
     colour = mix(colour, u_safetyColor, contourLine(depth, u_safe, 2.4) * u_safetyColor.a);
   }
 
+  // Zones non sondées, hachurées à la manière des cartes marines.
+  //
+  // Le levé de 2009 suit des traces distantes de plus de 150 m dans les grands bassins.
+  // Entre elles, la couleur affichée est une interpolation entre des sondes éloignées :
+  // un haut-fond y est invisible et hérite de la profondeur des fosses voisines. Le
+  // hachurage dit où le modèle cesse de reposer sur une mesure — il ne corrige rien,
+  // mais il empêche de faire confiance à ce qui n'est pas mesuré.
+  //
+  // Les hachures sont calculées en coordonnées écran : leur pas reste constant quel que
+  // soit le zoom, ce qui les distingue nettement du dessin des fonds.
+  if (u_showVoids && u_hasCoverage) {
+    float distance = texture(u_coverage, v_uv).r * 255.0;
+    float strength = smoothstep(u_voidRadius, u_voidRadius * 2.5, distance);
+    if (strength > 0.01) {
+      float stripe = fract((gl_FragCoord.x + gl_FragCoord.y) * 0.09);
+      float hatch = 1.0 - smoothstep(0.30, 0.38, abs(stripe - 0.5) * 2.0);
+      colour = mix(colour, vec4(1.0, 1.0, 1.0, colour.a), hatch * strength * 0.55);
+    }
+  }
+
   fragColor = vec4(colour.rgb, colour.a * u_opacity * clamp(coverage, 0.0, 1.0));
 }`;
 
@@ -161,10 +185,10 @@ function compile(gl, type, source, label) {
 }
 
 const UNIFORMS = [
-  'u_matrix', 'u_bed', 'u_lut', 'u_texSize', 'u_base', 'u_interval', 'u_level',
-  'u_offset', 'u_waterPlane', 'u_lutMax', 'u_safe', 'u_opacity', 'u_emerged',
+  'u_matrix', 'u_bed', 'u_lut', 'u_coverage', 'u_texSize', 'u_base', 'u_interval',
+  'u_level', 'u_offset', 'u_waterPlane', 'u_lutMax', 'u_safe', 'u_opacity', 'u_emerged',
   'u_outline', 'u_safetyColor', 'u_bandCount', 'u_bands', 'u_bandColors',
-  'u_showOutlines', 'u_showSafety',
+  'u_showOutlines', 'u_showSafety', 'u_voidRadius', 'u_showVoids', 'u_hasCoverage',
 ];
 
 export class DepthLayer {
@@ -241,6 +265,18 @@ export class DepthLayer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
+    // La carte de couverture est linéaire : c'est une distance, pas un code.
+    this.hasCoverage = Boolean(this.bed.coverageBitmap);
+    if (this.hasCoverage) {
+      this.coverageTexture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, this.coverageTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.bed.coverageBitmap);
+    }
+
     this.ready = true;
     this.#uploadLut();
   }
@@ -266,6 +302,15 @@ export class DepthLayer {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.lutTexture);
     gl.uniform1i(u.u_lut, 1);
+
+    if (this.hasCoverage) {
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, this.coverageTexture);
+      gl.uniform1i(u.u_coverage, 2);
+    }
+    gl.uniform1i(u.u_hasCoverage, this.hasCoverage ? 1 : 0);
+    gl.uniform1f(u.u_voidRadius, s.voidRadius ?? 60);
+    gl.uniform1i(u.u_showVoids, s.showVoids ? 1 : 0);
 
     gl.uniform2f(u.u_texSize, this.bed.width, this.bed.height);
     gl.uniform1f(u.u_base, this.bed.meta.encoding.base);
@@ -309,6 +354,7 @@ export class DepthLayer {
     gl.deleteBuffer(this.buffer);
     gl.deleteTexture(this.bedTexture);
     gl.deleteTexture(this.lutTexture);
+    if (this.coverageTexture) gl.deleteTexture(this.coverageTexture);
     this.ready = false;
   }
 }

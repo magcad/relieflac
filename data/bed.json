@@ -61,6 +61,17 @@
     "max_shallower_m": 9.46,
     "mean_shallower_m": 0.918
   },
+  "coverage": {
+    "unit": "m",
+    "max_encoded_m": 255,
+    "median_m": 43.6,
+    "max_m": 314.5,
+    "share_within_25m": 0.3219,
+    "share_within_60m": 0.6216,
+    "share_beyond_60m": 0.3784,
+    "file": "coverage.png",
+    "note": "Image en niveaux de gris, même emprise et même taille que bed.png : distance en mètres à la sonde mesurée la plus proche, plafonnée à 255. Au-delà de quelques dizaines de mètres, la valeur du modèle est interpolée et non mesurée."
+  },
   "reference_levels": {
     "$comment": "Cote du plan d'eau au moment de chaque levé, en m NGF. C'est ce qui convertit une profondeur en altitude de fond.",
     "ofb2009": {

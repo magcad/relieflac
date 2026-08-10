@@ -155,6 +155,8 @@ function styleFromSettings() {
     safetyColor: hexToVec4(safety.color),
     showOutlines: app.settings.get('showOutlines'),
     showSafety: app.settings.get('showSafety'),
+    showVoids: app.settings.get('showVoids'),
+    voidRadius: app.settings.get('voidRadius_m'),
   };
 }
 
@@ -179,8 +181,18 @@ function onPosition(event) {
   if (Number.isFinite(depth)) {
     value.textContent = depth > 0 ? depth.toFixed(1) : '0';
     value.style.color = depthColor(app.palette, presetName, depth);
-    $('prof-label').textContent = depth > 0 ? 'sous le bateau' : 'fond émergé';
     $('quille-value').textContent = depth > 0 ? `${(depth - draft).toFixed(1)} m` : '—';
+
+    // Dire d'où vient le chiffre. Sur près de 38 % du lac il est interpolé entre des
+    // traces distantes de plus de 60 m, et un haut-fond peut s'y cacher entièrement.
+    const distance = app.bed.soundingDistanceAt(position.lon, position.lat);
+    const unsurveyed = Number.isFinite(distance) && distance > app.settings.get('voidRadius_m');
+    $('prof-label').textContent = depth <= 0
+      ? 'fond émergé'
+      : unsurveyed
+        ? `interpolé — sonde à ${Math.round(distance)} m`
+        : 'sous le bateau';
+    $('prof-label').classList.toggle('is-warning', unsurveyed && depth > 0);
   } else {
     value.textContent = '—';
     value.style.color = '';
@@ -264,6 +276,7 @@ function wireSettings() {
   bind('set-outlines', 'change', (el) => s.set('showOutlines', el.checked));
   bind('set-safety', 'change', (el) => s.set('showSafety', el.checked));
   bind('set-soundings', 'change', (el) => s.set('showSoundings', el.checked));
+  bind('set-voids', 'change', (el) => s.set('showVoids', el.checked));
   bind('set-draft', 'change', (el) => s.set('draft_m', clampNumber(el, 0, 3)));
   bind('set-margin', 'change', (el) => s.set('margin_m', clampNumber(el, 0, 5)));
   bind('set-alarm', 'change', (el) => s.set('alarmEnabled', el.checked));
@@ -332,6 +345,7 @@ function refreshSettingsUi() {
   $('set-outlines').checked = s.get('showOutlines');
   $('set-safety').checked = s.get('showSafety');
   $('set-soundings').checked = s.get('showSoundings');
+  $('set-voids').checked = s.get('showVoids');
   $('set-draft').value = s.get('draft_m');
   $('set-margin').value = s.get('margin_m');
   $('set-alarm').checked = s.get('alarmEnabled');
