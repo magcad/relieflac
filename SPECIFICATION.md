@@ -58,11 +58,42 @@ La cartographie historique existe : elle provient des **campagnes bathymétrique
 | Emprise | lon 1,84309 → 1,91812 ; lat 45,77732 → 45,81844 (WGS84) |
 | Profondeur min / max / moyenne | 0,5 m / **30,9 m** / 8,57 m |
 | Espacement le long des traces | ~10 m (médiane plus proche voisin : 8,9 m ; max 10,3 m) |
-| Espacement entre traces (estimé) | **~100–130 m** (81 km de trace pour 9,76 km²) |
+| Espacement entre traces | **plus de 150 m** dans les grands bassins — voir § 3.1 bis |
 
 Répartition des profondeurs : 0–5 m : 3 403 pts · 5–10 m : 1 824 · 10–15 m : 1 286 · 15–20 m : 747 · 20–25 m : 578 · 25–30 m : 260 · 30–35 m : 20.
 
-> ⚠️ **Conséquence majeure** : la donnée est dense *le long* des traces du bateau sondeur mais espacée de ~100 m *entre* traces. Tout ce qui se trouve entre deux traces est **interpolé**. Un haut-fond ponctuel, un rocher isolé ou une souche peut donc être totalement absent du modèle.
+### 3.1 bis Couverture réelle du levé — le défaut central du modèle
+
+Mesuré par `tools/check_coverage.py`, qui calcule pour chaque cellule du lac la distance à
+la sonde de 2009 la plus proche :
+
+| Distance à la sonde mesurée la plus proche | Part du lac |
+|---|---|
+| ≤ 25 m | **32,2 %** |
+| ≤ 50 m | 55,1 % |
+| ≤ 60 m | 62,2 % |
+| **> 60 m** | **37,8 %, soit 354 ha** |
+| médiane | 44 m |
+| **maximum** | **314 m** |
+
+Ce n'est donc pas un maillage fin mais un **quadrillage de transects** largement espacés.
+
+> ⚠️ **Conséquence, et c'est le défaut le plus grave du modèle.** Le bateau sondeur ne
+> passe pas sur un haut-fond : celui-ci est un **trou dans les données**, que la
+> triangulation comble en reliant les sondes profondes qui l'entourent. L'obstacle
+> **hérite de la profondeur des fosses voisines**. Des îlots qui émergent réellement à la
+> cote du jour peuvent ainsi être affichés à 10–20 m d'eau — cas signalé par l'utilisateur,
+> reproduit et quantifié.
+>
+> Les zones les plus dangereuses sont donc mécaniquement les plus fausses, et l'erreur va
+> dans le mauvais sens : le modèle annonce plus d'eau qu'il n'y en a.
+
+Le MNT LiDAR ne rattrape rien : **99 % de ces trous étaient sous l'eau** au moment du vol
+IGN (plan d'eau à 648,80 m NGF).
+
+Aucun correctif n'est possible avec les données disponibles. Le parti retenu est
+d'**afficher l'ignorance plutôt que de la masquer** — § 6.1 bis. Le seul vrai correctif
+serait le levé multifaisceaux 2011, § 3.5.
 
 ### 3.2 Niveau d'eau temps réel
 
@@ -131,6 +162,38 @@ https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature
 ```
 
 Retourne 4 entités, dont la principale : `MultiPolygon`, nature `Retenue-barrage`, **3 553 sommets**. Licence ouverte Etalab 2.0.
+
+### 3.5 Levé multifaisceaux 2011 — la donnée qui résoudrait tout
+
+En octobre 2011, ENSTA Bretagne, l'Université de Gand, la HafenCity University Hamburg et
+le CIDCO ont réalisé sur le lac, pour le compte d'EDF, un levé hydrographique dans le cadre
+du programme Erasmus Intensive « Hydrography and Geomatics ».
+
+| | |
+|---|---|
+| Matériel | MBES **Kongsberg EM3002** + LiDAR mobile **Leica HDS6200** |
+| Couverture | **totale, Ordre 1 (S-44 OHI)** |
+| Incertitude | **TPU 15 cm à 95 %**, imposée par EDF |
+| Maille du MNT | **1 m** en navigation, **0,5 m** sur les ouvrages |
+| Carte produite | **S-57** (CARIS S-57 Composer), 1:10 000 |
+| Référence verticale | **646 m IGN69** |
+| Cote pendant le levé | ≈ 4 m sous la retenue normale (sécheresse 2011) |
+
+Deux atouts décisifs au-delà de la couverture : la **référence verticale est connue**, ce
+qui lèverait l'inconnue du § 4.4 ; et le levé s'est fait **à basse cote**, donc il couvre la
+frange qui découvre en étiage — la bande aveugle du § 11 où se trouvent les îlots
+problématiques.
+
+Les livrables sont chez **EDF Unité de Production Centre** et les autorités du lac ;
+l'opérateur est le **Ocean Sensing and Mapping Lab d'ENSTA Bretagne**. Le paquet en notre
+possession ne contient que la communication FIG et une vignette de 418 px : ni MNT, ni
+nuage de sondes, ni vectoriel extractible. Détail dans `data/2011 ENSTA/ANALYSE.md`.
+
+> **Point de vigilance** : le rapport indique que le levé manipulait **IGN69** et
+> **NGF-Lallemand** — l'ancien système, celui utilisé par EDF. L'API EDF annonce ses cotes
+> en « m NGF » sans préciser lequel, et le RGE ALTI est en IGN69. Un écart entre les deux
+> serait un biais constant sur toutes les profondeurs, indiscernable de celui que
+> l'étalonnage corrige. À poser explicitement lors de la demande.
 
 ### 3.4 Altimétrie des berges (RGE ALTI®)
 
@@ -367,6 +430,26 @@ contours reste de 2 à 3 px pour un rapport de zoom de 5.
 - **Appui long sur la carte** : affiche la profondeur au point touché (« sonde ponctuelle »).
 - **Maintien de l'écran allumé** (Screen Wake Lock API) tant que l'app est au premier plan.
 
+### 6.1 bis Signalement des zones non sondées
+
+Puisque 37,8 % du lac est à plus de 60 m de toute mesure (§ 3.1 bis) et qu'aucun correctif
+n'est possible, l'application doit dire **où elle sait et où elle devine**. Présenter une
+interpolation avec l'aplomb d'une mesure serait la faute la plus grave.
+
+- `build_grid.py` produit `data/coverage.png` : image en niveaux de gris, même emprise et
+  même taille que `bed.png`, où chaque cellule porte la **distance en mètres à la sonde
+  mesurée la plus proche**, plafonnée à 255. Calculée dans le même passage que la grille,
+  donc toujours cohérente avec elle.
+- Le shader **hachure** les zones au-delà du seuil (défaut 60 m), avec une intensité
+  croissante jusqu'à 2,5 fois le seuil. Les hachures sont calculées en coordonnées écran :
+  leur pas reste constant au zoom, ce qui les distingue nettement du dessin des fonds.
+  C'est la convention des cartes marines pour « non levé ».
+- La profondeur sous le bateau annonce sa provenance : **« interpolé — sonde à N m »** en
+  orange, au lieu de « sous le bateau ».
+- Réglage « Hachurer les zones non sondées », actif par défaut.
+
+`BedGrid.soundingDistanceAt()` expose la même donnée au reste de l'application.
+
 ### 6.2 Page Paramètres — Couleurs des fonds (exigence n°4)
 
 Tout est dans `config/palette.json`, éditable dans l'application et rechargeable aux
@@ -520,13 +603,16 @@ ReliefLac/
 
 ## 9. Lots de livraison
 
+> **État au 11 août 2026 : L0, L1 et L2 sont livrés et en ligne.** Suivi détaillé,
+> points ouverts et pièges rencontrés dans [ETAT.md](ETAT.md).
+
 | Lot | Contenu | Résultat vérifiable |
 |---|---|---|
-| **L0 — Données** | Scripts d'extraction, grille 5 m, polygone du lac, `level.json` + cron | Carte de profondeur générée, vérifiable visuellement contre les cartes halieutiques existantes |
-| **L1 — Carte + GPS** | PWA, MapLibre, position du bateau, overlay coloré, cote EDF affichée, bascule Plan/Ortho, **mode Étalonnage** (§ 15.3) + couche « traces 2009 » | Utilisable sur l'eau : je me vois, je vois les fonds, et je peux étalonner dès la première sortie |
-| **L2 — Paramètres** | Page palette complète, tirant d'eau, unités (m/km/h ↔ m/nœuds), alarme haut-fond | Exigence n°4 satisfaite |
+| **L0 — Données** ✅ | Scripts d'extraction, grille 5 m, polygone du lac, `level.json` + cron | Carte de profondeur générée, vérifiable visuellement contre les cartes halieutiques existantes |
+| **L1 — Carte + GPS** ✅ | PWA, MapLibre, position du bateau, overlay coloré, cote EDF affichée, bascule Plan/Ortho, **mode Étalonnage** (§ 15.3), couche « traces 2009 », **signalement des zones non sondées** (§ 6.1 bis) | Utilisable sur l'eau : je me vois, je vois les fonds, je sais où le modèle devine, et je peux étalonner dès la première sortie |
+| **L2 — Paramètres** ✅ | Page palette complète, tirant d'eau, unités (m/km/h ↔ m/nœuds), alarme haut-fond, sonde ponctuelle, export/import de profil | Exigence n°4 satisfaite |
 | **L3 — Hors ligne** | Service Worker, pré-chargement des tuiles, cote manuelle | Fonctionne sans réseau au milieu du lac |
-| **L4 — Calage & densification** | `Z_2009` confirmé par l'étalonnage, import des logs sondeur (§ 15.4), isobathes, sonde ponctuelle, export/import de profil | Profondeurs validées sondeur en main |
+| **L4 — Calage & densification** | `Z_2009` confirmé par l'étalonnage, **levé multifaisceaux 2011** (§ 3.5), import des logs sondeur (§ 15.4), isobathes étiquetées | Profondeurs validées sondeur en main, couverture complète du lac |
 
 ---
 
@@ -545,7 +631,8 @@ ReliefLac/
 > **Cette application n'est pas un document nautique officiel et ne remplace ni un sondeur, ni la prudence.**
 >
 > - La bathymétrie repose sur un levé du **22 avril 2009**. Les fonds ont pu évoluer (sédiments, souches, dépôts, aménagements).
-> - Les mesures sont espacées d'environ **100 m entre traces** : un haut-fond, un rocher ou une souche isolée peut être **totalement absent** du modèle.
+> - **37,8 % du lac est à plus de 60 m de toute sonde**, jusqu'à 314 m. Dans ces zones — hachurées dans l'application — la profondeur est interpolée entre des transects éloignés. **Un haut-fond y est invisible et hérite de la profondeur des fosses voisines** : un îlot réellement émergé peut être affiché à 10-20 m d'eau. **Ne s'y fier qu'au sondeur.**
+> - Une **bande aveugle** subsiste entre la cote du jour et 648,80 m : ce terrain était sous l'eau lors du vol LiDAR et hors d'atteinte du bateau en 2009. C'est précisément la frange qui découvre en étiage.
 > - La profondeur affichée dépend de la **cote fournie par EDF**, qui peut être périmée ou indisponible, et d'une **cote de référence du levé encore à confirmer**.
 > - EDF peut faire varier le niveau **rapidement** (jusqu'à ~10 cm/jour en période de soutien d'étiage).
 > - **La navigation est interdite en dessous de 642 m NGF** (seuil EDF). L'application affiche l'alerte mais la responsabilité reste au pilote.

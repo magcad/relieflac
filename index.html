@@ -233,9 +233,12 @@
   <div class="panel__body prose">
 
     <div class="warn">
-      <strong>Ce n'est pas un document nautique officiel.</strong> Les sondes de 2009 sont
-      espacées d'environ 100 m entre traces : un haut-fond isolé peut être absent du modèle.
-      La cote de référence du levé reste à confirmer, ce qui décale les profondeurs d'une
+      <strong>Ce n'est pas un document nautique officiel.</strong>
+      <strong>37,8 % du lac est à plus de 60 m de toute sonde</strong>, jusqu'à 314 m.
+      Dans ces zones — hachurées sur la carte — un haut-fond est invisible et hérite de la
+      profondeur des fosses voisines : un îlot réellement émergé peut y être affiché à
+      10-20 m d'eau. <strong>Ne s'y fier qu'au sondeur.</strong> La cote de référence du
+      levé reste par ailleurs à confirmer, ce qui décale toutes les profondeurs d'une
       constante. Ne remplace ni un sondeur, ni la prudence.
     </div>
 
@@ -264,7 +267,11 @@ profondeur = cote_du_jour − z_fond</code></pre>
     <h2>Limites connues</h2>
     <ul>
       <li>Levé de <strong>2009</strong> : les fonds ont pu évoluer.</li>
-      <li>Environ <strong>100 m entre traces</strong> : tout ce qui est entre deux traces est interpolé.</li>
+      <li><strong>Couverture du levé</strong> — 32 % du lac est à moins de 25 m d'une sonde,
+        62 % à moins de 60 m. Les <strong>37,8 % restants</strong>, soit 354 ha, sont
+        interpolés entre des transects distants de 150 à 314 m, et hachurés sur la carte.</li>
+      <li>Un levé <strong>multifaisceaux à couverture totale</strong> existe (ENSTA Bretagne,
+        Gand, HCU Hamburg, CIDCO pour EDF, 2011) ; il n'est pas encore en notre possession.</li>
       <li>Une <strong>bande aveugle</strong> subsiste entre la cote actuelle et 648,80 m : ce
         terrain était sous l'eau au moment du vol LiDAR et hors d'atteinte du bateau en 2009.</li>
       <li>La cote EDF peut être <strong>périmée</strong> ou indisponible ; l'application affiche
@@ -273,9 +280,10 @@ profondeur = cote_du_jour − z_fond</code></pre>
     </ul>
 
     <p class="hint">
-      Le modèle applique une généralisation biaisée vers le haut-fond : il n'est jamais plus
-      profond qu'une sonde réellement mesurée à moins de 15 m. Les écarts vont donc toujours
-      dans le sens prudent.
+      Là où il repose sur des mesures, le modèle applique une généralisation biaisée vers le
+      haut-fond : il n'est jamais plus profond qu'une sonde réellement mesurée à moins de
+      15 m, de sorte que les écarts vont toujours dans le sens prudent. Cette garantie ne
+      vaut évidemment pas dans les zones hachurées, où il n'y a aucune mesure.
     </p>
 
     <p class="hint">
