@@ -162,6 +162,64 @@ def smooth_masked(values: np.ndarray, sigma_px: float) -> np.ndarray:
     return np.where(valid & (denominator > 1e-6), smoothed, np.nan)
 
 
+# ------------------------------------------------------------- fusion du terrain
+
+
+def fuse_terrain(
+    values: np.ndarray,
+    grid_x: np.ndarray,
+    grid_y: np.ndarray,
+    water_plane: float,
+    margin: float,
+) -> tuple[np.ndarray, dict]:
+    """Fusionne le MNT RGE ALTI là où il décrit du terrain émergé.
+
+    Le levé de 2009 a un angle mort structurel : le bateau sondeur ne passe pas sur
+    un haut-fond, qui devient donc un trou dans les données. La triangulation comble
+    ce trou en interpolant entre les sondes du pourtour — c'est-à-dire en creusant
+    l'obstacle. Ce sont les zones les plus dangereuses qui sont les plus fausses.
+
+    Le LiDAR IGN a survolé le lac à 648,80 m NGF. Au-dessus de cette cote, il mesure
+    du vrai terrain, y compris ces hauts-fonds. On retient le maximum des deux : la
+    fusion ne peut que rendre le fond moins profond.
+    """
+    dem_path = DATA_DIR / "rge_alti.npy"
+    if not dem_path.exists():
+        print("  MNT absent — lancez tools/fetch_rge_alti.py", file=sys.stderr)
+        return values, {"available": False}
+
+    with (DATA_DIR / "rge_alti.json").open(encoding="utf-8") as fh:
+        meta = json.load(fh)
+    dem = np.load(dem_path)
+
+    x0, _, _, y1 = meta["bbox"]
+    res = meta["resolution_m"]
+    to_lambert = Transformer.from_crs(WEBMERC, meta["crs"], always_xy=True)
+    lx, ly = to_lambert.transform(grid_x.ravel(), grid_y.ravel())
+
+    cols = np.floor((lx - x0) / res).astype(np.int64)
+    rows = np.floor((y1 - ly) / res).astype(np.int64)
+    inside = (cols >= 0) & (cols < meta["width"]) & (rows >= 0) & (rows < meta["height"])
+
+    sampled = np.full(lx.shape, np.nan)
+    sampled[inside] = dem[rows[inside], cols[inside]]
+    sampled = sampled.reshape(values.shape)
+
+    emerged = np.isfinite(sampled) & (sampled > water_plane + margin)
+    raised = emerged & np.isfinite(values) & (sampled > values)
+    result = np.where(raised, sampled, values)
+
+    deltas = (sampled - values)[raised]
+    return result, {
+        "available": True,
+        "water_plane_m_ngf": water_plane,
+        "cells_terrain": int(emerged.sum()),
+        "cells_raised": int(raised.sum()),
+        "max_shallower_m": round(float(deltas.max()), 2) if deltas.size else 0.0,
+        "median_shallower_m": round(float(np.median(deltas)), 2) if deltas.size else 0.0,
+    }
+
+
 # ------------------------------------------------- généralisation « haut-fond »
 
 
@@ -314,6 +372,21 @@ def main() -> int:
         print(f"lissage gaussien (σ = {grid_cfg['smoothing_sigma_m']} m = {sigma_px:.1f} px)…")
         values = np.where(mask, smooth_masked(values, sigma_px), np.nan)
 
+    terrain_cfg = grid_cfg.get("terrain_source", {})
+    terrain_stats = None
+    if terrain_cfg.get("enabled"):
+        water_plane = float(config["reference_levels"]["rge_alti"]["value_m_ngf"])
+        print(f"fusion du terrain émergé mesuré au LiDAR (> {water_plane} m NGF)…")
+        values, terrain_stats = fuse_terrain(
+            values, grid_x, grid_y, water_plane, float(terrain_cfg.get("margin_m", 0.05))
+        )
+        values = np.where(mask, values, np.nan)
+        if terrain_stats.get("available"):
+            print(f"  {terrain_stats['cells_raised']:,} cellules relevées sur "
+                  f"{terrain_stats['cells_terrain']:,} de terrain · "
+                  f"médiane {terrain_stats['median_shallower_m']:.2f} m, "
+                  f"maximum {terrain_stats['max_shallower_m']:.2f} m moins d'eau")
+
     shoal_cfg = grid_cfg.get("shoal_bias", {})
     shoal_stats = None
     if shoal_cfg.get("enabled"):
@@ -370,6 +443,7 @@ def main() -> int:
             ],
             "coverage_ratio": round(float(coverage), 4),
             "smoothing_sigma_m": grid_cfg["smoothing_sigma_m"],
+            "terrain_source": terrain_stats,
             "shoal_bias": shoal_stats,
             "reference_levels": config["reference_levels"],
             "sources": report,

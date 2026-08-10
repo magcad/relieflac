@@ -42,16 +42,24 @@
   },
   "z_range_m_ngf": [
     618.53,
-    650.98
+    655.72
   ],
   "coverage_ratio": 0.9998,
   "smoothing_sigma_m": 15.0,
+  "terrain_source": {
+    "available": true,
+    "water_plane_m_ngf": 648.8,
+    "cells_terrain": 789814,
+    "cells_raised": 10000,
+    "max_shallower_m": 16.66,
+    "median_shallower_m": 1.38
+  },
   "shoal_bias": {
     "radius_m": 21.51491703756115,
-    "cells_raised": 39835,
+    "cells_raised": 39036,
     "cells_valid": 374698,
     "max_shallower_m": 9.46,
-    "mean_shallower_m": 0.917
+    "mean_shallower_m": 0.918
   },
   "reference_levels": {
     "$comment": "Cote du plan d'eau au moment de chaque levé, en m NGF. C'est ce qui convertit une profondeur en altitude de fond.",
