@@ -1,0 +1,10 @@
+{
+  "label": "Contrainte de bord — altitude du terrain au trait de côte",
+  "source": "IGN RGE ALTI® échantillonné le long du contour BD TOPO® V3",
+  "license": "Licence Ouverte / Etalab 2.0 — © IGN",
+  "spacing_m": 25.0,
+  "count": 1672,
+  "median_bank_m_ngf": 649.32,
+  "substituted": 185,
+  "note": "Altitudes absolues en m NGF, indépendantes de toute cote de référence : ces points ancrent l'interpolation même si Z_2009 change."
+}

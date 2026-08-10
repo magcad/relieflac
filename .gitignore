@@ -1,0 +1,21 @@
+# Archives sources retéléchargeables (14 Mo pour le seul fichier OFB)
+.cache/
+
+# Fichiers déposés par l'utilisateur avant normalisation (logs de sondeur, exports Garmin…)
+/data/imports/*
+!/data/imports/README.md
+!/data/imports/.gitkeep
+
+# Node
+node_modules/
+dist/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Système
+Thumbs.db
+.DS_Store

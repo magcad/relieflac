@@ -1,0 +1,61 @@
+{
+  "$comment": "Paramètres du modèle bathymétrique. Modifier ici, puis relancer tools/build_grid.py.",
+
+  "lake": {
+    "name": "Lac de Vassivière",
+    "code_entite_hydrographique": "L0115203",
+    "normal_level_m_ngf": 650.0,
+    "dam_crest_m_ngf": 652.9,
+    "navigation_forbidden_below_m_ngf": 642.0,
+    "navigation_delicate_below_m_ngf": 643.0
+  },
+
+  "reference_levels": {
+    "$comment": "Cote du plan d'eau au moment de chaque levé, en m NGF. C'est ce qui convertit une profondeur en altitude de fond.",
+
+    "ofb2009": {
+      "value_m_ngf": 648.0,
+      "confirmed": false,
+      "plausible_range_m_ngf": [645.0, 648.8],
+      "note": "Cote du lac le 22/04/2009, jour du levé OFB. NON CONFIRMÉE. Établi que la valeur est <= ~648,8 m NGF (les 460 sondes les moins profondes tombent dans le plan d'eau du LiDAR RGE ALTI, constant à 648,80 m). À caler par étalonnage au sondeur (SPECIFICATION.md § 15)."
+    },
+
+    "rge_alti": {
+      "value_m_ngf": 648.8,
+      "confirmed": true,
+      "note": "Cote du plan d'eau au moment de l'acquisition LiDAR IGN, mesurée via l'API altimétrie. Au-dessus de cette altitude, le RGE ALTI décrit les berges réelles."
+    }
+  },
+
+  "grid": {
+    "crs": "EPSG:2154",
+    "resolution_m": 5.0,
+    "margin_m": 100.0,
+    "smoothing_sigma_m": 15.0,
+    "shore_constraint": {
+      "enabled": true,
+      "$comment": "Injection de sondes virtuelles de profondeur 0 le long du trait de côte BD TOPO, pour éviter l'extrapolation aberrante près des rives.",
+      "spacing_m": 25.0,
+      "depth_m": 0.0
+    },
+    "bank_source": {
+      "enabled": true,
+      "$comment": "Au-dessus de la cote LiDAR, la grille est remplacée par le RGE ALTI : les berges découvertes à basse cote sont ainsi correctes."
+    }
+  },
+
+  "encoding": {
+    "$comment": "Terrain-RGB : altitude_m = base + (R*65536 + G*256 + B) * interval",
+    "base": -1000.0,
+    "interval": 0.01,
+    "nodata_rgb": [0, 0, 0]
+  },
+
+  "level_source": {
+    "provider": "EDF — Ma Rivière et Moi",
+    "url": "https://mariviereetmoi.edf.fr/api/v5/practicabilities/31856100",
+    "public_url": "https://mariviereetmoi.edf.fr/#/map/place/PRACTICABILITY/31856100",
+    "place_id": 31856100,
+    "unit": "METER_NGF"
+  }
+}

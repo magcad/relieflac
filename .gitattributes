@@ -1,0 +1,6 @@
+# Le dépôt stocke tout en LF ; les scripts des workflows tournent sous Linux.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.webp binary

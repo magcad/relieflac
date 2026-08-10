@@ -1,0 +1,18 @@
+{
+  "label": "Levé bathymétrique OFB / Onema — retenue de Vassivière",
+  "source": "Système d'Information sur l'Eau / OFB — « Bathymétrie plans d'eau »",
+  "source_url": "https://data.eaufrance.fr/jdd/c31746f7-311a-41c7-b995-6cb78a2ddc25",
+  "protocol": "Alleaume et al., 2010 — Onema/Cemagref",
+  "license": "Licence Ouverte / Open Licence 2.0",
+  "survey_dates": [
+    "2009-04-22"
+  ],
+  "reference": {
+    "mode": "fixed_key",
+    "key": "ofb2009"
+  },
+  "weight": 1.0,
+  "note": "Sondes espacées d'environ 10 m le long des traces, mais d'environ 100 à 130 m entre traces : tout ce qui est entre deux traces est interpolé.",
+  "count": 8118,
+  "generated_at": "2026-08-10T18:43:19+00:00"
+}

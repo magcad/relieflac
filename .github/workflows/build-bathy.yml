@@ -1,0 +1,57 @@
+name: Reconstruire le modèle bathymétrique
+
+# Lancement manuel : les sources changent rarement (levé de 2009, contour IGN).
+# À relancer après un import de sondes ou une modification de config/model.json.
+on:
+  workflow_dispatch:
+    inputs:
+      refresh_sources:
+        description: "Retélécharger le levé OFB, le contour IGN et la contrainte de bord"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: pip install --quiet numpy scipy shapely pyproj Pillow
+
+      - name: Rafraîchir les sources
+        if: ${{ inputs.refresh_sources }}
+        run: |
+          python tools/extract_ofb.py
+          python tools/fetch_lake_polygon.py
+          python tools/build_shore_constraint.py
+
+      - name: Construire la grille
+        run: python tools/build_grid.py
+
+      - name: Aperçu de contrôle
+        run: python tools/preview_grid.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apercu
+          path: data/preview.png
+
+      - name: Commiter le modèle
+        run: |
+          if git diff --quiet -- data/; then
+            echo "modèle inchangé"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git commit -m "reconstruction du modèle bathymétrique"
+          git push

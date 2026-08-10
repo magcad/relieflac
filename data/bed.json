@@ -1,0 +1,82 @@
+{
+  "description": "Altitude du fond du lac de Vassivière, encodée en Terrain-RGB.",
+  "formula": "altitude_m_ngf = base + (R * 65536 + G * 256 + B) * interval ; alpha = 0 → pas de donnée",
+  "crs": "EPSG:3857",
+  "width": 1228,
+  "height": 964,
+  "resolution_ground_m": 5.0,
+  "resolution_crs_m": 7.1716,
+  "bbox_3857": [
+    205008.5247316736,
+    5744576.511456641,
+    213815.29743904862,
+    5751489.971464711
+  ],
+  "bounds_wgs84": {
+    "west": 1.8416229114125728,
+    "south": 45.77631999324139,
+    "east": 1.9207354966805892,
+    "north": 45.81961877515333
+  },
+  "corners_wgs84": [
+    [
+      1.8416229114125728,
+      45.81961877515333
+    ],
+    [
+      1.9207354966805892,
+      45.81961877515333
+    ],
+    [
+      1.9207354966805892,
+      45.77631999324139
+    ],
+    [
+      1.8416229114125728,
+      45.77631999324139
+    ]
+  ],
+  "encoding": {
+    "base": -1000.0,
+    "interval": 0.01
+  },
+  "z_range_m_ngf": [
+    618.53,
+    650.98
+  ],
+  "coverage_ratio": 0.9998,
+  "smoothing_sigma_m": 15.0,
+  "reference_levels": {
+    "$comment": "Cote du plan d'eau au moment de chaque levé, en m NGF. C'est ce qui convertit une profondeur en altitude de fond.",
+    "ofb2009": {
+      "value_m_ngf": 648.0,
+      "confirmed": false,
+      "plausible_range_m_ngf": [
+        645.0,
+        648.8
+      ],
+      "note": "Cote du lac le 22/04/2009, jour du levé OFB. NON CONFIRMÉE. Établi que la valeur est <= ~648,8 m NGF (les 460 sondes les moins profondes tombent dans le plan d'eau du LiDAR RGE ALTI, constant à 648,80 m). À caler par étalonnage au sondeur (SPECIFICATION.md § 15)."
+    },
+    "rge_alti": {
+      "value_m_ngf": 648.8,
+      "confirmed": true,
+      "note": "Cote du plan d'eau au moment de l'acquisition LiDAR IGN, mesurée via l'API altimétrie. Au-dessus de cette altitude, le RGE ALTI décrit les berges réelles."
+    }
+  },
+  "sources": {
+    "ofb2009": {
+      "label": "Levé bathymétrique OFB / Onema — retenue de Vassivière",
+      "kept": 8118,
+      "skipped": 0,
+      "reference_mode": "fixed_key",
+      "reference_levels_m_ngf": [
+        648.0
+      ],
+      "weight": 1.0
+    },
+    "shore_constraint": {
+      "label": "Contrainte de bord (trait de côte)",
+      "kept": 1672
+    }
+  }
+}
