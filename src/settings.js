@@ -88,6 +88,8 @@ export function defaultsFrom(palette, model) {
     // affichage des points mesurés en surcouche.
     transducer_m: 0.3,
     showProbes: true,
+    // Grand affichage de la profondeur sous le bateau (bascule au toucher de l'indicateur).
+    bigDepth: false,
     // Retouches de couleurs par l'utilisateur, par préréglage : { marine: { emerged_color,
     // bands: [{ max_depth_m, color }] , stops: [...] } }. Appliquées sur la palette en
     // mémoire au démarrage ; « réinitialiser » les efface.

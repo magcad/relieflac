@@ -88,11 +88,34 @@ a { color: var(--accent); }
   padding: .7rem .9rem calc(.7rem + var(--safe-bottom));
   background: linear-gradient(#0f141700, #0f1417f2 35%);
 }
-.depth { display: flex; align-items: baseline; gap: .3rem; flex-wrap: wrap; }
+.depth { display: flex; align-items: baseline; gap: .3rem; flex-wrap: wrap; cursor: pointer; }
+.depth[hidden] { display: none; }
+.depth:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
 .depth__value { font-size: 3rem; font-weight: 700; letter-spacing: -.03em; line-height: 1; }
 .depth__unit { font-size: 1.1rem; color: var(--muted); }
 .depth__label { width: 100%; font-size: .72rem; color: var(--muted); }
 .depth__label.is-warning { color: var(--warn); font-weight: 600; }
+
+/* Grand affichage de la profondeur, ancré sous le bateau (calque HTML sur la carte).
+   Placé sous l'étrave : ne masque pas l'eau vers laquelle on avance. */
+.depth-under {
+  position: absolute; top: 0; left: 0; z-index: 4;
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+  pointer-events: auto; cursor: pointer; text-align: center;
+  will-change: transform;
+  /* Halo sombre : reste lisible sur fond clair comme foncé, sans bloc opaque. */
+  text-shadow: 0 1px 2px #000c, 0 0 14px #000a;
+}
+.depth-under__num {
+  font-size: 5.2rem; font-weight: 800; line-height: .9; letter-spacing: -.04em;
+  font-variant-numeric: tabular-nums;
+}
+.depth-under__unit { font-size: 1.6rem; font-weight: 600; opacity: .85; margin-top: -.15rem; }
+.depth-under__label {
+  margin-top: .15rem; font-size: .8rem; font-weight: 500; letter-spacing: .01em;
+  color: #fff; opacity: .8;
+}
+.depth-under.is-warning .depth-under__label { color: var(--warn); opacity: 1; font-weight: 600; }
 
 .readouts { display: grid; gap: .15rem; margin: 0; text-align: right; }
 .readouts div { display: flex; gap: .5rem; justify-content: flex-end; }

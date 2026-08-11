@@ -26,6 +26,7 @@ const app = {
   editingProbeId: null, editingSimId: null, simMode: false,
   captureOpen: false,
   heading: null,
+  lastBigDepth: null,
 };
 
 // ---------------------------------------------------------------- démarrage
@@ -70,6 +71,7 @@ async function boot() {
     wireSim();
     wireCompass();
     wireMap();
+    wireBigDepth();
     route();
 
     refreshLevelUi();
@@ -80,6 +82,7 @@ async function boot() {
     refreshProbesOnMap();
     refreshSimOnMap();
     refreshCaptureUi();
+    applyBigDepthMode();
 
     app.geo.addEventListener('position', onPosition);
     app.geo.addEventListener('status', onGeoStatus);
@@ -201,26 +204,33 @@ function onPosition(event) {
 
   const value = $('prof-value');
   if (Number.isFinite(depth)) {
-    value.textContent = depth > 0 ? depth.toFixed(1) : '0';
-    value.style.color = depthColor(app.palette, presetName, depth);
+    const text = depth > 0 ? depth.toFixed(1) : '0';
+    const color = depthColor(app.palette, presetName, depth);
+    value.textContent = text;
+    value.style.color = color;
     $('quille-value').textContent = depth > 0 ? `${(depth - draft).toFixed(1)} m` : '—';
 
     // Dire d'où vient le chiffre. Sur près de 38 % du lac il est interpolé entre des
     // traces distantes de plus de 60 m, et un haut-fond peut s'y cacher entièrement.
     const distance = app.bed.soundingDistanceAt(position.lon, position.lat);
     const unsurveyed = Number.isFinite(distance) && distance > app.settings.get('voidRadius_m');
-    $('prof-label').textContent = depth <= 0
+    const label = depth <= 0
       ? 'fond émergé'
       : unsurveyed
         ? `interpolé — sonde à ${Math.round(distance)} m`
         : 'sous le bateau';
-    $('prof-label').classList.toggle('is-warning', unsurveyed && depth > 0);
+    const warning = unsurveyed && depth > 0;
+    $('prof-label').textContent = label;
+    $('prof-label').classList.toggle('is-warning', warning);
+    app.lastBigDepth = { value: text, label, color, warning };
   } else {
     value.textContent = '—';
     value.style.color = '';
     $('prof-label').textContent = 'hors emprise du lac';
     $('quille-value').textContent = '—';
+    app.lastBigDepth = { value: '—', label: 'hors emprise du lac', color: '', warning: false };
   }
+  if (app.settings.get('bigDepth')) app.lakeMap.setBigDepth(app.lastBigDepth);
 
   $('vitesse-value').textContent = formatSpeed(position.speed, app.settings.get('speedUnit'));
 
@@ -241,6 +251,29 @@ function onGeoStatus(event) {
   if (status !== 'active') $('prof-label').textContent = 'position en attente';
   if (status === 'denied' || status === 'unsupported') setGpsState(null, status);
   else if (status !== 'active') setGpsState(null, 'searching');
+}
+
+// ----------------------------------------------- grand affichage sous le bateau
+
+function wireBigDepth() {
+  const box = $('depth-box');
+  box.addEventListener('click', toggleBigDepth);
+  box.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleBigDepth(); }
+  });
+  // Le calque sous le bateau rebascule vers le bas quand on le touche.
+  app.lakeMap.addEventListener('bigdepthtoggle', toggleBigDepth);
+}
+
+function toggleBigDepth() {
+  app.settings.set('bigDepth', !app.settings.get('bigDepth'));
+  applyBigDepthMode();
+}
+
+function applyBigDepthMode() {
+  const on = app.settings.get('bigDepth');
+  $('depth-box').hidden = on;
+  app.lakeMap.setBigDepth(on ? (app.lastBigDepth ?? { value: '—', label: '', color: '' }) : null);
 }
 
 function updateAlarm(depth) {

@@ -78,6 +78,25 @@ export class LakeMap extends EventTarget {
 
     this.map.addControl(new ScaleControl({ maxWidth: 110, unit: 'metric' }), 'bottom-left');
 
+    // Grand affichage de la profondeur, ancré sous le bateau pour ne pas masquer l'eau
+    // devant l'étrave en navigation. C'est un simple calque HTML : il ne tourne pas avec la
+    // carte (toujours lisible à l'endroit) et se repositionne à chaque déplacement.
+    this.bigDepth = document.createElement('div');
+    this.bigDepth.className = 'depth-under';
+    this.bigDepth.hidden = true;
+    this.bigDepth.title = 'Toucher pour replacer en bas';
+    this.bigDepth.innerHTML = '<span class="depth-under__num">—</span>'
+      + '<span class="depth-under__unit">m</span>'
+      + '<span class="depth-under__label"></span>';
+    this.bigNum = this.bigDepth.querySelector('.depth-under__num');
+    this.bigLabel = this.bigDepth.querySelector('.depth-under__label');
+    this.map.getContainer().appendChild(this.bigDepth);
+    this.bigDepth.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.dispatchEvent(new CustomEvent('bigdepthtoggle'));
+    });
+    this.map.on('move', () => this.#placeBigDepth());
+
     // On attend `style.load` et non `load` : `load` exige en plus une première image
     // rendue, qui n'arrive jamais tant que la page est masquée — la boucle de rendu
     // repose sur requestAnimationFrame, suspendu dans un onglet en arrière-plan.
@@ -230,8 +249,10 @@ export class LakeMap extends EventTarget {
 
   setPosition(position, { follow }) {
     const { lon, lat, accuracy } = position;
+    this.boatLngLat = [lon, lat];
     this.boat.setLngLat([lon, lat]);
     if (!this.boat._map) this.boat.addTo(this.map);
+    this.#placeBigDepth();
 
     this.map.getSource('precision').setData(
       accuracy ? circlePolygon(lon, lat, accuracy) : EMPTY,
@@ -258,6 +279,30 @@ export class LakeMap extends EventTarget {
     if (!Number.isFinite(heading)) return;
     this.boat.setRotation(heading);
     if (trackUp) this.map.setBearing(heading);
+  }
+
+  /**
+   * Grand affichage de profondeur sous le bateau. `state` = null pour masquer, sinon
+   * { value, label, color, warning }. Le chiffre reprend la couleur de la plage.
+   */
+  setBigDepth(state) {
+    if (!state) { this.bigDepth.hidden = true; return; }
+    this.bigDepth.hidden = false;
+    this.bigNum.textContent = state.value;
+    this.bigLabel.textContent = state.label ?? '';
+    this.bigDepth.style.color = state.color || '';
+    this.bigDepth.classList.toggle('is-warning', Boolean(state.warning));
+    this.#placeBigDepth();
+  }
+
+  #placeBigDepth() {
+    if (this.bigDepth.hidden) return;
+    // À défaut de position GPS, on l'ancre au centre visible pour éviter un saut au coin.
+    const anchor = this.boatLngLat ?? this.map.getCenter().toArray();
+    const p = this.map.project(anchor);
+    // translate(-50%, …) centre horizontalement ; le décalage vertical dégage l'icône du
+    // bateau pour placer le chiffre juste en dessous.
+    this.bigDepth.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, 30px)`;
   }
 
   resetNorth() {
