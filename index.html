@@ -41,6 +41,15 @@
     <button class="fab" id="btn-cap" type="button" title="Cap en haut / nord en haut" aria-label="Orientation">↑</button>
   </div>
 
+  <form class="capture" id="capture" autocomplete="off">
+    <input class="capture__input" id="cap-input" type="number" inputmode="decimal"
+           step="0.1" min="0" max="60" placeholder="profondeur lue au sondeur"
+           aria-label="Profondeur lue au sondeur, en mètres">
+    <button class="capture__btn" id="btn-capture" type="submit">Relever</button>
+    <button class="capture__btn capture__btn--danger" id="btn-cap-delete" type="button" hidden>Suppr.</button>
+    <button class="capture__btn capture__btn--ghost" id="btn-cap-cancel" type="button" aria-label="Annuler la correction" hidden>✕</button>
+  </form>
+
   <footer class="bottombar">
     <div class="depth">
       <span class="depth__value" id="prof-value">—</span>
@@ -155,6 +164,31 @@
         <input type="number" id="set-offset" min="-5" max="5" step="0.05">
       </label>
       <p class="hint" id="hint-z2009"></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Mes sondes</legend>
+      <p class="hint">
+        Relevez à la main la profondeur lue au sondeur : elle est calée sur la cote du
+        moment et posée sur la carte à votre position. Ces points <strong>mesurés</strong>
+        se distinguent du fond colorié, qui reste interpolé. Exportez-les pour les intégrer
+        durablement au modèle (<code>tools/import_soundings.py</code>).
+      </p>
+      <label class="row">
+        <span>Immersion de la sonde (m)</span>
+        <input type="number" id="set-transducer" min="0" max="2" step="0.05">
+      </label>
+      <label class="row row--switch">
+        <span>Afficher mes sondes sur la carte</span>
+        <input type="checkbox" id="set-probes">
+      </label>
+      <p class="hint" id="probe-count">Aucune sonde enregistrée.</p>
+      <ol class="records" id="probe-records"></ol>
+      <div class="actions">
+        <button type="button" id="btn-probe-csv">Exporter CSV</button>
+        <button type="button" id="btn-probe-geojson">Exporter GeoJSON</button>
+        <button type="button" class="danger" id="btn-probe-clear">Tout effacer</button>
+      </div>
     </fieldset>
 
     <fieldset>

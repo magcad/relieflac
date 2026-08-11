@@ -2,7 +2,7 @@
 
 **Dernière mise à jour** : 11 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 42 contrôles, tous passants
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 49 contrôles, tous passants
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
 Ce document sert à reprendre le travail sans relire tout l'historique.
@@ -18,7 +18,16 @@ La spécification complète est dans [SPECIFICATION.md](SPECIFICATION.md).
 | **L1** | Carte, GPS, fonds coloriés en WebGL, mode Étalonnage, signalement des zones non sondées | ✅ terminé |
 | **L2** | Page Paramètres | ✅ livrée avec L1 |
 | **L3** | Hors ligne — Service Worker, pré-chargement des tuiles | ⬜ à faire |
-| **L4** | Calage `Z_2009` confirmé, import des logs sondeur, isobathes étiquetées | ⬜ à faire |
+| **L4** | Calage `Z_2009` confirmé, import des logs sondeur, isobathes étiquetées | 🟡 en cours |
+
+Mode **« Sonde »** (saisie manuelle) livré le 11/08/2026 : le sondeur du bord est un
+**Eagle** monochrome sans enregistrement ni GPS — on relève la profondeur à la main. Un
+champ toujours présent sur la carte cale la lecture sur la cote du moment
+(`z_fond = cote − profondeur − immersion`), pose une pastille chiffrée à la position GPS,
+et exporte en CSV/GeoJSON directement avalés par `tools/import_soundings.py`. **Toucher une
+pastille** la rouvre en correction (nouvelle valeur recalée sur la cote d'origine) ou en
+suppression ; mêmes actions dans la liste des Paramètres. Code :
+[`src/probes.js`](src/probes.js), câblé dans `src/main.js` (`wireProbes`/`recordProbe`/`beginProbeEdit`).
 
 L'application est utilisable sur l'eau. Elle n'a **jamais été vue fonctionner par
 l'assistant** : l'environnement de test a une page masquée, où `requestAnimationFrame`
@@ -112,13 +121,33 @@ Résolue par le levé 2011 (§ 3.1), ou par des traces de sondeur horodatées (�
 
 ### 3.5 Traces de sondeur
 
-Un ami de l'utilisateur dispose d'un traceur Garmin évolué et devait vérifier ce qu'il peut
-exporter. **Sans nouvelle à ce jour.**
+**Piste Garmin abandonnée pour cet usage.** ActiveCaptain / Quickdraw Community est une
+impasse pour ce projet précis : (a) le format on-device (`ContoursLog.svy` + grilles
+propriétaires) n'est décodé par aucun outil public, GPSBabel refuse ; (b) surtout, la
+donnée appartient à Garmin/à la communauté, sous CGU interdisant la redistribution et sans
+licence ouverte — **incompatible avec une appli libre et gratuite**. Le traceur de l'ami
+n'a donc pas été sollicité.
 
-L'importeur est écrit, testé et prêt : `tools/import_soundings.py` accepte CSV, GPX (y
+Voie retenue à la place : **saisie manuelle** (§ L4 ci-dessus, `src/probes.js`), le sondeur
+du bord étant un Eagle sans export. L'utilisateur collecte lui-même ses points, librement
+rediffusables.
+
+L'importeur reste écrit, testé et prêt : `tools/import_soundings.py` accepte CSV, GPX (y
 compris l'extension Garmin `<gpxx:Depth>`), GeoJSON et KML, gère l'immersion du
 transducteur et **refuse** un fichier non horodaté sans cote de référence explicite.
-Ce qu'il faut demander est listé dans [`data/imports/README.md`](data/imports/README.md).
+L'export CSV du mode Sonde est calibré sur ses colonnes. Détails :
+[`data/imports/README.md`](data/imports/README.md).
+
+### 3.6 Piste drone — combler la frange à basse cote
+
+L'utilisateur possède un **DJI Mini 4 Pro**. Piste sérieuse pour la frange qui découvre :
+photogrammétrie du fond exposé quand EDF marne, calée verticalement sur la ligne d'eau
+(= cote EDF connue du jour). Cible exactement la bande aveugle (§ 3.4) et les îlots
+fantômes (§ 2). **Fenêtre saisonnière** : le lac est tenu à **647 m NGF du 1ᵉʳ avril au
+31 août** (rien à filmer en été), puis baisse 0,5–1 m/semaine dès le 1ᵉʳ septembre, avec
+~2 m de plus en novembre → bas annuel ordinaire **~642–644**, atteint **fin nov.–février**.
+Une **vidange de contrôle** (décennale) découvrirait bien plus, mais rare. À traiter en
+WebODM, fusionner via `import_soundings.py`. Non commencé — dépend de la basse cote.
 
 ---
 
@@ -168,9 +197,10 @@ python tools/preview_grid.py            # contrôle visuel → data/preview.png
 
 ### Vérifications
 
-Ouvrir `/test/`. 42 contrôles : table de couleurs comparée à la référence Python,
-décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, index des
-sondes, géométrie, cote, et **le shader rendu hors MapLibre dans un canvas WebGL2**.
+Ouvrir `/test/`. 49 contrôles : table de couleurs comparée à la référence Python,
+décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
+correction et suppression des sondes manuelles, index des sondes, géométrie, cote, et **le
+shader rendu hors MapLibre dans un canvas WebGL2**.
 
 Après toute modification de `config/palette.json` ou de la grille, relancer
 `python tools/dump_reference.py`, sinon les tests comparent à une référence périmée.

@@ -84,6 +84,10 @@ export function defaultsFrom(palette, model) {
     followBoat: true,
     calibrationOffset_m: 0,
     manualLevel: null,
+    // Sondes saisies à la main : immersion du transducteur sous la flottaison, et
+    // affichage des points mesurés en surcouche.
+    transducer_m: 0.3,
+    showProbes: true,
     z2009_m_ngf: model.reference_levels.ofb2009.value_m_ngf,
     waterPlane_m_ngf: model.reference_levels.rge_alti.value_m_ngf,
   };

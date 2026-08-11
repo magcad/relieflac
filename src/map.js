@@ -182,6 +182,30 @@ export class LakeMap extends EventTarget {
     });
   }
 
+  /**
+   * Sondes saisies à la main : une pastille chiffrée par point, en surcouche du fond
+   * colorié. Des marqueurs HTML plutôt qu'une couche symbole, car les labels de MapLibre
+   * exigent un serveur de glyphes que l'application n'aurait plus hors ligne. Recréés en
+   * bloc à chaque changement (ajout, suppression, ou recalcul après un mouvement de cote) ;
+   * on ne les touche pas à chaque point GPS, donc le coût reste négligeable.
+   */
+  setProbes(points) {
+    if (!this.probeMarkers) this.probeMarkers = [];
+    for (const marker of this.probeMarkers) marker.remove();
+    this.probeMarkers = points.map((p) => {
+      const element = document.createElement('div');
+      element.className = p.editing ? 'probe-mark is-editing' : 'probe-mark';
+      element.textContent = p.label;
+      // Toucher une pastille l'ouvre en correction. stopPropagation empêche que le clic
+      // retombe sur la carte et déclenche la sonde ponctuelle.
+      element.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.dispatchEvent(new CustomEvent('probeselect', { detail: p.id }));
+      });
+      return new Marker({ element, anchor: 'center' }).setLngLat([p.lon, p.lat]).addTo(this.map);
+    });
+  }
+
   setPosition(position, { follow, trackUp }) {
     const { lon, lat, accuracy, heading } = position;
     this.boat.setLngLat([lon, lat]);

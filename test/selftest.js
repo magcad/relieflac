@@ -14,6 +14,7 @@ import { Calibration, makeRecord } from '../src/calibration.js';
 import { bearing, distanceMeters, formatSpeed } from '../src/geo.js';
 import { formatAge, Level } from '../src/level.js';
 import { bandLimits, buildLut, LUT_SIZE, lutIndex } from '../src/palette.js';
+import { Probes, makeProbe } from '../src/probes.js';
 import { Soundings } from '../src/soundings.js';
 import { runShaderChecks } from './shader.js';
 
@@ -128,6 +129,38 @@ export async function run(base = '..') {
   }));
   check('dispersion forte jugée inexploitable', calibration.stats().usable === false);
   calibration.clear();
+
+  // --- sondes saisies à la main -----------------------------------------------
+  // fond = 647,0 − 8,1 − 0,3 = 638,6 ; le modèle dit 630,0 → il annonçait 17,0 m d'eau
+  // là où le sondeur en mesure 8,1 : c'est exactement le haut-fond que le levé a comblé.
+  const probe = makeProbe({
+    position: { lon: 1.87, lat: 45.79, accuracy: 8 },
+    level: 647.0, levelSource: 'live', sounderDepth: 8.1, transducerDepth: 0.3, modelBedZ: 630.0,
+  });
+  check('altitude de fond d\'une sonde manuelle', near(probe.bedZ, 638.6, 1e-9), `${probe.bedZ}`);
+  check('profondeur du modèle au même point', near(probe.modelDepth, 17.0, 1e-9));
+
+  const probes = new Probes();
+  probes.clear();
+  const entry = probes.add(probe);
+  check('sonde mémorisée', probes.count === 1);
+  const csv = probes.toCsv().split('\n');
+  check('export CSV : en-tête import_soundings + une ligne',
+    csv[0].startsWith('lon,lat,depth,time') && csv.length === 2 && csv[1].split(',')[2] === '8.10',
+    csv[0]);
+  const geo = JSON.parse(probes.toGeoJson());
+  check('export GeoJSON exploitable',
+    geo.features.length === 1 && near(geo.features[0].properties.depth, 8.1, 1e-9)
+    && geo.features[0].geometry.coordinates[0] === 1.87);
+
+  // Correction : nouvelle profondeur, même cote d'origine (647,0 − 5,0 − 0,3 = 641,7).
+  probes.update(entry.id, { sounderDepth: 5.0 });
+  const fixed = probes.get(entry.id);
+  check('correction d\'une sonde recalcule l\'altitude',
+    near(fixed.sounderDepth, 5.0, 1e-9) && near(fixed.bedZ, 641.7, 1e-9), `${fixed.bedZ}`);
+  probes.remove(entry.id);
+  check('suppression d\'une sonde', probes.count === 0 && probes.get(entry.id) === null);
+  probes.clear();
 
   // --- sondes de 2009 ---------------------------------------------------------
   const soundings = await Soundings.load(base);

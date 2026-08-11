@@ -7,6 +7,7 @@ import { formatSpeed, Geolocator } from './geo.js';
 import { formatAge, Level, LevelSource } from './level.js';
 import { LakeMap } from './map.js';
 import { bandColors, bandLimits, buildLut, depthColor, hexToVec4, legendEntries } from './palette.js';
+import { Probes, makeProbe } from './probes.js';
 import { Soundings } from './soundings.js';
 import { defaultsFrom, Settings } from './settings.js';
 
@@ -15,9 +16,10 @@ const ROUTES = { '#/': 'vue-carte', '#/parametres': 'vue-parametres', '#/etalonn
 
 const app = {
   palette: null, model: null, bed: null, soundings: null,
-  settings: null, level: null, geo: null, calibration: null,
+  settings: null, level: null, geo: null, calibration: null, probes: null,
   lakeMap: null, depthLayer: null,
   trackUp: false, alarmActive: false, lastAlarmAt: 0,
+  editingProbeId: null,
 };
 
 // ---------------------------------------------------------------- démarrage
@@ -32,6 +34,7 @@ async function boot() {
     app.model = model;
     app.settings = new Settings(defaultsFrom(palette, model));
     app.calibration = new Calibration();
+    app.probes = new Probes();
     app.level = new Level('.');
     app.geo = new Geolocator();
 
@@ -52,6 +55,7 @@ async function boot() {
 
     wireSettings();
     wireCalibration();
+    wireProbes();
     wireMap();
     route();
 
@@ -59,6 +63,8 @@ async function boot() {
     refreshDepthStyle();
     refreshSettingsUi();
     refreshCalibrationUi();
+    refreshProbesUi();
+    refreshProbesOnMap();
 
     app.geo.addEventListener('position', onPosition);
     app.geo.addEventListener('status', onGeoStatus);
@@ -259,6 +265,7 @@ function refreshLevelUi() {
   }
 
   refreshDepthStyle();
+  refreshProbesOnMap();
 }
 
 // --------------------------------------------------------------- réglages
@@ -321,6 +328,7 @@ function wireSettings() {
   s.addEventListener('change', () => {
     refreshSettingsUi();
     refreshDepthStyle();
+    refreshProbesOnMap();
     app.lakeMap.setBasemap(s.get('basemap'));
     app.lakeMap.setSoundings(null, s.get('showSoundings'));
   });
@@ -353,6 +361,9 @@ function refreshSettingsUi() {
   $('set-speed-unit').value = s.get('speedUnit');
   $('set-offset').value = s.get('calibrationOffset_m');
   $('set-manual-level').value = s.get('manualLevel') ?? '';
+  $('set-transducer').value = s.get('transducer_m');
+  $('set-probes').checked = s.get('showProbes');
+  refreshProbesUi();
 
   $('hint-safety').textContent = `Contour de sécurité tracé à ${s.safetyDepth.toFixed(2)} m `
     + `(tirant d'eau ${s.get('draft_m')} + marge ${s.get('margin_m')}).`;
@@ -482,6 +493,170 @@ function refreshCalibrationUi() {
   }));
 
   app.lakeMap?.setMarkers(app.calibration.records);
+}
+
+// ---------------------------------------------------------------- mes sondes
+
+function wireProbes() {
+  $('capture').addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (app.editingProbeId) saveProbeEdit(); else recordProbe();
+  });
+  $('btn-cap-delete').addEventListener('click', deleteEditedProbe);
+  $('btn-cap-cancel').addEventListener('click', endProbeEdit);
+  app.lakeMap.addEventListener('probeselect', (event) => beginProbeEdit(event.detail));
+
+  bind('set-transducer', 'change', (el) => app.settings.set('transducer_m', clampNumber(el, 0, 2)));
+  bind('set-probes', 'change', (el) => app.settings.set('showProbes', el.checked));
+
+  $('btn-probe-csv').addEventListener('click', () => download('relieflac-sondes.csv', app.probes.toCsv(), 'text/csv'));
+  $('btn-probe-geojson').addEventListener('click', () => download('relieflac-sondes.geojson', app.probes.toGeoJson(), 'application/geo+json'));
+  $('btn-probe-clear').addEventListener('click', () => {
+    if (app.probes.count && confirm('Effacer toutes les sondes enregistrées ?')) {
+      endProbeEdit();
+      app.probes.clear();
+    }
+  });
+
+  app.probes.addEventListener('change', () => {
+    refreshProbesUi();
+    refreshProbesOnMap();
+  });
+}
+
+// -------------------------------------------------------- correction d'une sonde
+
+function beginProbeEdit(id) {
+  const record = app.probes.get(id);
+  if (!record) return;
+
+  app.editingProbeId = id;
+  location.hash = '#/'; // ramène sur la carte si l'on éditait depuis la liste des réglages
+
+  const input = $('cap-input');
+  input.value = record.sounderDepth;
+  $('btn-capture').textContent = 'Enregistrer';
+  $('btn-cap-delete').hidden = false;
+  $('btn-cap-cancel').hidden = false;
+  $('capture').classList.add('is-editing');
+
+  refreshProbesOnMap();
+  input.focus();
+  input.select?.();
+  toast('Corrigez la profondeur, ou supprimez le point');
+}
+
+function endProbeEdit() {
+  app.editingProbeId = null;
+  const input = $('cap-input');
+  input.value = '';
+  input.blur();
+  $('btn-capture').textContent = 'Relever';
+  $('btn-cap-delete').hidden = true;
+  $('btn-cap-cancel').hidden = true;
+  $('capture').classList.remove('is-editing');
+  refreshProbesOnMap();
+}
+
+function saveProbeEdit() {
+  const depth = Number($('cap-input').value);
+  if (!Number.isFinite(depth) || depth <= 0) { toast('Saisissez une profondeur valide'); return; }
+  app.probes.update(app.editingProbeId, { sounderDepth: depth });
+  endProbeEdit();
+  toast(`Sonde corrigée : ${depth.toFixed(1)} m`);
+}
+
+function deleteEditedProbe() {
+  if (!app.editingProbeId) return;
+  if (!confirm('Supprimer cette sonde ?')) return;
+  const id = app.editingProbeId;
+  endProbeEdit();
+  app.probes.remove(id);
+  toast('Sonde supprimée');
+}
+
+function recordProbe() {
+  const position = app.geo.position;
+  if (!position) { toast('Position GPS indisponible'); return; }
+
+  const input = $('cap-input');
+  const depth = Number(input.value);
+  if (!Number.isFinite(depth) || depth <= 0) { toast('Saisissez la profondeur lue au sondeur'); return; }
+
+  const state = currentLevel();
+  if (state.value == null) { toast('Cote du lac inconnue — impossible de caler la sonde'); return; }
+
+  app.probes.add(makeProbe({
+    position,
+    level: state.value,
+    levelSource: state.source,
+    sounderDepth: depth,
+    transducerDepth: app.settings.get('transducer_m'),
+    modelBedZ: app.bed.altitudeAt(position.lon, position.lat),
+  }));
+
+  input.value = '';
+  input.blur(); // referme le clavier tactile pour dégager la carte
+  toast(`Sonde ${depth.toFixed(1)} m enregistrée · ${app.probes.count} au total`);
+}
+
+/** Recalcule la profondeur affichée depuis la cote courante, comme le reste de la carte. */
+function refreshProbesOnMap() {
+  if (!app.probes || !app.lakeMap) return;
+  if (!app.settings.get('showProbes')) { app.lakeMap.setProbes([]); return; }
+
+  const level = currentLevel().value;
+  const points = app.probes.records.map((r) => {
+    const depth = Number.isFinite(level) && Number.isFinite(r.bedZ) ? level - r.bedZ : r.sounderDepth;
+    return {
+      id: r.id,
+      lon: r.lon,
+      lat: r.lat,
+      label: depth > 0 ? depth.toFixed(1) : '0',
+      editing: r.id === app.editingProbeId,
+    };
+  });
+  app.lakeMap.setProbes(points);
+}
+
+function refreshProbesUi() {
+  const probes = app.probes;
+  const count = probes?.count ?? 0;
+
+  $('probe-count').textContent = count
+    ? `${count} sonde${count > 1 ? 's' : ''} enregistrée${count > 1 ? 's' : ''}.`
+    : 'Aucune sonde enregistrée.';
+  $('btn-probe-csv').disabled = !count;
+  $('btn-probe-geojson').disabled = !count;
+  $('btn-probe-clear').disabled = !count;
+
+  const list = $('probe-records');
+  list.replaceChildren(...(probes?.records ?? []).slice().reverse().map((r) => {
+    const item = document.createElement('li');
+    const when = new Date(r.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+    const modelText = Number.isFinite(r.modelDepth) && r.modelDepth > 0
+      ? ` · modèle ${r.modelDepth.toFixed(1)} m` : '';
+    item.innerHTML = `<span class="residual">${r.sounderDepth.toFixed(1)} m</span>
+      <span class="hint">${when}${modelText}</span>`;
+
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.textContent = '✎';
+    edit.title = 'Corriger cette sonde sur la carte';
+    edit.addEventListener('click', () => beginProbeEdit(r.id));
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.title = 'Supprimer cette sonde';
+    remove.addEventListener('click', () => {
+      if (app.editingProbeId === r.id) endProbeEdit();
+      app.probes.remove(r.id);
+    });
+
+    item.append(edit, remove);
+    return item;
+  }));
 }
 
 // -------------------------------------------------------------------- carte

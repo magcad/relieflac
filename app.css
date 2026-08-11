@@ -118,6 +118,43 @@ a { color: var(--accent); }
 .boat { width: 34px; height: 34px; }
 .boat svg { width: 100%; height: 100%; filter: drop-shadow(0 1px 3px #000a); }
 
+/* --------------------------------------------------------------- capture sonde */
+
+.capture {
+  position: absolute; left: .6rem; right: .6rem; z-index: 5;
+  bottom: calc(6.3rem + var(--safe-bottom));
+  display: flex; gap: .5rem; align-items: stretch;
+}
+.capture__input {
+  flex: 1; min-width: 0; padding: .55rem .7rem;
+  background: #182027e6; border: 1px solid var(--line); border-radius: 12px;
+  backdrop-filter: blur(6px); font-size: 1rem;
+}
+.capture__input::placeholder { color: var(--muted); }
+.capture__btn {
+  flex: none; padding: .55rem 1rem; border-radius: 12px; cursor: pointer;
+  background: var(--accent); border: 1px solid var(--accent);
+  color: #06202f; font-weight: 650; font-size: 1rem;
+}
+.capture__btn--danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.capture__btn--ghost {
+  padding: .55rem .8rem; background: #182027e6; border: 1px solid var(--line);
+  color: var(--text); backdrop-filter: blur(6px);
+}
+.capture.is-editing .capture__input { border-color: var(--accent); }
+
+/* Pastille d'une sonde mesurée, posée sur la carte. Cyan franc, distinct des points de
+   2009 (blanc pâle) et des repères d'étalonnage (vert / ambre). */
+.probe-mark {
+  display: grid; place-items: center; min-width: 26px; height: 21px; padding: 0 6px;
+  background: #22d3ee; border: 1.5px solid #06303a; border-radius: 999px;
+  color: #062028; font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 3px #0009; cursor: pointer;
+}
+.probe-mark.is-editing {
+  background: #fff; outline: 2px solid var(--accent); outline-offset: 1px;
+}
+
 /* ----------------------------------------------------------------- panneaux */
 
 .panel { background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; }
