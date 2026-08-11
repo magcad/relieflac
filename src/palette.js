@@ -133,6 +133,36 @@ export function buildLut(palette, presetName) {
   return out;
 }
 
+/**
+ * Applique les retouches de l'utilisateur sur un préréglage, en place dans l'objet palette.
+ *
+ * On mute la palette chargée plutôt que de dériver une copie : tout le reste — buildLut,
+ * legendEntries, depthColor, le style du shader — lit `palette.presets[name]` en direct,
+ * donc une seule écriture propage la nouvelle couleur partout. L'override ne porte que sur
+ * ce qu'on sait éditer (couleur émergée, couleurs et bornes de bandes, couleurs d'arrêts) ;
+ * le reste du préréglage (mode, libellé, note) est préservé.
+ */
+export function applyPaletteOverride(palette, name, override) {
+  const preset = palette.presets[name];
+  if (!preset || !override) return;
+  if (override.emerged_color) preset.emerged_color = override.emerged_color;
+  if (override.band_outline_color) preset.band_outline_color = override.band_outline_color;
+  if (preset.mode === 'banded' && Array.isArray(override.bands)) {
+    preset.bands = override.bands.map((b) => ({
+      max_depth_m: b.max_depth_m ?? null,
+      color: b.color,
+      ...(b.label ? { label: b.label } : {}),
+    }));
+  }
+  if (preset.mode === 'continuous' && Array.isArray(override.stops)) {
+    preset.stops = override.stops.map((s) => ({
+      depth_m: s.depth_m,
+      color: s.color,
+      ...(s.label ? { label: s.label } : {}),
+    }));
+  }
+}
+
 /** Couleur CSS correspondant à une profondeur — pour le gros chiffre et les pastilles. */
 export function depthColor(palette, presetName, depth) {
   const preset = palette.presets[presetName ?? palette.active_preset];

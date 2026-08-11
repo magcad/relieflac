@@ -2,7 +2,7 @@
 
 **Dernière mise à jour** : 11 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 49 contrôles, tous passants
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 56 contrôles, tous passants
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
 Ce document sert à reprendre le travail sans relire tout l'historique.
@@ -197,10 +197,11 @@ python tools/preview_grid.py            # contrôle visuel → data/preview.png
 
 ### Vérifications
 
-Ouvrir `/test/`. 49 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 56 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
-correction et suppression des sondes manuelles, index des sondes, géométrie, cote, et **le
-shader rendu hors MapLibre dans un canvas WebGL2**.
+correction et suppression des sondes manuelles, **retouche de palette et points de
+simulation**, index des sondes, géométrie, cote, et **le shader rendu hors MapLibre dans un
+canvas WebGL2**.
 
 Après toute modification de `config/palette.json` ou de la grille, relancer
 `python tools/dump_reference.py`, sinon les tests comparent à une référence périmée.

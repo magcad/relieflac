@@ -206,6 +206,28 @@ export class LakeMap extends EventTarget {
     });
   }
 
+  /**
+   * Points de simulation d'étiage. Même mécanique que setProbes, mais un rendu propre :
+   * une goutte ambre quand le point est immergé, un pictogramme d'îlot quand la cote
+   * simulée l'a fait émerger. Recréés en bloc à chaque changement de cote pour que le
+   * basculement émergé/immergé suive le curseur de niveau.
+   */
+  setSimPoints(points) {
+    if (!this.simMarkers) this.simMarkers = [];
+    for (const marker of this.simMarkers) marker.remove();
+    this.simMarkers = points.map((p) => {
+      const element = document.createElement('div');
+      element.className = p.emerged ? 'sim-mark is-emerged' : 'sim-mark';
+      if (p.editing) element.classList.add('is-editing');
+      element.textContent = p.label;
+      element.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.dispatchEvent(new CustomEvent('simselect', { detail: p.id }));
+      });
+      return new Marker({ element, anchor: 'center' }).setLngLat([p.lon, p.lat]).addTo(this.map);
+    });
+  }
+
   setPosition(position, { follow, trackUp }) {
     const { lon, lat, accuracy, heading } = position;
     this.boat.setLngLat([lon, lat]);

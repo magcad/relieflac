@@ -88,6 +88,10 @@ export function defaultsFrom(palette, model) {
     // affichage des points mesurés en surcouche.
     transducer_m: 0.3,
     showProbes: true,
+    // Retouches de couleurs par l'utilisateur, par préréglage : { marine: { emerged_color,
+    // bands: [{ max_depth_m, color }] , stops: [...] } }. Appliquées sur la palette en
+    // mémoire au démarrage ; « réinitialiser » les efface.
+    paletteOverrides: {},
     z2009_m_ngf: model.reference_levels.ofb2009.value_m_ngf,
     waterPlane_m_ngf: model.reference_levels.rge_alti.value_m_ngf,
   };

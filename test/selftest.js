@@ -13,8 +13,9 @@ import { BedGrid, correctedAltitude } from '../src/bed.js';
 import { Calibration, makeRecord } from '../src/calibration.js';
 import { bearing, distanceMeters, formatSpeed } from '../src/geo.js';
 import { formatAge, Level } from '../src/level.js';
-import { bandLimits, buildLut, LUT_SIZE, lutIndex } from '../src/palette.js';
+import { applyPaletteOverride, bandLimits, buildLut, LUT_SIZE, lutIndex } from '../src/palette.js';
 import { Probes, makeProbe } from '../src/probes.js';
+import { SimPoints } from '../src/sim.js';
 import { Soundings } from '../src/soundings.js';
 import { runShaderChecks } from './shader.js';
 
@@ -161,6 +162,34 @@ export async function run(base = '..') {
   probes.remove(entry.id);
   check('suppression d\'une sonde', probes.count === 0 && probes.get(entry.id) === null);
   probes.clear();
+
+  // --- retouche de palette -----------------------------------------------------
+  // On travaille sur une copie profonde pour ne pas polluer la palette de référence.
+  const editable = JSON.parse(JSON.stringify(palette));
+  applyPaletteOverride(editable, 'marine', {
+    emerged_color: '#123456',
+    bands: [{ max_depth_m: 2, color: '#ff0000' }, { max_depth_m: null, color: '#0000ff' }],
+  });
+  check('retouche : couleur émergée appliquée', editable.presets.marine.emerged_color === '#123456');
+  check('retouche : bandes remplacées', editable.presets.marine.bands.length === 2);
+  // À 5 m, la table doit désormais renvoyer le bleu de la dernière bande (au-delà de 2 m).
+  check('retouche : la table suit la nouvelle bande',
+    hexAt(buildLut(editable, 'marine'), 5, reference.lut_max_depth_m) === '#0000ff',
+    hexAt(buildLut(editable, 'marine'), 5, reference.lut_max_depth_m));
+
+  // --- points de simulation ----------------------------------------------------
+  const sim = new SimPoints();
+  sim.clear();
+  const simPoint = sim.add({ lon: 1.87, lat: 45.79, bedZ: 645.0 });
+  check('point de simulation mémorisé', sim.count === 1 && sim.get(simPoint.id).bedZ === 645.0);
+  // À 647 m NGF le fond à 645 est sous 2 m d'eau ; à 644 il émerge de 1 m.
+  check('émergence pilotée par la cote',
+    647 - simPoint.bedZ === 2.0 && 644 - simPoint.bedZ === -1.0);
+  sim.update(simPoint.id, { bedZ: 646.0 });
+  check('altitude d\'un témoin ajustable', sim.get(simPoint.id).bedZ === 646.0);
+  sim.remove(simPoint.id);
+  check('suppression d\'un témoin', sim.count === 0);
+  sim.clear();
 
   // --- sondes de 2009 ---------------------------------------------------------
   const soundings = await Soundings.load(base);

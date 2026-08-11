@@ -19,6 +19,22 @@
 <section id="vue-carte" class="view is-active">
   <div id="map"></div>
 
+  <!-- Boussole de navigation : ruban de cap qui défile sous un repère fixe. -->
+  <div class="compass" id="compass" role="img" aria-label="Cap de navigation">
+    <div class="compass__viewport">
+      <div class="compass__ribbon" id="compass-ribbon"></div>
+      <div class="compass__fade compass__fade--l"></div>
+      <div class="compass__fade compass__fade--r"></div>
+    </div>
+    <div class="compass__pointer"></div>
+    <div class="compass__hud">
+      <span class="compass__deg" id="compass-deg">•••</span>
+    </div>
+    <button class="compass__gps" id="compass-gps" type="button" title="État du signal GPS" aria-label="État du signal GPS">
+      <span class="compass__gps-dot"></span><span class="compass__gps-text" id="compass-gps-text">GPS</span>
+    </button>
+  </div>
+
   <header class="topbar">
     <button class="chip chip--level" id="btn-cote" type="button">
       <span class="chip__value" id="cote-value">—</span>
@@ -26,6 +42,7 @@
       <span class="chip__meta" id="cote-meta">chargement…</span>
     </button>
     <div class="topbar__actions">
+      <button class="icon" id="btn-sim" type="button" title="Simulation d'étiage" aria-label="Mode simulation">🌊</button>
       <button class="icon" id="btn-fond" type="button" title="Fond de carte" aria-label="Basculer plan / photo">🛰</button>
       <a class="icon" href="#/etalonnage" title="Étalonnage" aria-label="Étalonnage">🎯</a>
       <a class="icon" href="#/parametres" title="Paramètres" aria-label="Paramètres">⚙</a>
@@ -39,6 +56,34 @@
   <div class="fabs">
     <button class="fab" id="btn-suivi" type="button" title="Suivre le bateau" aria-label="Suivre le bateau">◎</button>
     <button class="fab" id="btn-cap" type="button" title="Cap en haut / nord en haut" aria-label="Orientation">↑</button>
+  </div>
+
+  <!-- Simulation d'étiage : abaisser la cote à la main et voir ce qui émerge. -->
+  <div class="sim" id="sim" hidden>
+    <div class="sim__head">
+      <span class="sim__title">Simulation d'étiage</span>
+      <button class="sim__close" id="btn-sim-exit" type="button" aria-label="Quitter la simulation">✕</button>
+    </div>
+    <div class="sim__level">
+      <output class="sim__cote" id="sim-cote">—</output>
+      <span class="sim__unit">m&nbsp;NGF</span>
+      <span class="sim__delta" id="sim-delta"></span>
+    </div>
+    <input class="sim__slider" id="sim-slider" type="range" min="640" max="650" step="0.05" aria-label="Cote d'eau simulée">
+    <div class="sim__scale"><span>640</span><span>645</span><span>650</span></div>
+    <div class="sim__sel" id="sim-sel" hidden>
+      <span class="sim__sel-label" id="sim-sel-label">Point témoin</span>
+      <div class="sim__sel-btns">
+        <button id="btn-sim-down" type="button" aria-label="Abaisser le fond de 25 cm">–</button>
+        <button id="btn-sim-up" type="button" aria-label="Relever le fond de 25 cm">+</button>
+        <button id="btn-sim-del" type="button" class="sim__sel-del" aria-label="Supprimer le point">Suppr.</button>
+      </div>
+    </div>
+    <div class="sim__foot">
+      <span class="sim__hint" id="sim-hint">Touchez la carte pour poser un point témoin.</span>
+      <button class="sim__reset" id="btn-sim-reset" type="button">Cote EDF</button>
+      <button class="sim__reset sim__reset--danger" id="btn-sim-clear" type="button" hidden>Effacer les points</button>
+    </div>
   </div>
 
   <form class="capture" id="capture" autocomplete="off">
@@ -81,6 +126,19 @@
         <select id="set-preset"></select>
       </label>
       <ul class="legend" id="legende"></ul>
+      <details class="editor" id="palette-editor-box">
+        <summary>Retoucher les couleurs et les plages</summary>
+        <div id="palette-editor"></div>
+        <div class="actions">
+          <button type="button" id="btn-band-add">+ Ajouter une plage</button>
+          <button type="button" class="danger" id="btn-palette-reset">Couleurs d'origine</button>
+        </div>
+        <p class="hint">
+          La couleur de chaque plage et sa profondeur maximale sont modifiables. Les
+          retouches sont mémorisées par préréglage sur cet appareil ; « Réinitialiser »
+          (section Profil) les efface.
+        </p>
+      </details>
       <label class="row">
         <span>Opacité <output id="out-opacity"></output></span>
         <input type="range" id="set-opacity" min="20" max="100" step="5">

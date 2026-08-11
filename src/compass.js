@@ -1,0 +1,105 @@
+// Cap magnétique de l'appareil, pour la boussole de navigation.
+//
+// Le cap du GPS (geo.js) n'existe qu'en mouvement : à l'arrêt ou en dérive lente, il est
+// nul ou faux. La boussole du téléphone, elle, donne une orientation même immobile — c'est
+// ce qu'attend un barreur qui vise un amer. Deux voies selon la plateforme :
+//
+//   • iOS : `event.webkitCompassHeading`, déjà un cap vrai 0–360 (0 = nord), mais l'accès
+//     aux capteurs de mouvement exige une autorisation explicite, déclenchée depuis un
+//     geste de l'utilisateur (DeviceOrientationEvent.requestPermission).
+//   • Android / autres : `event.alpha` d'un événement *absolu*, converti en cap.
+//
+// On lisse en circulaire (plus court chemin angulaire) pour que l'aiguille ne tremble pas.
+
+const SMOOTHING = 0.25;
+
+export class Compass extends EventTarget {
+  constructor() {
+    super();
+    this.heading = null;      // cap lissé, 0–360, ou null
+    this.source = null;       // 'ios' | 'absolute' | 'relative'
+    this.active = false;
+    this.granted = false;
+  }
+
+  get available() {
+    return typeof window !== 'undefined' && 'DeviceOrientationEvent' in window;
+  }
+
+  /** iOS ≥ 13 : l'accès aux capteurs doit être demandé depuis un geste. */
+  get needsPermission() {
+    return this.available && typeof DeviceOrientationEvent.requestPermission === 'function';
+  }
+
+  /**
+   * Démarre l'écoute. Sur iOS, doit être appelé depuis un gestionnaire d'événement
+   * utilisateur (clic), sinon la demande d'autorisation est refusée silencieusement.
+   * @returns {Promise<boolean>} vrai si l'écoute est active.
+   */
+  async start() {
+    if (!this.available) return false;
+    if (this.active) return true;
+
+    if (this.needsPermission) {
+      try {
+        const state = await DeviceOrientationEvent.requestPermission();
+        if (state !== 'granted') return false;
+      } catch {
+        return false; // pas déclenché par un geste, ou refusé
+      }
+    }
+    this.granted = true;
+
+    // `deviceorientationabsolute` fournit un cap référencé au nord ; à défaut on retombe
+    // sur `deviceorientation`, absolu sur iOS via webkitCompassHeading.
+    if ('ondeviceorientationabsolute' in window) {
+      window.addEventListener('deviceorientationabsolute', this.#onEvent);
+    }
+    window.addEventListener('deviceorientation', this.#onEvent);
+    this.active = true;
+    return true;
+  }
+
+  stop() {
+    window.removeEventListener('deviceorientationabsolute', this.#onEvent);
+    window.removeEventListener('deviceorientation', this.#onEvent);
+    this.active = false;
+  }
+
+  // Champ fléché plutôt que méthode privée : `this` reste lié quand on l'ajoute/retire
+  // comme écouteur, et une méthode privée n'est de toute façon pas réassignable.
+  #onEvent = (event) => {
+    let heading = null;
+    let source = null;
+
+    if (Number.isFinite(event.webkitCompassHeading)) {
+      heading = event.webkitCompassHeading; // iOS : cap vrai, sens horaire
+      source = 'ios';
+    } else if (Number.isFinite(event.alpha)) {
+      // alpha : rotation autour de l'axe vertical, sens antihoraire depuis l'est. Le cap
+      // de l'appareil (nez du téléphone) est 360 − alpha, ajusté de l'orientation écran.
+      const screen = (screenAngle() || 0);
+      heading = (360 - event.alpha + screen) % 360;
+      source = event.absolute ? 'absolute' : 'relative';
+    }
+    if (heading == null) return;
+
+    this.heading = smoothAngle(this.heading, (heading + 360) % 360, SMOOTHING);
+    this.source = source;
+    this.dispatchEvent(new CustomEvent('heading', {
+      detail: { heading: this.heading, source },
+    }));
+  };
+}
+
+function screenAngle() {
+  const a = screen.orientation?.angle;
+  return Number.isFinite(a) ? a : (Number.isFinite(window.orientation) ? window.orientation : 0);
+}
+
+/** Lissage exponentiel sur le cercle : on interpole le long du plus court arc. */
+function smoothAngle(previous, next, factor) {
+  if (previous == null) return next;
+  let delta = ((next - previous + 540) % 360) - 180;
+  return (previous + factor * delta + 360) % 360;
+}

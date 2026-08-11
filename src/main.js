@@ -5,9 +5,11 @@ import { Calibration, makeRecord, ON_TRACK_RADIUS_M } from './calibration.js';
 import { DepthLayer } from './depth-layer.js';
 import { formatSpeed, Geolocator } from './geo.js';
 import { formatAge, Level, LevelSource } from './level.js';
+import { Compass } from './compass.js';
 import { LakeMap } from './map.js';
-import { bandColors, bandLimits, buildLut, depthColor, hexToVec4, legendEntries } from './palette.js';
+import { applyPaletteOverride, bandColors, bandLimits, buildLut, depthColor, hexToVec4, legendEntries } from './palette.js';
 import { Probes, makeProbe } from './probes.js';
+import { SimPoints } from './sim.js';
 import { Soundings } from './soundings.js';
 import { defaultsFrom, Settings } from './settings.js';
 
@@ -17,9 +19,11 @@ const ROUTES = { '#/': 'vue-carte', '#/parametres': 'vue-parametres', '#/etalonn
 const app = {
   palette: null, model: null, bed: null, soundings: null,
   settings: null, level: null, geo: null, calibration: null, probes: null,
+  sim: null, compass: null,
   lakeMap: null, depthLayer: null,
   trackUp: false, alarmActive: false, lastAlarmAt: 0,
-  editingProbeId: null,
+  editingProbeId: null, editingSimId: null, simMode: false,
+  heading: null,
 };
 
 // ---------------------------------------------------------------- démarrage
@@ -33,8 +37,13 @@ async function boot() {
     app.palette = palette;
     app.model = model;
     app.settings = new Settings(defaultsFrom(palette, model));
+    // Retouches de couleurs mémorisées : appliquées sur la palette en mémoire, dont tout
+    // le rendu (table, légende, shader) dérive ensuite.
+    applyAllPaletteOverrides();
     app.calibration = new Calibration();
     app.probes = new Probes();
+    app.sim = new SimPoints();
+    app.compass = new Compass();
     app.level = new Level('.');
     app.geo = new Geolocator();
 
@@ -56,6 +65,8 @@ async function boot() {
     wireSettings();
     wireCalibration();
     wireProbes();
+    wireSim();
+    wireCompass();
     wireMap();
     route();
 
@@ -65,6 +76,7 @@ async function boot() {
     refreshCalibrationUi();
     refreshProbesUi();
     refreshProbesOnMap();
+    refreshSimOnMap();
 
     app.geo.addEventListener('position', onPosition);
     app.geo.addEventListener('status', onGeoStatus);
@@ -207,8 +219,13 @@ function onPosition(event) {
   }
 
   $('vitesse-value').textContent = formatSpeed(position.speed, app.settings.get('speedUnit'));
-  $('cap-value').textContent = Number.isFinite(position.heading)
-    ? `${Math.round(position.heading)}°` : '—';
+
+  // Cap : la boussole de l'appareil est prioritaire (elle donne une orientation même à
+  // l'arrêt) ; sans elle, on se rabat sur le cap déduit du déplacement GPS.
+  if (app.compass?.heading == null && Number.isFinite(position.heading)) {
+    updateHeading(position.heading, 'gps');
+  }
+  setGpsState(position.accuracy);
 
   updateAlarm(depth);
   if (location.hash === '#/etalonnage') refreshCalibrationContext();
@@ -218,6 +235,8 @@ function onGeoStatus(event) {
   const { status, message } = event.detail;
   if (message) toast(message, status === 'denied' ? 8000 : 3000);
   if (status !== 'active') $('prof-label').textContent = 'position en attente';
+  if (status === 'denied' || status === 'unsupported') setGpsState(null, status);
+  else if (status !== 'active') setGpsState(null, 'searching');
 }
 
 function updateAlarm(depth) {
@@ -266,6 +285,8 @@ function refreshLevelUi() {
 
   refreshDepthStyle();
   refreshProbesOnMap();
+  refreshSimOnMap();
+  if (app.simMode) refreshSimReadout();
 }
 
 // --------------------------------------------------------------- réglages
@@ -329,9 +350,12 @@ function wireSettings() {
     refreshSettingsUi();
     refreshDepthStyle();
     refreshProbesOnMap();
+    refreshSimOnMap();
     app.lakeMap.setBasemap(s.get('basemap'));
     app.lakeMap.setSoundings(null, s.get('showSoundings'));
   });
+
+  wirePaletteEditor();
 }
 
 function bind(id, event, handler) {
@@ -386,6 +410,8 @@ function refreshSettingsUi() {
     item.append(swatch, entry.label);
     return item;
   }));
+
+  refreshPaletteEditor();
 }
 
 // ------------------------------------------------------------- étalonnage
@@ -659,6 +685,411 @@ function refreshProbesUi() {
   }));
 }
 
+// ------------------------------------------------------ éditeur de couleurs
+
+/** Réinjecte toutes les retouches mémorisées dans la palette en mémoire. */
+function applyAllPaletteOverrides() {
+  const overrides = app.settings.get('paletteOverrides') ?? {};
+  Object.entries(overrides).forEach(([name, override]) => applyPaletteOverride(app.palette, name, override));
+}
+
+function wirePaletteEditor() {
+  $('btn-band-add').addEventListener('click', addBand);
+  $('btn-palette-reset').addEventListener('click', resetActivePalette);
+  // Ne remplir l'éditeur qu'à l'ouverture évite de reconstruire ses lignes à chaque
+  // réglage sans rapport (opacité, cote…), qui déclenchent tous refreshSettingsUi.
+  $('palette-editor-box').addEventListener('toggle', refreshPaletteEditor);
+}
+
+/** Enregistre l'état courant du préréglage actif comme override, et rafraîchit tout. */
+function commitPalette(preset, name) {
+  const override = preset.mode === 'banded'
+    ? { emerged_color: preset.emerged_color, bands: preset.bands.map((b) => ({ max_depth_m: b.max_depth_m, color: b.color })) }
+    : { emerged_color: preset.emerged_color, stops: preset.stops.map((s) => ({ depth_m: s.depth_m, color: s.color })) };
+  app.settings.update({ paletteOverrides: { ...app.settings.get('paletteOverrides'), [name]: override } });
+}
+
+function addBand() {
+  const name = app.settings.get('preset');
+  const preset = app.palette.presets[name];
+  if (preset.mode !== 'banded') { toast('Ce préréglage est un dégradé continu'); return; }
+  const bands = preset.bands;
+  // Nouvelle plage insérée avant la dernière (qui va « jusqu'au fond »), à mi-chemin.
+  const last = bands[bands.length - 1];
+  const prev = bands.length > 1 ? bands[bands.length - 2].max_depth_m ?? app.palette.lut_max_depth_m : 0;
+  const mid = Math.round((prev + app.palette.lut_max_depth_m) / 2);
+  bands.splice(bands.length - 1, 0, { max_depth_m: mid, color: last.color });
+  commitPalette(preset, name);
+}
+
+function removeBand(index) {
+  const name = app.settings.get('preset');
+  const preset = app.palette.presets[name];
+  if (preset.bands.length <= 2) { toast('Au moins deux plages sont nécessaires'); return; }
+  preset.bands.splice(index, 1);
+  commitPalette(preset, name);
+}
+
+function resetActivePalette() {
+  const name = app.settings.get('preset');
+  const overrides = { ...app.settings.get('paletteOverrides') };
+  delete overrides[name];
+  app.settings.update({ paletteOverrides: overrides });
+  // La palette en mémoire garde les valeurs retouchées : on recharge depuis le disque.
+  reloadPalette();
+}
+
+// Recharge la palette d'origine puis réapplique les autres préréglages retouchés — le
+// seul moyen d'annuler une retouche sans conserver de copie des valeurs d'usine en RAM.
+async function reloadPalette() {
+  try {
+    app.palette = await fetchJson('config/palette.json');
+    applyAllPaletteOverrides();
+    refreshDepthStyle();
+    refreshSettingsUi();
+    toast('Couleurs d\'origine rétablies');
+  } catch (err) {
+    toast(`Rechargement impossible : ${err.message}`, 4000);
+  }
+}
+
+/** Construit l'éditeur ligne par ligne pour le préréglage actif. */
+function refreshPaletteEditor() {
+  const box = $('palette-editor-box');
+  const container = $('palette-editor');
+  if (!container || !box.open) return;
+  const name = app.settings.get('preset');
+  const preset = app.palette.presets[name];
+  const lutMax = app.palette.lut_max_depth_m;
+  const rows = [];
+
+  rows.push(editorRow('Terre émergée', preset.emerged_color, null, (color) => {
+    preset.emerged_color = color;
+    commitPalette(preset, name);
+  }));
+
+  if (preset.mode === 'banded') {
+    $('btn-band-add').hidden = false;
+    preset.bands.forEach((band, i) => {
+      const isLast = i === preset.bands.length - 1;
+      rows.push(editorRow(
+        null, band.color,
+        isLast ? null : band.max_depth_m ?? lutMax,
+        (color) => { band.color = color; commitPalette(preset, name); },
+        isLast ? null : (depth) => { band.max_depth_m = depth; commitPalette(preset, name); },
+        isLast ? 'au-delà, jusqu\'au fond' : null,
+        preset.bands.length > 2 ? () => removeBand(i) : null,
+      ));
+    });
+  } else {
+    $('btn-band-add').hidden = true;
+    preset.stops.forEach((stop) => {
+      rows.push(editorRow(`${stop.depth_m} m`, stop.color, null, (color) => {
+        stop.color = color; commitPalette(preset, name);
+      }));
+    });
+  }
+  container.replaceChildren(...rows);
+}
+
+/**
+ * Une ligne d'éditeur : pastille de couleur, libellé ou champ de profondeur, suppression.
+ * `onDepth`/`onRemove` nuls masquent les contrôles correspondants.
+ */
+function editorRow(label, color, depth, onColor, onDepth, fixedLabel, onRemove) {
+  const row = document.createElement('div');
+  row.className = 'editor__row';
+
+  const swatch = document.createElement('input');
+  swatch.type = 'color';
+  swatch.value = color;
+  // 'change' (et non 'input') : on ne commit qu'à la fermeture du sélecteur, sinon
+  // commitPalette reconstruirait la ligne sous le picker ouvert.
+  swatch.addEventListener('change', () => onColor(swatch.value));
+  row.append(swatch);
+
+  if (onDepth) {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = '0.5'; input.max = '60'; input.step = '0.5';
+    input.value = depth;
+    input.setAttribute('aria-label', 'Profondeur maximale de la plage, en mètres');
+    input.addEventListener('change', () => {
+      const v = Number(input.value);
+      if (Number.isFinite(v) && v > 0) onDepth(Math.min(v, 60));
+    });
+    const unit = document.createElement('span');
+    unit.className = 'editor__unit';
+    unit.textContent = 'm';
+    row.append(input, unit);
+  } else {
+    const span = document.createElement('span');
+    span.className = 'editor__label';
+    span.textContent = fixedLabel ?? label ?? '';
+    row.append(span);
+  }
+
+  if (onRemove) {
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'editor__del';
+    remove.textContent = '×';
+    remove.title = 'Supprimer cette plage';
+    remove.addEventListener('click', onRemove);
+    row.append(remove);
+  }
+  return row;
+}
+
+// ------------------------------------------------------------ boussole (cap)
+
+const RIBBON_PX_PER_DEG = 3;
+const WINDS = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+
+function wireCompass() {
+  buildCompassRibbon();
+  updateCompass(null);
+
+  app.compass.addEventListener('heading', (event) => {
+    updateHeading(event.detail.heading, event.detail.source);
+  });
+
+  // Android et navigateurs sans autorisation explicite : on démarre tout de suite.
+  if (app.compass.available && !app.compass.needsPermission) app.compass.start();
+
+  // iOS : l'accès à la boussole exige un geste. On l'accroche au voyant et au bouton de cap.
+  const ask = () => ensureCompass();
+  $('compass-gps').addEventListener('click', ask);
+  $('compass').addEventListener('click', ask);
+
+  // Recadrer le ruban quand la largeur change (rotation de l'écran).
+  window.addEventListener('resize', () => updateCompass(app.heading, app.compass?.source));
+}
+
+async function ensureCompass() {
+  if (!app.compass.available) { toast('Boussole indisponible sur cet appareil'); return; }
+  if (app.compass.active) return;
+  const ok = await app.compass.start();
+  toast(ok ? 'Boussole activée' : 'Accès à la boussole refusé');
+}
+
+/** Ruban de cap : ticks tous les 5°, lettres cardinales, chiffres tous les 30°. Trois
+ *  tours (0–1080°) pour que le défilement enjambe la couture 360/0 sans saut. */
+function buildCompassRibbon() {
+  const ribbon = $('compass-ribbon');
+  const parts = [];
+  for (let d = 0; d <= 1080; d += 5) {
+    const a = ((d % 360) + 360) % 360;
+    const major = a % 90 === 0;
+    const mid = a % 45 === 0;
+    const tick = document.createElement('span');
+    tick.className = major ? 'ctick ctick--card' : mid ? 'ctick ctick--mid' : 'ctick';
+    tick.style.left = `${d * RIBBON_PX_PER_DEG}px`;
+    if (a % 45 === 0) {
+      const lbl = document.createElement('b');
+      lbl.textContent = WINDS[a / 45];
+      tick.append(lbl);
+    } else if (a % 30 === 0) {
+      const lbl = document.createElement('i');
+      lbl.textContent = a;
+      tick.append(lbl);
+    }
+    parts.push(tick);
+  }
+  ribbon.replaceChildren(...parts);
+}
+
+function updateHeading(heading, source) {
+  app.heading = heading;
+  updateCompass(heading, source);
+  $('cap-value').textContent = Number.isFinite(heading) ? `${Math.round(heading)}°` : '—';
+}
+
+function updateCompass(heading, source) {
+  const deg = $('compass-deg');
+  const ribbon = $('compass-ribbon');
+  const idle = !Number.isFinite(heading);
+  deg.classList.toggle('is-idle', idle);
+  if (idle) {
+    deg.textContent = '•••';
+  } else {
+    deg.textContent = `${Math.round(heading).toString().padStart(3, '0')}° ${cardinal(heading)}`;
+    deg.dataset.source = source ?? '';
+  }
+  // On centre sur le deuxième tour (cap + 360) pour disposer d'un tour de marge de chaque
+  // côté : le ruban défile dans les deux sens sans découvrir de vide. Au repos, on cadre
+  // le nord pour que la barre paraisse posée plutôt que décalée.
+  const half = $('compass').clientWidth / 2;
+  const centre = (idle ? 0 : heading) + 360;
+  ribbon.style.transform = `translateX(${half - centre * RIBBON_PX_PER_DEG}px)`;
+}
+
+function cardinal(heading) {
+  return WINDS[Math.round(((heading % 360) + 360) % 360 / 45) % 8];
+}
+
+/** Voyant GPS de la barre : couleur d'état et précision courante. */
+function setGpsState(accuracy, override) {
+  const el = $('compass-gps');
+  const text = $('compass-gps-text');
+  if (override === 'denied' || override === 'unsupported') {
+    el.dataset.state = 'denied'; text.textContent = 'GPS ✕'; return;
+  }
+  if (override === 'searching' || !Number.isFinite(accuracy)) {
+    el.dataset.state = 'searching'; text.textContent = 'GPS…'; return;
+  }
+  el.dataset.state = accuracy <= 20 ? 'active' : 'coarse';
+  text.textContent = `±${Math.round(accuracy)} m`;
+}
+
+// -------------------------------------------------------------- simulation
+
+function wireSim() {
+  $('btn-sim').addEventListener('click', () => (app.simMode ? exitSim() : enterSim()));
+  $('btn-sim-exit').addEventListener('click', exitSim);
+  $('btn-sim-reset').addEventListener('click', () => {
+    setSimLevel(app.simBaseLevel);
+    $('sim-slider').value = app.simBaseLevel;
+  });
+  $('btn-sim-clear').addEventListener('click', () => {
+    if (app.sim.count && confirm('Effacer tous les points témoins ?')) {
+      endSimEdit();
+      app.sim.clear();
+    }
+  });
+  $('sim-slider').addEventListener('input', (e) => setSimLevel(Number(e.target.value)));
+
+  $('btn-sim-up').addEventListener('click', () => nudgeSimPoint(0.25));
+  $('btn-sim-down').addEventListener('click', () => nudgeSimPoint(-0.25));
+  $('btn-sim-del').addEventListener('click', deleteSimPoint);
+  app.lakeMap.addEventListener('simselect', (event) => selectSimPoint(event.detail));
+
+  app.sim.addEventListener('change', () => {
+    refreshSimOnMap();
+    refreshSimReadout();
+  });
+}
+
+function enterSim() {
+  app.simMode = true;
+  // Cote réelle du moment, référence des écarts ; et réglage manuel d'avant la simulation,
+  // à restaurer en sortie pour ne pas détourner durablement l'affichage.
+  app.simEnteredWithManual = app.settings.get('manualLevel');
+  app.simBaseLevel = round2(currentLevel().value ?? app.model.lake.normal_level_m_ngf);
+  $('btn-sim').classList.add('is-on');
+  $('sim').hidden = false;
+  $('capture').hidden = true; // on pose des témoins, pas des sondes
+  const slider = $('sim-slider');
+  slider.min = 641; slider.max = 651; slider.step = 0.05;
+  slider.value = app.simBaseLevel;
+  setSimLevel(app.simBaseLevel);
+  refreshSimOnMap();
+  toast('Simulation : glissez le niveau, touchez la carte pour poser un témoin');
+}
+
+function exitSim() {
+  app.simMode = false;
+  app.editingSimId = null;
+  $('btn-sim').classList.remove('is-on');
+  $('sim').hidden = true;
+  $('capture').hidden = false;
+  $('sim-sel').hidden = true;
+  app.settings.set('manualLevel', app.simEnteredWithManual ?? null);
+  app.simEnteredWithManual = undefined;
+  refreshSimOnMap();
+}
+
+/** Pilote la cote via le réglage manuel : le shader recolore tout, l'émergé apparaît. */
+function setSimLevel(value) {
+  app.settings.set('manualLevel', round2(value));
+  refreshLevelUi(); // recolore la carte, met à jour le bandeau de cote et les témoins
+}
+
+function refreshSimReadout() {
+  const level = currentLevel().value;
+  if (!Number.isFinite(level)) return;
+  $('sim-cote').textContent = level.toFixed(2);
+  const delta = level - (app.simBaseLevel ?? level);
+  const el = $('sim-delta');
+  if (Math.abs(delta) < 0.005) {
+    el.textContent = 'cote actuelle';
+    el.className = 'sim__delta';
+  } else {
+    el.textContent = `${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(2)} m vs cote actuelle`;
+    el.className = delta < 0 ? 'sim__delta sim__delta--down' : 'sim__delta sim__delta--up';
+  }
+  $('btn-sim-clear').hidden = !app.sim.count;
+}
+
+function addSimPoint(lon, lat) {
+  const bedZ = app.bed.altitudeAt(lon, lat);
+  if (!Number.isFinite(bedZ)) { toast('Hors emprise du modèle'); return; }
+  const entry = app.sim.add({ lon, lat, bedZ });
+  selectSimPoint(entry.id);
+  toast(`Témoin posé · fond ${bedZ.toFixed(1)} m NGF`);
+}
+
+function selectSimPoint(id) {
+  app.editingSimId = app.editingSimId === id ? null : id;
+  refreshSimOnMap();
+  refreshSimSelection();
+}
+
+function endSimEdit() {
+  app.editingSimId = null;
+  $('sim-sel').hidden = true;
+  refreshSimOnMap();
+}
+
+function refreshSimSelection() {
+  const record = app.editingSimId ? app.sim.get(app.editingSimId) : null;
+  $('sim-sel').hidden = !record;
+  if (!record) return;
+  const level = currentLevel().value;
+  const depth = Number.isFinite(level) ? level - record.bedZ : NaN;
+  const status = !Number.isFinite(depth) ? '' : depth <= 0
+    ? ` · émergé de ${(-depth).toFixed(1)} m`
+    : ` · ${depth.toFixed(1)} m d'eau`;
+  $('sim-sel-label').textContent = `Fond ${record.bedZ.toFixed(2)} m NGF${status}`;
+}
+
+function nudgeSimPoint(delta) {
+  if (!app.editingSimId) return;
+  const record = app.sim.get(app.editingSimId);
+  if (!record) return;
+  app.sim.update(app.editingSimId, { bedZ: round2(record.bedZ + delta) });
+  refreshSimSelection();
+}
+
+function deleteSimPoint() {
+  if (!app.editingSimId) return;
+  const id = app.editingSimId;
+  endSimEdit();
+  app.sim.remove(id);
+  toast('Point témoin supprimé');
+}
+
+/** Pastilles des points témoins, avec bascule émergé/immergé selon la cote simulée. */
+function refreshSimOnMap() {
+  if (!app.sim || !app.lakeMap) return;
+  if (!app.simMode) { app.lakeMap.setSimPoints([]); return; }
+
+  const level = currentLevel().value;
+  const points = app.sim.records.map((r) => {
+    const depth = Number.isFinite(level) ? level - r.bedZ : NaN;
+    const emerged = Number.isFinite(depth) && depth <= 0;
+    return {
+      id: r.id,
+      lon: r.lon,
+      lat: r.lat,
+      emerged,
+      label: !Number.isFinite(depth) ? '?' : emerged ? `+${(-depth).toFixed(1)}` : depth.toFixed(1),
+      editing: r.id === app.editingSimId,
+    };
+  });
+  app.lakeMap.setSimPoints(points);
+}
+
 // -------------------------------------------------------------------- carte
 
 function wireMap() {
@@ -693,9 +1124,10 @@ function wireMap() {
     }
   });
 
-  // Sonde ponctuelle : profondeur au point touché.
+  // Clic carte : en simulation, pose un point témoin ; sinon, sonde ponctuelle.
   app.lakeMap.addEventListener('probe', (event) => {
     const { lng, lat } = event.detail;
+    if (app.simMode) { addSimPoint(lng, lat); return; }
     const depth = depthAt(lng, lat);
     toast(Number.isFinite(depth)
       ? (depth > 0 ? `${depth.toFixed(1)} m à cet endroit` : 'Fond émergé à cet endroit')
