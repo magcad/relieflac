@@ -903,6 +903,18 @@ function updateHeading(heading, source) {
   app.heading = heading;
   updateCompass(heading, source);
   $('cap-value').textContent = Number.isFinite(heading) ? `${Math.round(heading)}°` : '—';
+  scheduleMapHeading();
+}
+
+// La boussole émet à haute fréquence ; on ne fait tourner la carte qu'une fois par image
+// pour rester fluide sans saturer le rendu.
+let headingRaf = 0;
+function scheduleMapHeading() {
+  if (headingRaf) return;
+  headingRaf = requestAnimationFrame(() => {
+    headingRaf = 0;
+    if (app.lakeMap && Number.isFinite(app.heading)) app.lakeMap.setHeading(app.heading, app.trackUp);
+  });
 }
 
 function updateCompass(heading, source) {
@@ -910,8 +922,12 @@ function updateCompass(heading, source) {
   const ribbon = $('compass-ribbon');
   const idle = !Number.isFinite(heading);
   deg.classList.toggle('is-idle', idle);
+  // Sur iOS, la boussole exige un geste : tant qu'elle n'est pas accordée, on invite
+  // explicitement à toucher la barre plutôt que d'afficher un cap muet.
+  const needsTap = idle && app.compass?.needsPermission && !app.compass?.granted;
+  deg.classList.toggle('is-tap', needsTap);
   if (idle) {
-    deg.textContent = '•••';
+    deg.textContent = needsTap ? '🧭 activer' : '•••';
   } else {
     deg.textContent = `${Math.round(heading).toString().padStart(3, '0')}° ${cardinal(heading)}`;
     deg.dataset.source = source ?? '';
@@ -1112,7 +1128,11 @@ function wireMap() {
     app.trackUp = !app.trackUp;
     $('btn-cap').classList.toggle('is-on', app.trackUp);
     $('btn-cap').textContent = app.trackUp ? '⇧' : '↑';
-    if (!app.trackUp) app.lakeMap.resetNorth();
+    // Bascule immédiate, sans attendre la prochaine mesure de cap.
+    if (app.trackUp) app.lakeMap.setHeading(app.heading, true);
+    else app.lakeMap.resetNorth();
+    // « Cap en haut » sans boussole accordée ne sert à rien : on la demande au passage.
+    if (app.trackUp) ensureCompass();
   });
 
   // Faire glisser la carte coupe le suivi : sinon l'écran ramène le bateau au centre

@@ -17,6 +17,8 @@ export class Geolocator extends EventTarget {
     this.status = 'idle';   // idle | locating | active | denied | error | unsupported
     this.message = '';
     this.previous = null;
+    this.lastFixAt = 0;
+    this.watchdog = null;
   }
 
   get available() {
@@ -31,6 +33,20 @@ export class Geolocator extends EventTarget {
     if (this.watchId != null) return;
 
     this.#setStatus('locating', 'Recherche du signal GPS…');
+    this.#watch();
+
+    // iOS en mode « app plein écran » (icône écran d'accueil) laisse parfois la veille de
+    // position se figer sans erreur : plus aucune mise à jour n'arrive. On la relance si
+    // rien n'est reçu depuis 20 s, page au premier plan.
+    this.watchdog = setInterval(() => {
+      if (this.status === 'active' && !document.hidden && Date.now() - this.lastFixAt > 20000) {
+        this.#watch();
+      }
+    }, 10000);
+  }
+
+  #watch() {
+    if (this.watchId != null) navigator.geolocation.clearWatch(this.watchId);
     this.watchId = navigator.geolocation.watchPosition(
       (pos) => this.#onPosition(pos),
       (err) => this.#onError(err),
@@ -40,7 +56,9 @@ export class Geolocator extends EventTarget {
 
   stop() {
     if (this.watchId != null) navigator.geolocation.clearWatch(this.watchId);
+    if (this.watchdog != null) clearInterval(this.watchdog);
     this.watchId = null;
+    this.watchdog = null;
     this.#setStatus('idle', '');
   }
 
@@ -65,6 +83,7 @@ export class Geolocator extends EventTarget {
     let course = Number.isFinite(heading) ? heading : this.#courseFrom(longitude, latitude);
     if (speedMs != null && speedMs < HEADING_MIN_SPEED_MS) course = this.position?.heading ?? course;
 
+    this.lastFixAt = Date.now();
     this.previous = { lon: longitude, lat: latitude, timestamp: pos.timestamp };
     this.position = {
       lon: longitude,

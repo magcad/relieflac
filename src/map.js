@@ -228,11 +228,10 @@ export class LakeMap extends EventTarget {
     });
   }
 
-  setPosition(position, { follow, trackUp }) {
-    const { lon, lat, accuracy, heading } = position;
+  setPosition(position, { follow }) {
+    const { lon, lat, accuracy } = position;
     this.boat.setLngLat([lon, lat]);
     if (!this.boat._map) this.boat.addTo(this.map);
-    if (Number.isFinite(heading)) this.boat.setRotation(heading);
 
     this.map.getSource('precision').setData(
       accuracy ? circlePolygon(lon, lat, accuracy) : EMPTY,
@@ -244,13 +243,21 @@ export class LakeMap extends EventTarget {
       type: 'Feature', geometry: { type: 'LineString', coordinates: this.trail }, properties: {},
     });
 
-    if (follow) {
-      this.map.easeTo({
-        center: [lon, lat],
-        bearing: trackUp && Number.isFinite(heading) ? heading : this.map.getBearing(),
-        duration: 600,
-      });
-    }
+    // Recentrage seul : le cap (aiguille + orientation de la carte) est piloté à part par
+    // setHeading, depuis la même source que la barre-boussole.
+    if (follow) this.map.easeTo({ center: [lon, lat], bearing: this.map.getBearing(), duration: 600 });
+  }
+
+  /**
+   * Oriente l'aiguille du bateau et, en mode « cap en haut », la carte elle-même — à partir
+   * du cap unifié (boussole de l'appareil en priorité, cap GPS en repli). Appelé bien plus
+   * souvent qu'un point GPS : on utilise setBearing (instantané) plutôt qu'une animation,
+   * le cap étant déjà lissé en amont, pour une rotation fluide sans empiler d'easeTo.
+   */
+  setHeading(heading, trackUp) {
+    if (!Number.isFinite(heading)) return;
+    this.boat.setRotation(heading);
+    if (trackUp) this.map.setBearing(heading);
   }
 
   resetNorth() {

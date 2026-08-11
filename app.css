@@ -213,6 +213,12 @@ a { color: var(--accent); }
   font-variant-numeric: tabular-nums; color: var(--text);
 }
 .compass__deg.is-idle { color: var(--muted); border-color: var(--line); letter-spacing: .3em; }
+.compass__deg.is-tap {
+  color: var(--accent); border-color: var(--accent); letter-spacing: .01em;
+  animation: tap-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tap-pulse { 50% { background: #17364a; } }
+@media (prefers-reduced-motion: reduce) { .compass__deg.is-tap { animation: none; } }
 
 .compass__fade { position: absolute; top: 0; bottom: 0; width: 34px; z-index: 1; pointer-events: none; }
 .compass__fade--l { left: 0; background: linear-gradient(90deg, #0f1417, #0f141700); }
