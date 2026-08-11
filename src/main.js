@@ -12,6 +12,7 @@ import { Probes, makeProbe } from './probes.js';
 import { SimPoints } from './sim.js';
 import { Soundings } from './soundings.js';
 import { defaultsFrom, Settings } from './settings.js';
+import { VERSION } from './version.js';
 
 const $ = (id) => document.getElementById(id);
 const ROUTES = { '#/': 'vue-carte', '#/parametres': 'vue-parametres', '#/etalonnage': 'vue-etalonnage', '#/a-propos': 'vue-apropos' };
@@ -90,7 +91,8 @@ async function boot() {
 
     loadSoundingsLazily();
     $('chargement').hidden = true;
-    $('apropos-version').textContent = `levé ${app.bed.meta.sources?.ofb2009?.label ? '2009' : '—'} · grille ${app.bed.width}×${app.bed.height}`;
+    $('app-version').textContent = VERSION;
+    $('apropos-version').textContent = `${VERSION} · levé ${app.bed.meta.sources?.ofb2009?.label ? '2009' : '—'} · grille ${app.bed.width}×${app.bed.height}`;
   } catch (err) {
     $('chargement').innerHTML = `<p><strong>Chargement impossible</strong><br>${err.message}</p>`;
     console.error(err);
@@ -347,6 +349,7 @@ function wireSettings() {
       toast('Réglages réinitialisés');
     }
   });
+  $('btn-reload').addEventListener('click', reloadApp);
 
   s.addEventListener('change', () => {
     refreshSettingsUi();
@@ -1200,6 +1203,28 @@ function toast(message, duration = 2500) {
   element.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { element.hidden = true; }, duration);
+}
+
+/**
+ * Force le chargement de la dernière version. Sans service worker, le levier réel est le
+ * cache HTTP : on purge d'abord tout cache applicatif (Cache Storage, service workers —
+ * inexistants ici, mais la purge est sans risque et pare l'avenir), puis on recharge le
+ * document avec une adresse neuve pour éviter qu'il ne revienne du cache. Le témoin de
+ * version dira ensuite si les modules ont, eux aussi, été rafraîchis.
+ */
+async function reloadApp() {
+  toast('Rechargement…');
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch { /* purge best-effort : on recharge quoi qu'il arrive */ }
+  location.replace(`${location.pathname}?r=${Date.now()}${location.hash}`);
 }
 
 function download(filename, content, type) {
