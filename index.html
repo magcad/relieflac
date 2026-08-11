@@ -56,6 +56,7 @@
   <div class="fabs">
     <button class="fab" id="btn-suivi" type="button" title="Suivre le bateau" aria-label="Suivre le bateau">◎</button>
     <button class="fab" id="btn-cap" type="button" title="Cap en haut / nord en haut" aria-label="Orientation">↑</button>
+    <button class="fab" id="btn-saisie" type="button" title="Saisir une sonde" aria-label="Afficher la saisie de profondeur">✎</button>
   </div>
 
   <!-- Simulation d'étiage : abaisser la cote à la main et voir ce qui émerge. -->
@@ -86,7 +87,7 @@
     </div>
   </div>
 
-  <form class="capture" id="capture" autocomplete="off">
+  <form class="capture" id="capture" autocomplete="off" hidden>
     <input class="capture__input" id="cap-input" type="number" inputmode="decimal"
            step="0.1" min="0" max="60" placeholder="profondeur lue au sondeur"
            aria-label="Profondeur lue au sondeur, en mètres">

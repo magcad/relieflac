@@ -23,6 +23,7 @@ const app = {
   lakeMap: null, depthLayer: null,
   trackUp: false, alarmActive: false, lastAlarmAt: 0,
   editingProbeId: null, editingSimId: null, simMode: false,
+  captureOpen: false,
   heading: null,
 };
 
@@ -77,6 +78,7 @@ async function boot() {
     refreshProbesUi();
     refreshProbesOnMap();
     refreshSimOnMap();
+    refreshCaptureUi();
 
     app.geo.addEventListener('position', onPosition);
     app.geo.addEventListener('status', onGeoStatus);
@@ -532,6 +534,14 @@ function wireProbes() {
   $('btn-cap-cancel').addEventListener('click', endProbeEdit);
   app.lakeMap.addEventListener('probeselect', (event) => beginProbeEdit(event.detail));
 
+  // Bouton d'édition (fabs) : déploie ou replie la barre de saisie, encombrante en
+  // navigation seule. Fermer annule aussi une correction en cours.
+  $('btn-saisie').addEventListener('click', () => {
+    app.captureOpen = !app.captureOpen;
+    if (!app.captureOpen && app.editingProbeId) endProbeEdit();
+    refreshCaptureUi();
+  });
+
   bind('set-transducer', 'change', (el) => app.settings.set('transducer_m', clampNumber(el, 0, 2)));
   bind('set-probes', 'change', (el) => app.settings.set('showProbes', el.checked));
 
@@ -550,6 +560,13 @@ function wireProbes() {
   });
 }
 
+/** Barre de saisie : visible seulement si demandée, et jamais pendant la simulation. */
+function refreshCaptureUi() {
+  const open = app.captureOpen && !app.simMode;
+  $('capture').hidden = !open;
+  $('btn-saisie').classList.toggle('is-on', open);
+}
+
 // -------------------------------------------------------- correction d'une sonde
 
 function beginProbeEdit(id) {
@@ -557,6 +574,8 @@ function beginProbeEdit(id) {
   if (!record) return;
 
   app.editingProbeId = id;
+  app.captureOpen = true; // corriger un point exige la barre de saisie déployée
+  refreshCaptureUi();
   location.hash = '#/'; // ramène sur la carte si l'on éditait depuis la liste des réglages
 
   const input = $('cap-input');
@@ -994,7 +1013,7 @@ function enterSim() {
   app.simBaseLevel = round2(currentLevel().value ?? app.model.lake.normal_level_m_ngf);
   $('btn-sim').classList.add('is-on');
   $('sim').hidden = false;
-  $('capture').hidden = true; // on pose des témoins, pas des sondes
+  refreshCaptureUi(); // en simulation on pose des témoins, pas des sondes
   const slider = $('sim-slider');
   slider.min = 641; slider.max = 651; slider.step = 0.05;
   slider.value = app.simBaseLevel;
@@ -1008,7 +1027,7 @@ function exitSim() {
   app.editingSimId = null;
   $('btn-sim').classList.remove('is-on');
   $('sim').hidden = true;
-  $('capture').hidden = false;
+  refreshCaptureUi();
   $('sim-sel').hidden = true;
   app.settings.set('manualLevel', app.simEnteredWithManual ?? null);
   app.simEnteredWithManual = undefined;

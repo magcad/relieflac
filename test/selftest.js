@@ -58,7 +58,7 @@ export async function run(base = '..') {
 
   const marineLimits = bandLimits(palette.presets.marine, palette.lut_max_depth_m);
   check('bandes marine ordonnées et bornées',
-    marineLimits.length === 6 && marineLimits[0] === 1 && marineLimits.at(-1) >= palette.lut_max_depth_m,
+    marineLimits.length === 7 && marineLimits[0] === 1 && marineLimits.at(-1) >= palette.lut_max_depth_m,
     marineLimits.join(', '));
 
   check('profondeur de sécurité = tirant + marge',

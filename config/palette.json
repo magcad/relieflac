@@ -18,16 +18,17 @@
     "marine": {
       "label": "Carte marine",
       "mode": "banded",
-      "note": "Convention S-52 / Garmin BlueChart adaptée au lac : terre en beige, jamais confondable avec de l'eau ; rouge et orange réservés au danger ; bleus pour l'eau navigable, le plus foncé pour le moins profond afin que l'eau profonde reste claire et lisible au soleil.",
+      "note": "Terre en beige, jamais confondable avec de l'eau. Du danger vers le profond : rouge, orange, jaune-vert pour les hauts-fonds, puis turquoise, bleu roi et bleus nuit de plus en plus sombres à mesure que l'eau devient sûre.",
       "emerged_color": "#c8a165",
       "band_outline_color": "#182028",
       "bands": [
-        { "max_depth_m": 1.0,  "color": "#ff1f1f", "label": "danger" },
-        { "max_depth_m": 2.0,  "color": "#ff8a3d", "label": "marge" },
-        { "max_depth_m": 5.0,  "color": "#1f6fb2", "label": "peu profond" },
-        { "max_depth_m": 10.0, "color": "#4b9fd5", "label": "moyen" },
-        { "max_depth_m": 20.0, "color": "#9fcbe8", "label": "profond" },
-        { "max_depth_m": null, "color": "#e8f3fb", "label": "très profond" }
+        { "max_depth_m": 1.0,  "color": "#ff2b2b", "label": "danger" },
+        { "max_depth_m": 2.0,  "color": "#ff8a1f", "label": "marge" },
+        { "max_depth_m": 3.0,  "color": "#d7df2a", "label": "haut-fond" },
+        { "max_depth_m": 5.0,  "color": "#1fc2d6", "label": "peu profond" },
+        { "max_depth_m": 10.0, "color": "#2f6fdc", "label": "moyen" },
+        { "max_depth_m": 20.0, "color": "#163a75", "label": "profond" },
+        { "max_depth_m": null, "color": "#0e2650", "label": "très profond" }
       ]
     },
 
