@@ -90,6 +90,8 @@ export function defaultsFrom(palette, model) {
     showProbes: true,
     // Grand affichage de la profondeur sous le bateau (bascule au toucher de l'indicateur).
     bigDepth: false,
+    // Rayon (m) sur lequel un relevé manuel corrige la grille du fond autour du point.
+    correctionRadius_m: 20,
     // Retouches de couleurs par l'utilisateur, par préréglage : { marine: { emerged_color,
     // bands: [{ max_depth_m, color }] , stops: [...] } }. Appliquées sur la palette en
     // mémoire au démarrage ; « réinitialiser » les efface.

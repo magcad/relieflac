@@ -25,9 +25,14 @@ export class BedGrid {
   constructor(meta, bitmap, altitudes, alpha, coverage = null, coverageBitmap = null) {
     this.meta = meta;
     this.bitmap = bitmap;
-    this.altitudes = altitudes; // Float32Array, NaN hors du lac
+    // Grille brute du levé 2009 (invariante) et grille de travail affichée : elles ne
+    // diffèrent que là où des relevés manuels corrigent le fond. `altitudes` et `coverage`
+    // pointent sur la brute tant qu'aucune correction n'est appliquée.
+    this.baseAltitudes = altitudes; // Float32Array, NaN hors du lac
+    this.altitudes = altitudes;
     this.alpha = alpha;
     // Distance en mètres à la sonde mesurée la plus proche, plafonnée à 255.
+    this.baseCoverage = coverage;
     this.coverage = coverage;
     this.coverageBitmap = coverageBitmap;
     [this.x0, this.y0, this.x1, this.y1] = meta.bbox_3857;
@@ -115,6 +120,15 @@ export class BedGrid {
    * artificiellement le long des rives.
    */
   altitudeAt(lon, lat) {
+    return this.#sample(this.altitudes, lon, lat);
+  }
+
+  /** Altitude du levé 2009 seul, sans les corrections manuelles (point de départ d'un relevé). */
+  baseAltitudeAt(lon, lat) {
+    return this.#sample(this.baseAltitudes, lon, lat);
+  }
+
+  #sample(grid, lon, lat) {
     const [mx, my] = toMercator(lon, lat);
     const x = ((mx - this.x0) / (this.x1 - this.x0)) * this.width - 0.5;
     const y = ((this.y1 - my) / (this.y1 - this.y0)) * this.height - 0.5;
@@ -131,7 +145,7 @@ export class BedGrid {
         const c = col + dx;
         const r = row + dy;
         if (c < 0 || c >= this.width || r < 0 || r >= this.height) continue;
-        const z = this.altitudes[r * this.width + c];
+        const z = grid[r * this.width + c];
         if (!Number.isFinite(z)) continue;
         const weight = (dx ? fx : 1 - fx) * (dy ? fy : 1 - fy);
         sum += z * weight;
@@ -152,6 +166,65 @@ export class BedGrid {
     if (!this.coverage) return NaN;
     const index = this.indexAt(lon, lat);
     return index < 0 ? NaN : this.coverage[index];
+  }
+
+  /**
+   * Applique des relevés manuels sur la grille du levé 2009 pour produire la « carte
+   * courante » : autour de chaque point, le fond est ramené vers l'altitude mesurée avec
+   * un fondu radial (cosinus) sur `radiusM` mètres. Le point mesuré étant désormais connu,
+   * on ramène aussi la carte de couverture à zéro sous son rayon, ce qui efface le
+   * hachurage « non sondé » et la mise en garde d'interpolation à cet endroit.
+   *
+   * On repart toujours de la grille brute : retirer un relevé suffit à revenir au 2009.
+   * Renvoie le rectangle de cellules modifiées (pour un ré-upload ciblé), ou null.
+   */
+  applyCorrections(records, radiusM = 20) {
+    const patches = (records ?? []).filter((r) => Number.isFinite(r.bedZ));
+    if (patches.length === 0) {
+      this.altitudes = this.baseAltitudes;
+      this.coverage = this.baseCoverage;
+      return null;
+    }
+
+    const alt = this.baseAltitudes.slice();
+    const cov = this.baseCoverage ? this.baseCoverage.slice() : null;
+    const cellW = (this.x1 - this.x0) / this.width;  // mètres mercator par colonne
+    const cellH = (this.y1 - this.y0) / this.height; // mètres mercator par ligne
+    let minC = this.width; let minR = this.height; let maxC = -1; let maxR = -1;
+
+    for (const p of patches) {
+      const [mx, my] = toMercator(p.lon, p.lat);
+      // Un mètre au sol vaut 1/cos(lat) mètre mercator : on convertit le rayon voulu.
+      const scale = Math.cos((p.lat * Math.PI) / 180);
+      const rMerc = radiusM / Math.max(scale, 1e-6);
+      const cCol = ((mx - this.x0) / (this.x1 - this.x0)) * this.width - 0.5;
+      const cRow = ((this.y1 - my) / (this.y1 - this.y0)) * this.height - 0.5;
+      const spanCol = Math.ceil(rMerc / cellW);
+      const spanRow = Math.ceil(rMerc / cellH);
+      const col0 = Math.max(0, Math.floor(cCol - spanCol));
+      const col1 = Math.min(this.width - 1, Math.ceil(cCol + spanCol));
+      const row0 = Math.max(0, Math.floor(cRow - spanRow));
+      const row1 = Math.min(this.height - 1, Math.ceil(cRow + spanRow));
+
+      for (let row = row0; row <= row1; row += 1) {
+        for (let col = col0; col <= col1; col += 1) {
+          const dMerc = Math.hypot((col - cCol) * cellW, (row - cRow) * cellH);
+          const dGround = dMerc * scale;
+          if (dGround > radiusM) continue;
+          const idx = row * this.width + col;
+          if (!Number.isFinite(this.baseAltitudes[idx])) continue; // hors du lac
+          const w = 0.5 * (1 + Math.cos((Math.PI * dGround) / radiusM)); // 1 au centre → 0 au bord
+          alt[idx] = alt[idx] * (1 - w) + p.bedZ * w;
+          if (cov) cov[idx] = Math.min(cov[idx], Math.round(dGround));
+          if (col < minC) minC = col; if (col > maxC) maxC = col;
+          if (row < minR) minR = row; if (row > maxR) maxR = row;
+        }
+      }
+    }
+
+    this.altitudes = alt;
+    if (cov) this.coverage = cov;
+    return maxC < 0 ? null : { minC, minR, maxC, maxR };
   }
 }
 

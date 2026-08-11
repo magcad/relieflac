@@ -1,11 +1,14 @@
-// Points de simulation : « et si la cote descendait à… ? »
+// Relevés manuels corrigeant la carte, et simulation d'étiage.
 //
-// Le mode simulation sert à anticiper l'étiage — quelles pointes émergent, quels passages
-// se ferment — sans attendre que le lac descende. On pose des points sur la carte ; chacun
-// retient une altitude de fond en m NGF (relevée sur le modèle au moment de la pose, puis
-// ajustable pour tester un haut-fond hypothétique). À une cote donnée, le point est émergé
-// si cette cote passe sous son altitude. Rien de tout cela ne touche la bathymétrie réelle :
-// c'est un bac à sable, distinct des sondes mesurées.
+// On pose des points sur la carte ; chacun retient une altitude de fond en m NGF (`bedZ`,
+// invariante) et la provenance de la mesure (profondeur lue et cote du jour au moment du
+// relevé). Ces points CORRIGENT la carte courante : autour de chacun, le modèle 2009 est
+// ramené vers le fond mesuré (voir BedGrid.applyCorrections). Le curseur de cote permet en
+// plus de simuler l'étiage — quelle pointe émerge à quelle cote — puisque le shader
+// recolore la carte corrigée à n'importe quelle cote.
+//
+// Stockage local pour l'instant ; le format porte déjà la provenance (depth_m, cote_m) pour
+// qu'une synchronisation serveur multi-utilisateurs se branche ensuite sans migration.
 
 const STORAGE_KEY = 'relieflac.sim.v1';
 
@@ -19,8 +22,11 @@ export class SimPoints extends EventTarget {
     return this.records.length;
   }
 
-  add({ lon, lat, bedZ }) {
-    const entry = { id: crypto.randomUUID(), at: new Date().toISOString(), lon, lat, bedZ };
+  add({ lon, lat, bedZ, depth_m = null, cote_m = null }) {
+    const entry = {
+      id: crypto.randomUUID(), at: new Date().toISOString(),
+      lon, lat, bedZ, depth_m, cote_m,
+    };
     this.records.push(entry);
     this.#persist();
     return entry;

@@ -92,6 +92,30 @@ export async function run(base = '..') {
       `${bed.soundingDistanceAt(1.87132, 45.79328)} m`);
   }
 
+  // --- correction manuelle de la carte (« 2009 corrigée ») --------------------
+  {
+    const lon = 1.87132; const lat = 45.79328;
+    const before = bed.baseAltitudeAt(lon, lat);
+    const target = before - 3; // on creuse le fond de 3 m au relevé
+    // Point témoin lointain (point de contrôle à ~2 km), bien au-delà du rayon de 20 m.
+    const far = reference.bed.probes[2];
+    const farBefore = bed.altitudeAt(far.lon, far.lat);
+    bed.applyCorrections([{ lon, lat, bedZ: target }], 20);
+    // Lecture bilinéaire sur une grille mélangée au cosinus : on tombe à quelques cm du
+    // relevé, pas au centimètre — largement sous le pas d'ajustement de 25 cm.
+    check('correction : le fond au point suit le relevé',
+      Math.abs(bed.altitudeAt(lon, lat) - target) < 0.25,
+      `${bed.altitudeAt(lon, lat).toFixed(2)} attendu ${target.toFixed(2)}`);
+    check('correction : couverture rendue « mesurée » au point',
+      bed.soundingDistanceAt(lon, lat) <= 3, `${bed.soundingDistanceAt(lon, lat)} m`);
+    check('correction : hors rayon, le fond reste celui de 2009',
+      near(bed.altitudeAt(far.lon, far.lat), farBefore, 1e-9));
+    bed.applyCorrections([], 20); // retrait : retour au levé brut
+    check('correction retirée : retour exact au 2009',
+      near(bed.altitudeAt(lon, lat), before, 1e-9),
+      `${bed.altitudeAt(lon, lat)} vs ${before}`);
+  }
+
   // Le décalage d'étalonnage ne doit toucher que ce qui vient du levé de 2009.
   const waterPlane = model.reference_levels.rge_alti.value_m_ngf;
   check('décalage appliqué sous le plan d\'eau LiDAR',

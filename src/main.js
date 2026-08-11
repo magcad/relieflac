@@ -27,6 +27,7 @@ const app = {
   captureOpen: false,
   heading: null,
   lastBigDepth: null,
+  wakeLock: null,
 };
 
 // ---------------------------------------------------------------- démarrage
@@ -83,6 +84,8 @@ async function boot() {
     refreshSimOnMap();
     refreshCaptureUi();
     applyBigDepthMode();
+    applyModelCorrections(); // « carte 2009 corrigée » dès l'ouverture, s'il y a des relevés
+    startWakeLock();
 
     app.geo.addEventListener('position', onPosition);
     app.geo.addEventListener('status', onGeoStatus);
@@ -274,6 +277,27 @@ function applyBigDepthMode() {
   const on = app.settings.get('bigDepth');
   $('depth-box').hidden = on;
   app.lakeMap.setBigDepth(on ? (app.lastBigDepth ?? { value: '—', label: '', color: '' }) : null);
+}
+
+// ------------------------------------------------- veille écran (navigation)
+
+/**
+ * Empêche la mise en veille de l'écran tant que l'application est au premier plan : en
+ * navigation on regarde la carte sans toucher l'écran, et un réveil manuel permanent est
+ * intenable. Le verrou se relâche seul en arrière-plan (l'API le libère quand l'onglet est
+ * masqué), et on le reprend au retour au premier plan.
+ */
+async function startWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  const acquire = async () => {
+    if (document.visibilityState !== 'visible') return;
+    try { app.wakeLock = await navigator.wakeLock.request('screen'); }
+    catch { /* refusé (batterie faible, onglet inactif) : sans gravité */ }
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') acquire();
+  });
+  await acquire();
 }
 
 function updateAlarm(depth) {
@@ -1030,15 +1054,28 @@ function wireSim() {
   });
   $('sim-slider').addEventListener('input', (e) => setSimLevel(Number(e.target.value)));
 
-  $('btn-sim-up').addEventListener('click', () => nudgeSimPoint(0.25));
-  $('btn-sim-down').addEventListener('click', () => nudgeSimPoint(-0.25));
+  // « + » = plus profond : la profondeur mesurée augmente, donc le fond (bedZ) descend.
+  $('btn-sim-up').addEventListener('click', () => nudgeSimPoint(-0.25));
+  $('btn-sim-down').addEventListener('click', () => nudgeSimPoint(0.25));
   $('btn-sim-del').addEventListener('click', deleteSimPoint);
   app.lakeMap.addEventListener('simselect', (event) => selectSimPoint(event.detail));
 
   app.sim.addEventListener('change', () => {
+    applyModelCorrections();
     refreshSimOnMap();
     refreshSimReadout();
   });
+}
+
+/**
+ * Reporte les relevés manuels sur la grille et renvoie la texture corrigée au GPU. La
+ * correction s'applique en permanence — pas seulement en mode simulation — pour que la
+ * carte affichée en navigation soit bien la « 2009 corrigée ».
+ */
+function applyModelCorrections() {
+  if (!app.bed || !app.depthLayer) return;
+  app.bed.applyCorrections(app.sim.records, app.settings.get('correctionRadius_m'));
+  app.depthLayer.updateBed();
 }
 
 function enterSim() {
@@ -1093,11 +1130,21 @@ function refreshSimReadout() {
 }
 
 function addSimPoint(lon, lat) {
-  const bedZ = app.bed.altitudeAt(lon, lat);
+  // On lit la grille BRUTE : un nouveau relevé part de la carte 2009, pas d'une correction
+  // déjà posée à côté, sinon les corrections s'empileraient à chaque pose.
+  const bedZ = correctedAltitude(
+    app.bed.baseAltitudeAt(lon, lat),
+    app.settings.get('calibrationOffset_m'),
+    app.settings.get('waterPlane_m_ngf'),
+  );
   if (!Number.isFinite(bedZ)) { toast('Hors emprise du modèle'); return; }
-  const entry = app.sim.add({ lon, lat, bedZ });
+  const cote = currentLevel().value;
+  const depth = Number.isFinite(cote) ? round2(cote - bedZ) : null;
+  const entry = app.sim.add({ lon, lat, bedZ, depth_m: depth, cote_m: Number.isFinite(cote) ? round2(cote) : null });
   selectSimPoint(entry.id);
-  toast(`Témoin posé · fond ${bedZ.toFixed(1)} m NGF`);
+  toast(depth != null
+    ? `Relevé posé · ${depth.toFixed(1)} m — ajustez à la profondeur lue`
+    : `Relevé posé · fond ${bedZ.toFixed(1)} m NGF`);
 }
 
 function selectSimPoint(id) {
@@ -1118,17 +1165,23 @@ function refreshSimSelection() {
   if (!record) return;
   const level = currentLevel().value;
   const depth = Number.isFinite(level) ? level - record.bedZ : NaN;
-  const status = !Number.isFinite(depth) ? '' : depth <= 0
-    ? ` · émergé de ${(-depth).toFixed(1)} m`
-    : ` · ${depth.toFixed(1)} m d'eau`;
-  $('sim-sel-label').textContent = `Fond ${record.bedZ.toFixed(2)} m NGF${status}`;
+  const head = !Number.isFinite(depth)
+    ? `Fond ${record.bedZ.toFixed(2)} m NGF`
+    : depth <= 0
+      ? `Émergé de ${(-depth).toFixed(1)} m`
+      : `${depth.toFixed(1)} m d'eau`;
+  $('sim-sel-label').textContent = `${head} · fond ${record.bedZ.toFixed(2)} m NGF`;
 }
 
 function nudgeSimPoint(delta) {
   if (!app.editingSimId) return;
   const record = app.sim.get(app.editingSimId);
   if (!record) return;
-  app.sim.update(app.editingSimId, { bedZ: round2(record.bedZ + delta) });
+  const bedZ = round2(record.bedZ + delta);
+  // On garde la provenance cohérente : la profondeur mesurée suit la cote du relevé.
+  const changes = { bedZ };
+  if (Number.isFinite(record.cote_m)) changes.depth_m = round2(record.cote_m - bedZ);
+  app.sim.update(app.editingSimId, changes);
   refreshSimSelection();
 }
 

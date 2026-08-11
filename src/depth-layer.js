@@ -165,9 +165,14 @@ void main() {
     float distance = texture(u_coverage, v_uv).r * 255.0;
     float strength = smoothstep(u_voidRadius, u_voidRadius * 2.5, distance);
     if (strength > 0.01) {
-      float stripe = fract((gl_FragCoord.x + gl_FragCoord.y) * 0.09);
-      float hatch = 1.0 - smoothstep(0.30, 0.38, abs(stripe - 0.5) * 2.0);
-      colour = mix(colour, vec4(1.0, 1.0, 1.0, colour.a), hatch * strength * 0.55);
+      // Voile magenta « carto » sur toute la zone non sondée : visible même à distance,
+      // il signale d'un coup d'œil que le fond n'y est pas mesuré. Par-dessus, des
+      // hachures blanches plus denses et plus contrastées qu'auparavant.
+      vec3 caution = vec3(0.86, 0.16, 0.52);
+      colour.rgb = mix(colour.rgb, caution, strength * 0.22);
+      float stripe = fract((gl_FragCoord.x + gl_FragCoord.y) * 0.11);
+      float hatch = 1.0 - smoothstep(0.22, 0.34, abs(stripe - 0.5) * 2.0);
+      colour.rgb = mix(colour.rgb, vec3(1.0), hatch * strength * 0.8);
     }
   }
 
@@ -285,6 +290,46 @@ export class DepthLayer {
     const { gl } = this;
     gl.bindTexture(gl.TEXTURE_2D, this.lutTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.style.lut);
+  }
+
+  /**
+   * Ré-encode la grille d'altitude de travail (2009 + corrections) en Terrain-RGB et la
+   * renvoie au GPU. Appelée quand les relevés manuels changent : le shader recolore alors
+   * la « carte courante » corrigée à n'importe quelle cote, sans autre traitement.
+   */
+  updateBed() {
+    if (!this.ready) return;
+    const { gl } = this;
+    const { width, height, altitudes, alpha, meta } = this.bed;
+    const { base, interval } = meta.encoding;
+    const count = width * height;
+    const buf = this._bedBuffer ?? (this._bedBuffer = new Uint8Array(count * 4));
+    for (let i = 0; i < count; i += 1) {
+      const o = i * 4;
+      const a = alpha[i];
+      if (!a || !Number.isFinite(altitudes[i])) { buf[o] = buf[o + 1] = buf[o + 2] = buf[o + 3] = 0; continue; }
+      let v = Math.round((altitudes[i] - base) / interval);
+      v = Math.max(0, Math.min(0xffffff, v));
+      buf[o] = (v >> 16) & 255; buf[o + 1] = (v >> 8) & 255; buf[o + 2] = v & 255; buf[o + 3] = a;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, this.bedTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    this.#uploadCoverage();
+    this.map?.triggerRepaint();
+  }
+
+  #uploadCoverage() {
+    if (!this.hasCoverage || !this.bed.coverage) return;
+    const { gl } = this;
+    const { width, height, coverage } = this.bed;
+    const count = width * height;
+    const buf = this._covBuffer ?? (this._covBuffer = new Uint8Array(count * 4));
+    for (let i = 0; i < count; i += 1) {
+      const o = i * 4;
+      buf[o] = buf[o + 1] = buf[o + 2] = coverage[i]; buf[o + 3] = 255;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, this.coverageTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, buf);
   }
 
   render(gl, options) {
