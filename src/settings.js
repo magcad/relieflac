@@ -92,6 +92,12 @@ export function defaultsFrom(palette, model) {
     bigDepth: false,
     // Rayon (m) sur lequel un relevé manuel corrige la grille du fond autour du point.
     correctionRadius_m: 20,
+    // Synchronisation des relevés vers un fichier du dépôt (le jeton, lui, est stocké à
+    // part et jamais exporté). Ces valeurs se changent pour un autre plan d'eau.
+    syncRepo: 'magcad/relieflac',
+    syncPath: 'data/corrections/vassiviere.json',
+    syncBranch: 'main',
+    syncWaterbody: 'vassiviere',
     // Retouches de couleurs par l'utilisateur, par préréglage : { marine: { emerged_color,
     // bands: [{ max_depth_m, color }] , stops: [...] } }. Appliquées sur la palette en
     // mémoire au démarrage ; « réinitialiser » les efface.

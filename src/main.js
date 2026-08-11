@@ -10,6 +10,7 @@ import { LakeMap } from './map.js';
 import { applyPaletteOverride, bandColors, bandLimits, buildLut, depthColor, hexToVec4, legendEntries } from './palette.js';
 import { Probes, makeProbe } from './probes.js';
 import { SimPoints } from './sim.js';
+import { CorrectionsSync, getToken, setToken } from './sync.js';
 import { Soundings } from './soundings.js';
 import { defaultsFrom, Settings } from './settings.js';
 import { VERSION } from './version.js';
@@ -28,6 +29,7 @@ const app = {
   heading: null,
   lastBigDepth: null,
   wakeLock: null,
+  sync: null, syncPushTimer: null, suppressPush: false,
 };
 
 // ---------------------------------------------------------------- démarrage
@@ -73,6 +75,7 @@ async function boot() {
     wireCompass();
     wireMap();
     wireBigDepth();
+    wireSync();
     route();
 
     refreshLevelUi();
@@ -86,6 +89,7 @@ async function boot() {
     applyBigDepthMode();
     applyModelCorrections(); // « carte 2009 corrigée » dès l'ouverture, s'il y a des relevés
     startWakeLock();
+    initSync(); // récupère les relevés partagés puis les applique (asynchrone, sans bloquer)
 
     app.geo.addEventListener('position', onPosition);
     app.geo.addEventListener('status', onGeoStatus);
@@ -298,6 +302,124 @@ async function startWakeLock() {
     if (document.visibilityState === 'visible') acquire();
   });
   await acquire();
+}
+
+// ------------------------------------------- synchronisation des relevés (dépôt)
+
+function syncMeta() {
+  return {
+    transducer_m: app.settings.get('transducer_m'),
+    radius_m: app.settings.get('correctionRadius_m'),
+  };
+}
+
+function wireSync() {
+  app.sync = new CorrectionsSync({
+    repo: app.settings.get('syncRepo'),
+    path: app.settings.get('syncPath'),
+    branch: app.settings.get('syncBranch'),
+    waterbody: app.settings.get('syncWaterbody'),
+    datum: 'NGF-IGN69',
+    baseUrl: '.',
+  });
+  $('sync-token').value = getToken();
+
+  $('btn-sync-save').addEventListener('click', () => {
+    setToken($('sync-token').value);
+    toast(getToken() ? 'Jeton enregistré' : 'Jeton effacé');
+    refreshSyncUi();
+    if (getToken()) syncNow();
+  });
+  $('btn-sync-forget').addEventListener('click', () => {
+    setToken('');
+    $('sync-token').value = '';
+    toast('Jeton oublié — cet appareil ne peut plus écrire');
+    refreshSyncUi();
+  });
+  $('btn-sync-now').addEventListener('click', syncNow);
+
+  refreshSyncUi();
+}
+
+/** Au démarrage : si des écritures locales attendent, on les pousse ; sinon on adopte le distant. */
+async function initSync() {
+  if (!app.sync) return;
+  try {
+    if (app.sync.hasToken() && app.sync.dirty) {
+      await pushCorrections();
+    } else {
+      const { records } = await app.sync.pull();
+      // Sans jeton, on n'adopte le distant que s'il contient quelque chose : inutile
+      // d'effacer les points locaux d'un visiteur avec un fichier partagé encore vide.
+      if (app.sync.hasToken() || records.length) adoptRemote(records);
+    }
+  } catch {
+    setSyncStatus('hors ligne — relevés locaux conservés');
+  }
+  refreshSyncUi();
+}
+
+/** Bouton « Synchroniser maintenant » : envoie l'état local, ou le récupère sans jeton. */
+async function syncNow() {
+  if (!app.sync) return;
+  setSyncStatus('synchronisation…');
+  try {
+    if (app.sync.hasToken()) {
+      await pushCorrections();
+      toast('Relevés synchronisés');
+    } else {
+      const { records } = await app.sync.pull();
+      adoptRemote(records);
+      toast('Relevés partagés récupérés');
+    }
+  } catch (err) {
+    setSyncStatus(`échec : ${err.message}`);
+    toast('Synchronisation impossible', 6000);
+  }
+  refreshSyncUi();
+}
+
+/** Remplace le jeu local par la version distribuée, sans déclencher de renvoi. */
+function adoptRemote(records) {
+  if (!Array.isArray(records)) return;
+  app.suppressPush = true;
+  app.sim.replaceAll(records);
+  app.suppressPush = false;
+}
+
+function scheduleSyncPush() {
+  if (!app.sync?.hasToken()) { app.sync?.markDirty(); refreshSyncUi(); return; }
+  clearTimeout(app.syncPushTimer);
+  app.syncPushTimer = setTimeout(() => { pushCorrections().catch(() => {}); }, 1500);
+}
+
+async function pushCorrections() {
+  if (!app.sync?.hasToken()) return;
+  setSyncStatus('envoi…');
+  try {
+    await app.sync.push(app.sim.records, syncMeta());
+    setSyncStatus(`à jour · ${app.sim.count} relevé(s)`);
+  } catch (err) {
+    app.sync.markDirty();
+    setSyncStatus(`non synchronisé : ${err.message}`);
+    throw err;
+  }
+  refreshSyncUi();
+}
+
+function setSyncStatus(text) {
+  const el = $('sync-status');
+  if (el) el.textContent = text;
+}
+
+function refreshSyncUi() {
+  if (!app.sync) return;
+  $('btn-sync-now').textContent = app.sync.hasToken() ? 'Synchroniser maintenant' : 'Récupérer les relevés';
+  if (!$('sync-status').textContent || $('sync-status').textContent === '—') {
+    setSyncStatus(app.sync.hasToken()
+      ? (app.sync.dirty ? 'écritures en attente' : `prêt · ${app.sim.count} relevé(s)`)
+      : 'lecture seule (aucun jeton)');
+  }
 }
 
 function updateAlarm(depth) {
@@ -1064,6 +1186,7 @@ function wireSim() {
     applyModelCorrections();
     refreshSimOnMap();
     refreshSimReadout();
+    if (!app.suppressPush) scheduleSyncPush(); // pas de renvoi quand on vient d'adopter le distant
   });
 }
 

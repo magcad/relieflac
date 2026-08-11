@@ -10,6 +10,7 @@
 // afficheraient des couleurs différentes pour la même profondeur.
 
 import { BedGrid, correctedAltitude } from '../src/bed.js';
+import { CorrectionsSync } from '../src/sync.js';
 import { Calibration, makeRecord } from '../src/calibration.js';
 import { bearing, distanceMeters, formatSpeed } from '../src/geo.js';
 import { formatAge, Level } from '../src/level.js';
@@ -214,6 +215,21 @@ export async function run(base = '..') {
   sim.remove(simPoint.id);
   check('suppression d\'un témoin', sim.count === 0);
   sim.clear();
+
+  // --- format de synchronisation (aller-retour) -------------------------------
+  const sync = new CorrectionsSync({
+    repo: 'x/y', path: 'data/corrections/vassiviere.json', waterbody: 'vassiviere', datum: 'NGF-IGN69',
+  });
+  const rec = { id: 'abc', at: '2026-08-11T10:00:00Z', lon: 1.87, lat: 45.79, bedZ: 644.7, depth_m: 2.3, cote_m: 647.0 };
+  const file = sync.toFile([rec], { transducer_m: 0.3, radius_m: 20 });
+  check('format : en-tête réutilisable', file.schema === 'relieflac.corrections/1' && file.waterbody === 'vassiviere');
+  check('format : profondeur et cote conservées',
+    file.points[0].depth_m === 2.3 && file.points[0].cote_m_ngf === 647.0 && file.points[0].z_fond_m_ngf === 644.7);
+  const back = CorrectionsSync.fromFile(file);
+  check('format : aller-retour fidèle',
+    back.length === 1 && back[0].bedZ === 644.7 && back[0].cote_m === 647.0 && back[0].id === 'abc');
+  check('format : point sans altitude ignoré',
+    CorrectionsSync.fromFile({ points: [{ lon: 1, lat: 2 }] }).length === 0);
 
   // --- sondes de 2009 ---------------------------------------------------------
   const soundings = await Soundings.load(base);

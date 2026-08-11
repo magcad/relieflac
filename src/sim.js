@@ -53,6 +53,12 @@ export class SimPoints extends EventTarget {
     this.#persist();
   }
 
+  /** Remplace tout le jeu de relevés (adoption d'une version distribuée). */
+  replaceAll(records) {
+    this.records = Array.isArray(records) ? records : [];
+    this.#persist();
+  }
+
   #persist() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.records));

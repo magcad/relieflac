@@ -373,6 +373,10 @@ legend { padding: 0 .4rem; color: var(--muted); font-size: .8rem; text-transform
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
 }
 .row input[type="range"] { width: 55%; accent-color: var(--accent); }
+.row input[type="password"], .row input[type="text"] {
+  width: 12rem; padding: .5rem .6rem; font-family: ui-monospace, monospace;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+}
 .row--switch input { width: 3rem; height: 1.7rem; accent-color: var(--accent); }
 
 .hint { color: var(--muted); font-size: .82rem; margin: .6rem 0 0; }

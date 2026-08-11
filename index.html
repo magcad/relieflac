@@ -262,6 +262,27 @@
     </fieldset>
 
     <fieldset>
+      <legend>Synchronisation des relevés</legend>
+      <p class="hint">
+        Tes relevés corrigent la carte partagée : ils sont enregistrés dans le dépôt et
+        visibles par tous. L'écriture demande <strong>ton</strong> jeton GitHub, qui reste
+        sur cet appareil et n'est jamais exporté. Sans jeton, l'application lit quand même
+        les relevés publiés.
+      </p>
+      <label class="row">
+        <span>Jeton GitHub</span>
+        <input id="sync-token" type="password" inputmode="text" autocomplete="off"
+               placeholder="github_pat_… (collé une fois)">
+      </label>
+      <p class="hint">État : <strong id="sync-status">—</strong></p>
+      <div class="actions">
+        <button type="button" class="primary" id="btn-sync-save">Enregistrer le jeton</button>
+        <button type="button" id="btn-sync-now">Synchroniser maintenant</button>
+        <button type="button" class="danger" id="btn-sync-forget">Oublier le jeton</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
       <legend>Version et cache</legend>
       <p class="hint">Version installée : <strong id="app-version">—</strong>.
         Si ce numéro ne change pas après une mise à jour, le téléphone sert encore
