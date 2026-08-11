@@ -125,6 +125,9 @@ a { color: var(--accent); }
   bottom: calc(6.3rem + var(--safe-bottom));
   display: flex; gap: .5rem; align-items: stretch;
 }
+/* Sans cette règle, `display:flex` l'emporte sur l'attribut `hidden` et la barre reste
+   visible même repliée. */
+.capture[hidden] { display: none; }
 .capture__input {
   flex: 1; min-width: 0; padding: .55rem .7rem;
   background: #182027e6; border: 1px solid var(--line); border-radius: 12px;
