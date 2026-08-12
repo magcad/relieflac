@@ -123,11 +123,14 @@ export class LakeMap extends EventTarget {
       source: 'sondes-2009',
       layout: { visibility: 'none' },
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 1, 15, 2.5, 18, 5],
+        // Pastilles blanches cerclées de sombre : lisibles à la fois sur le plan IGN clair
+        // et sur les fonds colorés. Plus grosses et plus opaques qu'avant, où elles étaient
+        // quasi invisibles. Le cercle sombre garantit le contraste sur fond clair.
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 1.6, 14, 3, 17, 5, 19, 7.5],
         'circle-color': '#ffffff',
-        'circle-opacity': 0.75,
-        'circle-stroke-width': 0.5,
-        'circle-stroke-color': '#1a2833',
+        'circle-opacity': 0.95,
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 15, 1.4, 19, 2],
+        'circle-stroke-color': '#0b1a2b',
       },
     });
 
