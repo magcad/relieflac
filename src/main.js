@@ -137,6 +137,7 @@ async function loadSoundingsLazily() {
     app.lakeMap.setSoundings(app.soundings.toGeoJSON(), app.settings.get('showSoundings'));
     if (status) status.textContent = `Sondes 2009 : ${app.soundings.count} chargées`;
     setTimeout(refreshSoundingsDiag, 800);
+    setTimeout(refreshSoundingsDiag, 3000); // après que MapLibre a fini de tuiler la source
   } catch (err) {
     console.warn('sondes 2009 indisponibles', err);
     if (status) status.textContent = `Sondes 2009 : échec du chargement (${err.message})`;
@@ -149,7 +150,7 @@ function refreshSoundingsDiag() {
   if (!status || !app.soundings || !app.lakeMap) return;
   const d = app.lakeMap.soundingsDebug();
   status.textContent = `Sondes 2009 : ${app.soundings.count} chargées · couche ${d.vis}`
-    + ` · source ${d.source} · rendues ${d.rendered} · ordre ${d.order}`;
+    + ` · source ${d.data} · rendues ${d.rendered} · err: ${d.err}`;
 }
 
 // ------------------------------------------------------------- profondeurs

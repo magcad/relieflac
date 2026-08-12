@@ -111,6 +111,9 @@ export class LakeMap extends EventTarget {
     this.map.on('click', (event) => this.dispatchEvent(
       new CustomEvent('probe', { detail: event.lngLat }),
     ));
+    // Diagnostic : on retient la dernière erreur MapLibre (expression de style invalide,
+    // tuile en échec…), pour la remonter à l'écran.
+    this.map.on('error', (e) => { this.lastError = e?.error?.message || String(e?.error || e); });
   }
 
   #addOverlays() {
@@ -196,14 +199,10 @@ export class LakeMap extends EventTarget {
   /** Diagnostic : état réel du calque des sondes 2009 tel que MapLibre le voit. */
   soundingsDebug() {
     const m = this.map;
-    const out = { vis: '?', source: -1, rendered: -1, order: '?' };
+    const out = { vis: '?', data: -1, rendered: -1, err: this.lastError || 'aucune' };
     try { out.vis = m.getLayoutProperty('sondes-2009', 'visibility') ?? 'visible'; } catch { /* */ }
-    try { out.source = m.querySourceFeatures('sondes-2009').length; } catch { /* */ }
+    try { out.data = m.getSource('sondes-2009')?._data?.features?.length ?? -2; } catch { /* */ }
     try { out.rendered = m.queryRenderedFeatures({ layers: ['sondes-2009'] }).length; } catch { /* */ }
-    try {
-      const ids = m.getStyle().layers.map((l) => l.id);
-      out.order = `${ids.indexOf('profondeurs')}<${ids.indexOf('sondes-2009')}`;
-    } catch { /* */ }
     return out;
   }
 
