@@ -136,10 +136,20 @@ async function loadSoundingsLazily() {
     app.soundings = await Soundings.load('.');
     app.lakeMap.setSoundings(app.soundings.toGeoJSON(), app.settings.get('showSoundings'));
     if (status) status.textContent = `Sondes 2009 : ${app.soundings.count} chargées`;
+    setTimeout(refreshSoundingsDiag, 800);
   } catch (err) {
     console.warn('sondes 2009 indisponibles', err);
     if (status) status.textContent = `Sondes 2009 : échec du chargement (${err.message})`;
   }
+}
+
+/** Rapporte à l'écran l'état de rendu du calque des sondes (données présentes mais invisibles ?). */
+function refreshSoundingsDiag() {
+  const status = $('soundings-status');
+  if (!status || !app.soundings || !app.lakeMap) return;
+  const d = app.lakeMap.soundingsDebug();
+  status.textContent = `Sondes 2009 : ${app.soundings.count} chargées · couche ${d.vis}`
+    + ` · source ${d.source} · rendues ${d.rendered} · ordre ${d.order}`;
 }
 
 // ------------------------------------------------------------- profondeurs
@@ -575,6 +585,7 @@ function wireSettings() {
     refreshSimOnMap();
     app.lakeMap.setBasemap(s.get('basemap'));
     app.lakeMap.setSoundings(null, s.get('showSoundings'));
+    setTimeout(refreshSoundingsDiag, 300);
   });
 
   wirePaletteEditor();
