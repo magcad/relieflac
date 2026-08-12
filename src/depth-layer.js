@@ -18,6 +18,40 @@ function toUnitMercator(x, y) {
   return [(x + ORIGIN_SHIFT) / EARTH_CIRCUMFERENCE, (ORIGIN_SHIFT - y) / EARTH_CIRCUMFERENCE];
 }
 
+/**
+ * Matrice de MapLibre ramenée à une origine locale, en simple précision.
+ *
+ * Sans cela, la carte des fonds tremble dès que la carte tourne — alors que les sondes,
+ * couche MapLibre native, restent parfaitement fixes. La raison est une annulation
+ * catastrophique dans le vertex shader. Nos sommets étaient en mercator absolu (~0,505) et
+ * la matrice, au zoom de navigation, porte des coefficients énormes : le shader calculait
+ *
+ *     277 414 379 × 0,5052  −  140 156 818  =  −8 627
+ *
+ * soit une différence de 8,6×10³ obtenue en soustrayant deux nombres de 1,4×10⁸. En float32
+ * l'ULP y vaut 16, ce qui, divisé par w ≈ 1545, donne 0,010 NDC — environ **cinq pixels**
+ * d'erreur, qui changent à chaque image puisque la matrice change. D'où le sautillement.
+ *
+ * On décale donc l'origine : les sommets deviennent de petits écarts au centre de la grille
+ * (~2×10⁻⁴), et la translation correspondante est recalculée ici en double précision, que
+ * MapLibre nous fournit bien (`mainMatrix` est un Float64Array — vérifié, ne pas le
+ * supposer). Les grands coefficients ne multiplient plus qu'un écart minuscule : l'erreur
+ * résiduelle tombe sous le centième de pixel.
+ *
+ * `M' = M · T(origine)` : seule la quatrième colonne change, les trois autres étant
+ * inchangées par une translation.
+ */
+export function anchoredMatrix(matrix, anchorX, anchorY, out) {
+  for (let i = 0; i < 12; i += 1) out[i] = matrix[i];
+  // Sommes évaluées en double précision — c'est tout l'intérêt — puis arrondies une seule
+  // fois à l'écriture dans `out`, qui est en simple précision.
+  out[12] = matrix[0] * anchorX + matrix[4] * anchorY + matrix[12];
+  out[13] = matrix[1] * anchorX + matrix[5] * anchorY + matrix[13];
+  out[14] = matrix[2] * anchorX + matrix[6] * anchorY + matrix[14];
+  out[15] = matrix[3] * anchorX + matrix[7] * anchorY + matrix[15];
+  return out;
+}
+
 const VERTEX_SHADER = `#version 300 es
 in vec2 a_pos;
 in vec2 a_uv;
@@ -243,13 +277,20 @@ export class DepthLayer {
 
     // Rectangle de l'emprise de la grille, en mercator unitaire. Ligne 0 de l'image
     // = bord nord, d'où v = 0 en haut.
+    //
+    // Les sommets sont stockés **relativement au centre de la grille**, et non en mercator
+    // absolu : voir `anchoredMatrix`, qui reprend la translation. En absolu, la simple
+    // précision du tampon suffisait déjà à décaler chaque coin de près de deux mètres.
     const [ax, ay] = toUnitMercator(this.bed.x0, this.bed.y1);
     const [bx, by] = toUnitMercator(this.bed.x1, this.bed.y0);
+    this.anchorX = (ax + bx) / 2;
+    this.anchorY = (ay + by) / 2;
+    this.matrix = new Float32Array(16);
     const vertices = new Float32Array([
-      ax, ay, 0, 0,
-      bx, ay, 1, 0,
-      ax, by, 0, 1,
-      bx, by, 1, 1,
+      ax - this.anchorX, ay - this.anchorY, 0, 0,
+      bx - this.anchorX, ay - this.anchorY, 1, 0,
+      ax - this.anchorX, by - this.anchorY, 0, 1,
+      bx - this.anchorX, by - this.anchorY, 1, 1,
     ]);
     this.buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
@@ -334,12 +375,13 @@ export class DepthLayer {
 
   render(gl, options) {
     if (!this.ready) return;
-    const matrix = options.defaultProjectionData.mainMatrix;
     const s = this.style;
     const u = this.locations;
 
     gl.useProgram(this.program);
-    gl.uniformMatrix4fv(u.u_matrix, false, matrix);
+    gl.uniformMatrix4fv(u.u_matrix, false, anchoredMatrix(
+      options.defaultProjectionData.mainMatrix, this.anchorX, this.anchorY, this.matrix,
+    ));
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.bedTexture);

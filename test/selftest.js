@@ -11,6 +11,7 @@
 
 import { BedGrid, correctedAltitude } from '../src/bed.js';
 import { angleDelta, CameraFollow, catchUp, deadReckon } from '../src/camera.js';
+import { anchoredMatrix } from '../src/depth-layer.js';
 import { CorrectionsSync } from '../src/sync.js';
 import { Calibration, makeRecord } from '../src/calibration.js';
 import { bearing, distanceMeters, formatSpeed } from '../src/geo.js';
@@ -596,6 +597,75 @@ export async function run(base = '..') {
     }
     check('retour au nord amorti puis exact',
       view.bearing === 0 && frames < 200, `nord atteint en ${frames} images`);
+  }
+
+  // --- calage de la carte des fonds ------------------------------------------------
+  // La couche des fonds sautait dès que la carte tournait, alors que les sondes — couche
+  // MapLibre native, dessinée en coordonnées locales de tuile — restaient fixes. Cause :
+  // nos sommets étaient en mercator absolu, et le vertex shader devait en soustraire deux
+  // nombres de 1,4×10⁸ pour obtenir 8,6×10³. On reproduit ici l'arithmétique simple
+  // précision du GPU avec Math.fround, sur la matrice réellement relevée dans
+  // l'application au zoom de navigation.
+  {
+    const f = Math.fround;
+    // Ordres de grandeur relevés dans l'application au zoom de navigation.
+    const SCALE = 277414379;
+    const W = 1545;
+    const SCREEN_PX = 966;
+    const px = 0.5051944;    // un coin de la grille, en mercator unitaire
+    const py = 0.34170512;
+    const anchorX = 0.5052611; // centre de la grille
+    const anchorY = 0.34174233;
+
+    /** Matrice de MapLibre pour un cap donné, bateau au centre de la vue. */
+    const matrixFor = (deg) => {
+      const r = deg * DEG;
+      const m = new Float64Array(16);
+      m[0] = SCALE * Math.cos(r); m[4] = -SCALE * Math.sin(r);
+      m[1] = -SCALE * Math.sin(r); m[5] = -SCALE * Math.cos(r);
+      m[10] = 1; m[15] = W;
+      m[12] = -(m[0] * anchorX + m[4] * anchorY);
+      m[13] = -(m[1] * anchorX + m[5] * anchorY);
+      return m;
+    };
+
+    // Le tremblement n'est pas l'erreur à une image donnée, mais sa *variation* d'une
+    // image à l'autre : c'est elle que l'œil voit quand la carte tourne. On balaie donc
+    // un tour complet, cap par cap, et on mesure l'amplitude de l'erreur de position.
+    const out = new Float32Array(16);
+    let oldLow = Infinity; let oldHigh = -Infinity;
+    let newLow = Infinity; let newHigh = -Infinity;
+    for (let deg = 0; deg < 360; deg += 0.25) {
+      const m = matrixFor(deg);
+      const toPixels = (clip) => (clip / W) * (SCREEN_PX / 2);
+      const ref = m[0] * px + m[4] * py + m[12];
+
+      // Ancien trajet : sommet en mercator absolu, tout arrondi en simple précision.
+      const before = toPixels(
+        f(f(f(m[0]) * f(px)) + f(f(m[4]) * f(py))) + f(m[12]) - ref,
+      );
+      // Nouveau trajet : sommet relatif à l'ancre, translation recomposée en double.
+      anchoredMatrix(m, anchorX, anchorY, out);
+      const after = toPixels(
+        f(f(out[0] * f(px - anchorX)) + f(out[4] * f(py - anchorY))) + out[12] - ref,
+      );
+
+      oldLow = Math.min(oldLow, before); oldHigh = Math.max(oldHigh, before);
+      newLow = Math.min(newLow, after); newHigh = Math.max(newHigh, after);
+    }
+    const avant = oldHigh - oldLow;
+    const apres = newHigh - newLow;
+
+    check('carte des fonds : plus de tremblement en rotation',
+      apres < 0.05 && apres < avant / 20,
+      `amplitude sur un tour complet : ${avant.toFixed(2)} px avant, ${apres.toFixed(3)} px après`);
+
+    // Les trois premières colonnes ne doivent pas bouger : une translation ne les touche
+    // pas, et les altérer déformerait la carte au lieu de la déplacer.
+    anchoredMatrix(matrixFor(37), anchorX, anchorY, out);
+    const ref37 = matrixFor(37);
+    check('ancrage : seule la translation est modifiée',
+      [0, 1, 4, 5, 10].every((i) => out[i] === f(ref37[i])));
   }
 
   // --- shader de profondeur -----------------------------------------------------

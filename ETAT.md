@@ -2,7 +2,7 @@
 
 **Dernière mise à jour** : 12 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 95 contrôles, tous passants
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 97 contrôles, tous passants
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
 Ce document sert à reprendre le travail sans relire tout l'historique.
@@ -245,7 +245,7 @@ python tools/preview_grid.py            # contrôle visuel → data/preview.png
 
 ### Vérifications
 
-Ouvrir `/test/`. 95 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 97 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
 simulation**, index des sondes, géométrie, cote, **la caméra de suivi** (le rendu n'est pas
@@ -309,6 +309,19 @@ Après toute modification de `config/palette.json` ou de la grille, relancer
   jamais par un bond. Le cap de la carte est amorti à part, sinon le tremblement de la
   boussole (±1,5°) fait vibrer le monde entier. L'estime ne sert **qu'à l'affichage** :
   profondeur lue, sondes et étalonnage restent adossés au point GPS vrai.
+- **Coordonnées absolues dans une couche WebGL personnalisée.** La carte des fonds
+  tremblait dès que la carte tournait, alors que les sondes — couche MapLibre native —
+  restaient parfaitement fixes : c'est ce contraste qui a désigné le coupable, puisque les
+  couches natives dessinent en coordonnées **locales de tuile**. Nos sommets, eux, étaient
+  en mercator absolu (~0,505) dans un `Float32Array`, et le vertex shader devait calculer
+  `277 414 379 × 0,5052 − 140 156 818 = −8 627` : une différence de 8,6×10³ obtenue en
+  soustrayant deux nombres de 1,4×10⁸. En simple précision l'ULP y vaut 16, soit, après
+  division par `w`, **18 px d'amplitude sur un tour complet**. Correction dans
+  [`src/depth-layer.js`](src/depth-layer.js) : sommets relatifs au centre de la grille, et
+  translation recomposée en double précision par `anchoredMatrix` — `mainMatrix` est bien
+  un `Float64Array`, vérifié et non supposé. Résiduel mesuré contre `map.project()` au zoom
+  19 : 0,002 px. Règle : dans une couche personnalisée, ne jamais envoyer de coordonnées
+  monde absolues à un shader ; toujours ancrer localement.
 - **Collision de noms dans `build_grid.py`.** `coverage` désignait déjà le taux de
   cellules valides.
 
