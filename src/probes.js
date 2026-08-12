@@ -65,6 +65,12 @@ export class Probes extends EventTarget {
     this.#persist();
   }
 
+  /** Remplace tout le jeu de sondes (adoption d'une version partagée fusionnée). */
+  replaceAll(records) {
+    this.records = Array.isArray(records) ? records : [];
+    this.#persist();
+  }
+
   /**
    * Colonnes directement avalées par tools/import_soundings.py : il repère `depth` et
    * `time`, retrouve la cote à l'horodatage et applique l'immersion via --transducer-depth.

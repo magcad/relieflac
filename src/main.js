@@ -341,25 +341,57 @@ function wireSync() {
   refreshSyncUi();
 }
 
-/** Au démarrage : si des écritures locales attendent, on les pousse ; sinon on adopte le distant. */
+// Les relevés partagés sont les sondes ✎ « Relever ». Conversion vers le format de
+// fichier (générique, réutilisable) et retour.
+function probesToRecords() {
+  return (app.probes?.records ?? []).map((p) => ({
+    id: p.id, at: p.at, lon: p.lon, lat: p.lat, bedZ: p.bedZ,
+    depth_m: p.sounderDepth ?? null, cote_m: p.level ?? null,
+  }));
+}
+
+function recordsToProbes(records) {
+  const transducer = app.settings.get('transducer_m');
+  return records.map((r) => ({
+    id: r.id, at: r.at, lon: r.lon, lat: r.lat, bedZ: r.bedZ,
+    sounderDepth: r.depth_m ?? null, level: r.cote_m ?? null,
+    transducerDepth: transducer, levelSource: 'sync',
+    accuracy: null, modelBedZ: null, modelDepth: null,
+  }));
+}
+
+/** Union par id, l'horodatage le plus récent gagne les conflits. Jamais destructif. */
+function mergeById(remote, local) {
+  const byId = new Map();
+  for (const r of [...(remote || []), ...(local || [])]) {
+    const prev = byId.get(r.id);
+    if (!prev || String(r.at || '') >= String(prev.at || '')) byId.set(r.id, r);
+  }
+  return [...byId.values()];
+}
+
+/**
+ * Au démarrage : on FUSIONNE le distant et le local (jamais d'écrasement qui perdrait des
+ * relevés), on adopte la fusion, puis on publie si le local apportait des relevés absents
+ * du distant. C'est ce qui fait remonter des sondes saisies avant l'installation du jeton.
+ */
 async function initSync() {
   if (!app.sync) return;
   try {
-    if (app.sync.hasToken() && app.sync.dirty) {
-      await pushCorrections();
-    } else {
-      const { records } = await app.sync.pull();
-      // Sans jeton, on n'adopte le distant que s'il contient quelque chose : inutile
-      // d'effacer les points locaux d'un visiteur avec un fichier partagé encore vide.
-      if (app.sync.hasToken() || records.length) adoptRemote(records);
-    }
+    const { records: remote } = await app.sync.pull();
+    const local = probesToRecords();
+    const merged = mergeById(remote, local);
+    adoptRemote(merged);
+    const remoteIds = new Set(remote.map((r) => r.id));
+    const hasLocalExtra = local.some((r) => !remoteIds.has(r.id));
+    if (app.sync.hasToken() && (app.sync.dirty || hasLocalExtra)) await pushCorrections();
   } catch {
     setSyncStatus('hors ligne — relevés locaux conservés');
   }
   refreshSyncUi();
 }
 
-/** Bouton « Synchroniser maintenant » : envoie l'état local, ou le récupère sans jeton. */
+/** Bouton « Synchroniser » : envoie l'état local (avec jeton), sinon récupère et fusionne. */
 async function syncNow() {
   if (!app.sync) return;
   setSyncStatus('synchronisation…');
@@ -369,7 +401,7 @@ async function syncNow() {
       toast('Relevés synchronisés');
     } else {
       const { records } = await app.sync.pull();
-      adoptRemote(records);
+      adoptRemote(mergeById(records, probesToRecords()));
       toast('Relevés partagés récupérés');
     }
   } catch (err) {
@@ -379,11 +411,11 @@ async function syncNow() {
   refreshSyncUi();
 }
 
-/** Remplace le jeu local par la version distribuée, sans déclencher de renvoi. */
+/** Adopte un jeu de relevés (fusionné) sans déclencher de renvoi. */
 function adoptRemote(records) {
   if (!Array.isArray(records)) return;
   app.suppressPush = true;
-  app.sim.replaceAll(records);
+  app.probes.replaceAll(recordsToProbes(records));
   app.suppressPush = false;
 }
 
@@ -397,8 +429,8 @@ async function pushCorrections() {
   if (!app.sync?.hasToken()) return;
   setSyncStatus('envoi…');
   try {
-    await app.sync.push(app.sim.records, syncMeta());
-    setSyncStatus(`à jour · ${app.sim.count} relevé(s)`);
+    await app.sync.push(probesToRecords(), syncMeta());
+    setSyncStatus(`à jour · ${app.probes.count} relevé(s)`);
   } catch (err) {
     app.sync.markDirty();
     setSyncStatus(`non synchronisé : ${err.message}`);
@@ -415,9 +447,11 @@ function setSyncStatus(text) {
 function refreshSyncUi() {
   if (!app.sync) return;
   $('btn-sync-now').textContent = app.sync.hasToken() ? 'Synchroniser maintenant' : 'Récupérer les relevés';
-  if (!$('sync-status').textContent || $('sync-status').textContent === '—') {
+  const cur = $('sync-status').textContent || '';
+  const transient = /^(envoi|synchronisation|non synchronisé|échec|hors ligne)/.test(cur);
+  if (!transient) {
     setSyncStatus(app.sync.hasToken()
-      ? (app.sync.dirty ? 'écritures en attente' : `prêt · ${app.sim.count} relevé(s)`)
+      ? (app.sync.dirty ? 'écritures en attente' : `à jour · ${app.probes.count} relevé(s)`)
       : 'lecture seule (aucun jeton)');
   }
 }
@@ -739,6 +773,8 @@ function wireProbes() {
   app.probes.addEventListener('change', () => {
     refreshProbesUi();
     refreshProbesOnMap();
+    applyModelCorrections(); // une sonde ✎ corrige la carte en direct
+    if (!app.suppressPush) scheduleSyncPush(); // et se partage
   });
 }
 
@@ -819,7 +855,9 @@ function recordProbe() {
     levelSource: state.source,
     sounderDepth: depth,
     transducerDepth: app.settings.get('transducer_m'),
-    modelBedZ: app.bed.altitudeAt(position.lon, position.lat),
+    // Comparaison au levé 2009 BRUT (sinon on comparerait la sonde à une carte déjà
+    // corrigée par les sondes précédentes — un écart artificiellement nul).
+    modelBedZ: app.bed.baseAltitudeAt(position.lon, position.lat),
   }));
 
   input.value = '';
@@ -1183,21 +1221,34 @@ function wireSim() {
   app.lakeMap.addEventListener('simselect', (event) => selectSimPoint(event.detail));
 
   app.sim.addEventListener('change', () => {
-    applyModelCorrections();
+    applyModelCorrections(); // les points de simulation corrigent la carte localement
     refreshSimOnMap();
     refreshSimReadout();
-    if (!app.suppressPush) scheduleSyncPush(); // pas de renvoi quand on vient d'adopter le distant
+    // Volontairement pas de synchro : le mode 🌊 est un bac à sable local ; seules les
+    // sondes ✎ « Relever » sont partagées.
   });
 }
 
 /**
- * Reporte les relevés manuels sur la grille et renvoie la texture corrigée au GPU. La
- * correction s'applique en permanence — pas seulement en mode simulation — pour que la
- * carte affichée en navigation soit bien la « 2009 corrigée ».
+ * Reporte les relevés sur la grille et renvoie la texture corrigée au GPU. La correction
+ * s'applique en permanence — pas seulement en mode simulation — pour que la carte affichée
+ * en navigation soit bien la « 2009 corrigée ».
+ *
+ * Deux sources se cumulent : les sondes ✎ « Relever » (mesures réelles, ancrées au GPS,
+ * partagées) et les points 🌊 de simulation (locaux, pour tester un étiage). Toutes deux
+ * portent une altitude de fond invariante `bedZ`.
  */
+function correctionRecords() {
+  const fromProbes = (app.probes?.records ?? [])
+    .filter((p) => Number.isFinite(p.bedZ))
+    .map((p) => ({ lon: p.lon, lat: p.lat, bedZ: p.bedZ }));
+  const fromSim = app.sim?.records ?? [];
+  return [...fromProbes, ...fromSim];
+}
+
 function applyModelCorrections() {
   if (!app.bed || !app.depthLayer) return;
-  app.bed.applyCorrections(app.sim.records, app.settings.get('correctionRadius_m'));
+  app.bed.applyCorrections(correctionRecords(), app.settings.get('correctionRadius_m'));
   app.depthLayer.updateBed();
 }
 
