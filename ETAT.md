@@ -1,8 +1,8 @@
 # État du projet — reprise de session
 
-**Dernière mise à jour** : 11 août 2026
+**Dernière mise à jour** : 12 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 56 contrôles, tous passants
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 77 contrôles, tous passants
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
 Ce document sert à reprendre le travail sans relire tout l'historique.
@@ -28,6 +28,17 @@ et exporte en CSV/GeoJSON directement avalés par `tools/import_soundings.py`. *
 pastille** la rouvre en correction (nouvelle valeur recalée sur la cote d'origine) ou en
 suppression ; mêmes actions dans la liste des Paramètres. Code :
 [`src/probes.js`](src/probes.js), câblé dans `src/main.js` (`wireProbes`/`recordProbe`/`beginProbeEdit`).
+
+**Hauts-fonds découverts, relevés à pied** (12/08/2026) : la saisie accepte désormais une
+**valeur négative** — la hauteur du fond au-dessus de l'eau — sur les deux écrans, sonde et
+étalonnage. Bouton « ± » parce que le pavé numérique d'iOS n'a pas de touche « moins ». Le
+piège désamorcé au passage : **l'immersion du transducteur ne doit pas être retranchée**
+quand rien n'est immergé, sinon 30 cm d'erreur systématique dans le sens dangereux, et
+précisément sur les points où le modèle est déjà le plus faux (§ 2 ci-dessous). La règle
+tient dans `bedAltitude()` ([`src/probes.js`](src/probes.js)), reprise par
+`src/calibration.js` et par `tools/import_soundings.py` — qui conserve maintenant les
+profondeurs négatives au lieu de les jeter, tout en continuant d'écarter le zéro exact
+(signature d'un sondeur qui décroche). Doctrine au § 15.2 de la spécification.
 
 L'application est utilisable sur l'eau. Elle n'a **jamais été vue fonctionner par
 l'assistant** : l'environnement de test a une page masquée, où `requestAnimationFrame`

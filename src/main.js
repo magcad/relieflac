@@ -652,6 +652,7 @@ function refreshSettingsUi() {
 
 function wireCalibration() {
   $('btn-releve').addEventListener('click', recordCalibration);
+  wireSignToggle('btn-cal-sign', 'cal-depth');
   $('btn-apply-offset').addEventListener('click', () => {
     const stats = app.calibration.stats();
     if (!stats) return;
@@ -670,9 +671,9 @@ function recordCalibration() {
   const position = app.geo.position;
   if (!position) { toast('Position GPS indisponible'); return; }
 
-  const sounderDepth = Number($('cal-depth').value);
-  if (!Number.isFinite(sounderDepth) || sounderDepth <= 0) {
-    toast('Saisissez la profondeur lue au sondeur'); return;
+  const sounderDepth = readDepthInput('cal-depth');
+  if (sounderDepth === null) {
+    toast('Saisissez la profondeur lue au sondeur (négative si le fond émerge)'); return;
   }
 
   const state = currentLevel();
@@ -695,8 +696,8 @@ function recordCalibration() {
     nearestSounding: app.soundings?.distanceToNearest(position.lon, position.lat) ?? Infinity,
   }));
 
-  $('cal-depth').value = '';
-  toast('Relevé enregistré');
+  setDepthInput('cal-depth');
+  toast(`Relevé enregistré · ${depthLabel(sounderDepth)}`);
 }
 
 function refreshCalibrationContext() {
@@ -778,7 +779,7 @@ function refreshCalibrationUi() {
     const when = new Date(r.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
     item.innerHTML = `<span class="residual">${r.residual > 0 ? '+' : ''}${r.residual.toFixed(2)} m</span>
       <span class="tag ${r.onTrack ? 'tag--on' : 'tag--off'}">${r.onTrack ? 'sur trace' : 'hors trace'}</span>
-      <span class="hint">${r.sounderDepth.toFixed(1)} m au sondeur · ${when}</span>`;
+      <span class="hint">${r.sounderDepth < 0 ? `${depthLabel(r.sounderDepth)} (à pied)` : `${depthLabel(r.sounderDepth)} au sondeur`} · ${when}</span>`;
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.textContent = '×';
@@ -800,6 +801,7 @@ function wireProbes() {
   });
   $('btn-cap-delete').addEventListener('click', deleteEditedProbe);
   $('btn-cap-cancel').addEventListener('click', endProbeEdit);
+  wireSignToggle('btn-cap-sign', 'cap-input');
   app.lakeMap.addEventListener('probeselect', (event) => beginProbeEdit(event.detail));
 
   // Bouton d'édition (fabs) : déploie ou replie la barre de saisie, encombrante en
@@ -849,7 +851,7 @@ function beginProbeEdit(id) {
   location.hash = '#/'; // ramène sur la carte si l'on éditait depuis la liste des réglages
 
   const input = $('cap-input');
-  input.value = record.sounderDepth;
+  setDepthInput('cap-input', record.sounderDepth);
   $('btn-capture').textContent = 'Enregistrer';
   $('btn-cap-delete').hidden = false;
   $('btn-cap-cancel').hidden = false;
@@ -864,7 +866,7 @@ function beginProbeEdit(id) {
 function endProbeEdit() {
   app.editingProbeId = null;
   const input = $('cap-input');
-  input.value = '';
+  setDepthInput('cap-input');
   input.blur();
   $('btn-capture').textContent = 'Relever';
   $('btn-cap-delete').hidden = true;
@@ -874,11 +876,11 @@ function endProbeEdit() {
 }
 
 function saveProbeEdit() {
-  const depth = Number($('cap-input').value);
-  if (!Number.isFinite(depth) || depth <= 0) { toast('Saisissez une profondeur valide'); return; }
+  const depth = readDepthInput('cap-input');
+  if (depth === null) { toast('Saisissez une profondeur valide'); return; }
   app.probes.update(app.editingProbeId, { sounderDepth: depth });
   endProbeEdit();
-  toast(`Sonde corrigée : ${depth.toFixed(1)} m`);
+  toast(`Sonde corrigée : ${depthLabel(depth)}`);
 }
 
 function deleteEditedProbe() {
@@ -895,8 +897,8 @@ function recordProbe() {
   if (!position) { toast('Position GPS indisponible'); return; }
 
   const input = $('cap-input');
-  const depth = Number(input.value);
-  if (!Number.isFinite(depth) || depth <= 0) { toast('Saisissez la profondeur lue au sondeur'); return; }
+  const depth = readDepthInput('cap-input');
+  if (depth === null) { toast('Saisissez la profondeur lue au sondeur (négative si le fond émerge)'); return; }
 
   const state = currentLevel();
   if (state.value == null) { toast('Cote du lac inconnue — impossible de caler la sonde'); return; }
@@ -912,9 +914,71 @@ function recordProbe() {
     modelBedZ: app.bed.baseAltitudeAt(position.lon, position.lat),
   }));
 
-  input.value = '';
+  setDepthInput('cap-input');
   input.blur(); // referme le clavier tactile pour dégager la carte
-  toast(`Sonde ${depth.toFixed(1)} m enregistrée · ${app.probes.count} au total`);
+  toast(`Sonde ${depthLabel(depth)} enregistrée · ${app.probes.count} au total`);
+}
+
+/**
+ * Lit un champ de profondeur saisi à la main, ou `null` si la saisie n'est pas une mesure.
+ *
+ * Le négatif est admis : c'est un haut-fond découvert, relevé à pied, dont on saisit la
+ * hauteur au-dessus de l'eau. Le zéro, lui, est refusé — non parce qu'un fond affleurant
+ * serait absurde, mais parce que `Number('')` vaut zéro : sans ce garde-fou, un champ vide
+ * passerait pour une mesure à ras du plan d'eau. Pour un caillou qui affleure vraiment,
+ * ±0,05 dit la même chose sans ambiguïté.
+ *
+ * Les bornes ne servent qu'à intercepter la faute de frappe : le lac plafonne à 31 m, et
+ * une rive découverte de plus de 10 m au-dessus de l'étiage n'est plus un haut-fond.
+ */
+function readDepthInput(id) {
+  const raw = $(id).value.trim();
+  if (raw === '') return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value === 0 || value < -10 || value > 60) return null;
+  return value;
+}
+
+/**
+ * Écrit dans un champ de profondeur en gardant sa bascule « ± » en phase : une écriture
+ * par script n'émet pas d'événement `input`, et le bouton resterait allumé après une
+ * capture — le relevé suivant partirait avec un signe fantôme.
+ */
+function setDepthInput(id, value = '') {
+  const input = $(id);
+  input.value = value === '' ? '' : String(value);
+  input.dispatchEvent(new Event('input'));
+}
+
+/** « 3,2 m » sous l'eau, « +0,4 m émergé » au-dessus : le signe seul serait illisible. */
+function depthLabel(depth) {
+  return depth < 0 ? `+${(-depth).toFixed(1)} m émergé` : `${depth.toFixed(1)} m`;
+}
+
+/**
+ * Bouton « ± » d'un champ de profondeur.
+ *
+ * Le pavé numérique d'iOS n'a pas de touche « moins ». Sans ce bouton, la saisie d'un
+ * haut-fond émergé serait impossible précisément là où elle sert : les pieds dans l'eau,
+ * hors de portée d'un clavier complet.
+ *
+ * On inverse la valeur déjà saisie plutôt que d'armer un mode : ce qui est affiché reste
+ * ce qui sera enregistré. Un champ `type="number"` refuse un « − » seul (l'algorithme de
+ * normalisation le vide), donc sur champ vide on ne peut que le dire.
+ */
+function wireSignToggle(buttonId, inputId) {
+  const button = $(buttonId);
+  const input = $(inputId);
+  const sync = () => button.classList.toggle('is-negative', Number(input.value) < 0);
+  button.addEventListener('click', () => {
+    const raw = input.value.trim();
+    if (raw === '') { input.focus(); toast('Saisissez la hauteur, puis ± pour un fond émergé'); return; }
+    const value = Number(raw);
+    if (Number.isFinite(value)) input.value = String(-value);
+    sync();
+    input.focus();
+  });
+  input.addEventListener('input', sync);
 }
 
 /** Recalcule la profondeur affichée depuis la cote courante, comme le reste de la carte. */
@@ -925,11 +989,15 @@ function refreshProbesOnMap() {
   const level = currentLevel().value;
   const points = app.probes.records.map((r) => {
     const depth = Number.isFinite(level) && Number.isFinite(r.bedZ) ? level - r.bedZ : r.sounderDepth;
+    // Un haut-fond découvert affiché « 0 » se lirait « affleurant » : c'est justement
+    // l'obstacle qu'on vient de relever à pied, et sa hauteur mérite son signe.
+    const emerged = Number.isFinite(depth) && depth <= 0;
     return {
       id: r.id,
       lon: r.lon,
       lat: r.lat,
-      label: depth > 0 ? depth.toFixed(1) : '0',
+      emerged,
+      label: !Number.isFinite(depth) ? '?' : emerged ? `+${(-depth).toFixed(1)}` : depth.toFixed(1),
       editing: r.id === app.editingProbeId,
     };
   });
@@ -953,7 +1021,7 @@ function refreshProbesUi() {
     const when = new Date(r.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
     const modelText = Number.isFinite(r.modelDepth) && r.modelDepth > 0
       ? ` · modèle ${r.modelDepth.toFixed(1)} m` : '';
-    item.innerHTML = `<span class="residual">${r.sounderDepth.toFixed(1)} m</span>
+    item.innerHTML = `<span class="residual">${depthLabel(r.sounderDepth)}</span>
       <span class="hint">${when}${modelText}</span>`;
 
     const edit = document.createElement('button');

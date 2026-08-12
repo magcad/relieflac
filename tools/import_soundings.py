@@ -255,18 +255,32 @@ def main() -> int:
     west, south, east, north = LAKE_BOUNDS
     inside = [r for r in rows if west <= r[0] <= east and south <= r[1] <= north]
     outside = len(rows) - len(inside)
-    positive = [r for r in inside if r[2] > 0]
-    dropped = len(inside) - len(positive)
+    # Une profondeur négative n'est pas une aberration : c'est un haut-fond découvert,
+    # relevé à pied, dont l'application enregistre la hauteur au-dessus de l'eau avec le
+    # signe moins. Ce sont les points les plus précieux du lot — le levé 2009 n'a jamais pu
+    # les mesurer. Le zéro exact, lui, reste écarté : c'est la signature d'un sondeur qui a
+    # décroché, pas d'une mesure. Plancher à -10 m : au-delà on est sur une berge, pas sur
+    # un haut-fond.
+    kept = [r for r in inside if r[2] > 0 or -10.0 <= r[2] < 0]
+    dropped = len(inside) - len(kept)
+    emerged = sum(1 for r in kept if r[2] < 0)
 
     if outside:
         print(f"  {outside} point(s) hors de l'emprise du lac, écartés")
     if dropped:
-        print(f"  {dropped} point(s) de profondeur nulle ou négative, écartés")
-    if not positive:
+        print(f"  {dropped} point(s) de profondeur nulle ou hors plage, écartés")
+    if emerged:
+        print(f"  {emerged} point(s) de haut-fond émergé (profondeur négative), conservés")
+    if not kept:
         print("ERREUR : plus aucune sonde après filtrage", file=sys.stderr)
         return 1
 
-    adjusted = [(lon, lat, depth + args.transducer_depth, ts) for lon, lat, depth, ts in positive]
+    # L'immersion du transducteur ne s'ajoute qu'aux sondes réellement immergées : voir
+    # `bedAltitude()` dans src/probes.js, qui énonce la même règle côté application.
+    adjusted = [
+        (lon, lat, depth + args.transducer_depth if depth > 0 else depth, ts)
+        for lon, lat, depth, ts in kept
+    ]
 
     depths = [r[2] for r in adjusted]
     timed = sum(1 for r in adjusted if r[3])

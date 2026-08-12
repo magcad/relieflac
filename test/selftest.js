@@ -136,6 +136,16 @@ export async function run(base = '..') {
   check('modèle plus profond que la mesure', near(record.modelDepth, 17.0, 1e-9));
   check('relevé classé sur trace', record.onTrack === true);
 
+  // Même geste, à pied sur un haut-fond découvert : fond réel = 647,0 + 0,4 = 647,4, sans
+  // immersion de sonde puisqu'il n'y a pas de sonde. Le modèle dit 630,0 → écart +17,4.
+  const walkedRecord = makeRecord({
+    position: { lon: 1.87, lat: 45.79, accuracy: 8 },
+    level: 647.0, levelSource: 'live', modelBedZ: 630.0,
+    sounderDepth: -0.4, transducerDepth: 0.3, nearestSounding: 12,
+  });
+  check('résidu d\'un relevé à pied sur haut-fond émergé',
+    near(walkedRecord.residual, 17.4, 1e-9), `${walkedRecord.residual}`);
+
   const calibration = new Calibration();
   calibration.clear();
   [0.1, 0.2, 0.25, 0.3, 0.9].forEach((residual, i) => calibration.add({
@@ -191,6 +201,23 @@ export async function run(base = '..') {
     narrow.model === 'indetermine', `${narrow.model}`);
   check('profondeurs sondées rapportées',
     near(narrow.depthMin, 3.4, 1e-9) && near(narrow.depthMax, 4.1, 1e-9));
+
+  // Relevé à pied sur un haut-fond découvert : il compte dans la médiane — le plan d'eau
+  // est une référence directement visible — mais il ne peut pas porter le verdict de
+  // forme, puisque les deux modèles concurrents se rejoignent à profondeur nulle.
+  const walked = {
+    lon: 1.87, lat: 45.79, accuracy: 8, level: 647, levelSource: 'live',
+    modelBedZ: 630, sounderDepth: -0.4, transducerDepth: 0.3,
+    residual: 1.0, nearestSounding: 10, onTrack: true,
+  };
+  calibration.clear();
+  wide.forEach((d) => calibration.add({ ...walked, sounderDepth: d - 0.3 }));
+  calibration.add(walked);
+  const mixed = calibration.stats();
+  check('relevé à pied compté dans la médiane',
+    mixed.count === wide.length + 1 && near(mixed.median, 1.0, 1e-9), `${mixed.count}`);
+  check('relevé à pied écarté du verdict de forme',
+    mixed.model === 'constant' && near(mixed.depthMin, 3, 1e-9), `${mixed.model} / ${mixed.depthMin}`);
   calibration.clear();
 
   // --- sondes saisies à la main -----------------------------------------------
@@ -221,6 +248,28 @@ export async function run(base = '..') {
   const fixed = probes.get(entry.id);
   check('correction d\'une sonde recalcule l\'altitude',
     near(fixed.sounderDepth, 5.0, 1e-9) && near(fixed.bedZ, 641.7, 1e-9), `${fixed.bedZ}`);
+  // Haut-fond découvert par l'étiage, relevé à pied : on saisit sa hauteur au-dessus de
+  // l'eau en négatif. L'immersion du transducteur ne doit alors PAS être retranchée — il
+  // n'y a rien dans l'eau — sinon le fond serait annoncé 30 cm trop bas, du côté dangereux,
+  // et sur les seuls points où le modèle est déjà gravement faux.
+  const shoal = makeProbe({
+    position: { lon: 1.87, lat: 45.79, accuracy: 8 },
+    level: 647.0, levelSource: 'live', sounderDepth: -0.4, transducerDepth: 0.3, modelBedZ: 630.0,
+  });
+  check('haut-fond émergé : immersion de la sonde ignorée',
+    near(shoal.bedZ, 647.4, 1e-9), `${shoal.bedZ}`);
+  check('haut-fond émergé : le modèle le noyait sous 17 m',
+    near(shoal.modelDepth, 17.0, 1e-9));
+
+  probes.update(entry.id, { sounderDepth: -0.4 });
+  check('correction en haut-fond émergé : immersion neutralisée',
+    near(probes.get(entry.id).bedZ, 647.4, 1e-9), `${probes.get(entry.id).bedZ}`);
+  // Neutralisée au calcul et non à l'enregistrement : une saisie corrigée en sens inverse
+  // doit retrouver l'immersion, sans quoi la correction serait un aller sans retour.
+  probes.update(entry.id, { sounderDepth: 5.0 });
+  check('retour en profondeur positive : immersion retrouvée',
+    near(probes.get(entry.id).bedZ, 641.7, 1e-9), `${probes.get(entry.id).bedZ}`);
+
   probes.remove(entry.id);
   check('suppression d\'une sonde', probes.count === 0 && probes.get(entry.id) === null);
   probes.clear();

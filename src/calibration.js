@@ -23,6 +23,15 @@
 //
 // La médiane est préférée à la moyenne : un relevé aberrant — sondeur qui accroche une
 // thermocline, position GPS partie à la dérive — ne doit pas déplacer le résultat.
+//
+// Un relevé peut aussi se prendre à pied sur un haut-fond découvert, en saisissant sa
+// hauteur au-dessus de l'eau en négatif. Le résidu garde tout son sens — le plan d'eau est
+// une référence directement visible, et aucune célérité du son n'entre en jeu — mais un
+// point émergé ne dit rien de la *forme* du résidu : les deux modèles concurrents se
+// rejoignent à profondeur nulle. `depthShape()` les écarte donc de ce verdict-là, tout en
+// les gardant dans la médiane.
+
+import { bedAltitude } from './probes.js';
 
 const STORAGE_KEY = 'relieflac.calibration.v1';
 
@@ -64,8 +73,11 @@ export class Calibration extends EventTarget {
    */
   stats(useTrustedOnly = true) {
     const source = useTrustedOnly && this.trusted.length >= 3 ? this.trusted : this.records;
+    // Hauteur d'eau réelle au point : la lecture du sondeur plus son immersion — sauf
+    // relevé à pied, où il n'y a rien d'immergé. Passer par `bedAltitude` évite de
+    // réénoncer ici cette exception.
     const sample = source
-      .map((r) => ({ residual: r.residual, depth: r.sounderDepth + (r.transducerDepth ?? 0) }))
+      .map((r) => ({ residual: r.residual, depth: r.level - bedAltitude(r.level, r.sounderDepth, r.transducerDepth) }))
       .filter((r) => Number.isFinite(r.residual));
     const residuals = sample.map((r) => r.residual).sort((a, b) => a - b);
     if (residuals.length === 0) return null;
@@ -123,7 +135,7 @@ export class Calibration extends EventTarget {
  * celui qu'on lui appliquera ensuite.
  */
 export function makeRecord({ position, level, levelSource, modelBedZ, sounderDepth, transducerDepth, nearestSounding }) {
-  const trueBedZ = level - sounderDepth - transducerDepth;
+  const trueBedZ = bedAltitude(level, sounderDepth, transducerDepth);
   return {
     lon: position.lon,
     lat: position.lat,
@@ -161,8 +173,11 @@ function depthShape(sample, median) {
     depthMax: NaN,
     slopePercent: NaN,
   };
-  // Sous cinq relevés, les médianes sautent d'un point à l'autre et le verdict serait
-  // dicté par le hasard de l'échantillon. Même seuil que le reste du module.
+  // Filtre à double détente. Sous cinq relevés, les médianes sautent d'un point à l'autre
+  // et le verdict serait dicté par le hasard de l'échantillon (même seuil que le reste du
+  // module). Et sous 20 cm d'eau — un haut-fond affleurant, ou émergé donc de profondeur
+  // négative — le rapport résidu/profondeur explose : ces points ne peuvent pas porter une
+  // estimation de pente, alors même qu'ils sont excellents pour la médiane.
   const usable = sample.filter((r) => Number.isFinite(r.depth) && r.depth > 0.2);
   if (usable.length < 5) return unknown;
 

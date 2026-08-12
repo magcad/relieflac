@@ -698,6 +698,12 @@ Règles :
 3. **Éviter les 3 premiers mètres** près des rives : forte pente, forte incertitude.
 4. **Répartir sur le lac** — au moins 4 secteurs éloignés, pour détecter une éventuelle bascule du plan de référence.
 5. **Bateau à l'arrêt ou très lente vitesse** au moment du relevé (le GPS et le sondeur ne réagissent pas à la même vitesse).
+6. **Les hauts-fonds découverts se relèvent à pied**, en saisissant leur hauteur au-dessus de l'eau **en négatif** (−0,4 = le caillou dépasse de 40 cm ; bouton « ± » sur les deux écrans de saisie). Trois conséquences, toutes voulues :
+   - l'**immersion du transducteur n'est pas retranchée** — il n'y a pas de sonde dans l'eau. La règle est énoncée une seule fois, dans `bedAltitude()` (`src/probes.js`), et reprise à l'identique par `tools/import_soundings.py` ;
+   - le résidu reste valide pour l'étalonnage, et il est même le plus propre du lot : le plan d'eau est une référence directement visible et **aucune célérité du son n'entre en jeu** ;
+   - en revanche un point émergé **ne peut pas trancher la forme du résidu** (§ 15.1) — constante et proportionnelle se rejoignent à profondeur nulle. `depthShape()` l'écarte de ce verdict tout en le gardant dans la médiane.
+
+   Ce sont, au regard du § 4.2bis, les points les plus précieux du lot : le bateau sondeur de 2009 ne pouvait pas passer dessus, c'est là que le modèle est le plus gravement faux, et une hauteur relevée à pied le corrige **dans le sens sûr**.
 
 **Volume utile** : ~20 relevés donnent déjà une médiane solide ; 40 permettent en plus de quantifier la dispersion. Une seule sortie suffit.
 
@@ -706,6 +712,7 @@ Règles :
 Écran dédié, conçu pour être utilisable seul à la barre :
 
 - gros bouton **« Relever »** : capture en un geste `timestamp`, `lat`, `lon`, `précision GPS`, `cote EDF du moment`, `z_fond modèle`, et ouvre un pavé numérique pour saisir la profondeur lue au sondeur ;
+- bouton **« ± »** accolé au champ : le pavé numérique d'iOS n'a pas de touche « moins », et sans lui un haut-fond émergé serait impossible à saisir là où on le rencontre. Il inverse la valeur affichée plutôt que d'armer un mode — sur un outil de navigation, ce qui est lu doit être ce qui est enregistré — et s'allume tant qu'elle est négative ;
 - affichage immédiat du **résidu** du point et de la **médiane courante** — on voit la convergence en direct ;
 - code couleur : vert si le point tombe sur une trace 2009 et en zone plate, orange sinon ;
 - liste des relevés, suppression d'un point aberrant ;

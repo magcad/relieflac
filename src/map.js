@@ -248,7 +248,9 @@ export class LakeMap extends EventTarget {
 
   /**
    * Sondes saisies à la main : une pastille chiffrée par point, en surcouche du fond
-   * colorié. Des marqueurs HTML plutôt qu'une couche symbole, car les labels de MapLibre
+   * colorié. Un haut-fond découvert prend la forme d'îlot des points de simulation — même
+   * réalité, même signe, donc même symbole ; il doit se repérer sans lire le chiffre.
+   * Des marqueurs HTML plutôt qu'une couche symbole, car les labels de MapLibre
    * exigent un serveur de glyphes que l'application n'aurait plus hors ligne. Recréés en
    * bloc à chaque changement (ajout, suppression, ou recalcul après un mouvement de cote) ;
    * on ne les touche pas à chaque point GPS, donc le coût reste négligeable.
@@ -258,7 +260,8 @@ export class LakeMap extends EventTarget {
     for (const marker of this.probeMarkers) marker.remove();
     this.probeMarkers = points.map((p) => {
       const element = document.createElement('div');
-      element.className = p.editing ? 'probe-mark is-editing' : 'probe-mark';
+      element.className = p.emerged ? 'probe-mark is-emerged' : 'probe-mark';
+      if (p.editing) element.classList.add('is-editing');
       element.textContent = p.label;
       // Toucher une pastille l'ouvre en correction. stopPropagation empêche que le clic
       // retombe sur la carte et déclenche la sonde ponctuelle.

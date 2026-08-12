@@ -169,6 +169,20 @@ a { color: var(--accent); }
 }
 .capture.is-editing .capture__input { border-color: var(--accent); }
 
+/* Bascule de signe. Le pavé numérique d'iOS (`inputmode="decimal"`) n'a pas de touche
+   « moins » : sans ce bouton, un haut-fond émergé serait tout simplement impossible à
+   saisir sur l'eau, là où le besoin se présente. Il s'allume dès que la valeur est
+   négative, pour qu'on voie sans lire qu'on enregistre une hauteur et non une profondeur. */
+.sign-btn {
+  flex: none; width: 2.6rem; padding: .5rem 0; text-align: center;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--text); font-size: 1.05rem; line-height: 1; cursor: pointer;
+}
+.sign-btn.is-negative {
+  background: var(--accent); border-color: var(--accent); color: #06202f; font-weight: 700;
+}
+.capture .sign-btn { border-radius: 12px; } /* aligné sur les autres touches de la barre */
+
 /* Pastille d'une sonde mesurée, posée sur la carte. Cyan franc, distinct des points de
    2009 (blanc pâle) et des repères d'étalonnage (vert / ambre). */
 .probe-mark {
@@ -176,6 +190,12 @@ a { color: var(--accent); }
   background: #22d3ee; border: 1.5px solid #06303a; border-radius: 999px;
   color: #062028; font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums;
   box-shadow: 0 1px 3px #0009; cursor: pointer;
+}
+/* Haut-fond découvert, relevé à pied : même silhouette d'îlot que les points de
+   simulation, pour qu'un obstacle hors d'eau ne se confonde pas avec une sonde. */
+.probe-mark.is-emerged {
+  background: #a5f3fc; border-radius: 6px 6px 999px 999px;
+  border-color: #ecfeff; color: #062028;
 }
 .probe-mark.is-editing {
   background: #fff; outline: 2px solid var(--accent); outline-offset: 1px;

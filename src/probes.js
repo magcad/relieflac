@@ -7,6 +7,12 @@
 //
 //   z_fond = cote_du_jour − profondeur_lue − immersion_sonde
 //
+// Une profondeur **négative** est admise, et c'est le cas le plus utile de tous : un
+// haut-fond découvert par l'étiage, qu'on relève à pied. On saisit alors sa hauteur
+// au-dessus de l'eau avec le signe moins (−0,4 = le caillou dépasse de 40 cm). Ce sont
+// précisément les points que le levé 2009 ne pouvait pas mesurer — un bateau sondeur ne
+// passe pas dessus — et où le modèle est le plus dangereusement faux.
+//
 // La profondeur affichée ensuite est recalculée depuis la cote courante, exactement comme
 // pour le reste de la carte. À l'export, on ressort la profondeur brute et l'horodatage :
 // tools/import_soundings.py retrouve la cote horaire d'archive et refait le calcul, pour
@@ -55,7 +61,7 @@ export class Probes extends EventTarget {
     if (!record) return;
     Object.assign(record, changes);
     if ('sounderDepth' in changes || 'transducerDepth' in changes) {
-      record.bedZ = record.level - record.sounderDepth - record.transducerDepth;
+      record.bedZ = bedAltitude(record.level, record.sounderDepth, record.transducerDepth);
     }
     this.#persist();
   }
@@ -123,7 +129,7 @@ export class Probes extends EventTarget {
  * modèle − mesure rend visible le défaut central (un haut-fond que le levé a comblé).
  */
 export function makeProbe({ position, level, levelSource, sounderDepth, transducerDepth, modelBedZ }) {
-  const bedZ = level - sounderDepth - transducerDepth;
+  const bedZ = bedAltitude(level, sounderDepth, transducerDepth);
   return {
     lon: position.lon,
     lat: position.lat,
@@ -136,6 +142,26 @@ export function makeProbe({ position, level, levelSource, sounderDepth, transduc
     modelBedZ: Number.isFinite(modelBedZ) ? modelBedZ : null,
     modelDepth: Number.isFinite(modelBedZ) ? level - modelBedZ : null,
   };
+}
+
+/**
+ * Altitude de fond déduite d'une profondeur saisie à la main — la formule de référence,
+ * partagée avec l'étalonnage (`src/calibration.js`) et avec la cuisson dans la grille
+ * (`tools/import_soundings.py`).
+ *
+ * L'immersion du transducteur ne s'applique qu'à une sonde réellement dans l'eau. Sur un
+ * haut-fond émergé, relevé à pied, il n'y a pas de sonde du tout : la retrancher
+ * enfoncerait le point de sa valeur — 30 cm d'erreur systématique, toujours dans le sens
+ * dangereux (fond annoncé plus bas qu'il n'est), et sur les seuls points qui comptent
+ * vraiment pour la sécurité. D'où la règle, énoncée ici une fois pour toutes.
+ *
+ * L'immersion configurée reste stockée telle quelle dans le relevé : neutralisée au
+ * calcul et non à l'enregistrement, elle revient d'elle-même si la saisie est corrigée
+ * plus tard en une profondeur positive.
+ */
+export function bedAltitude(level, sounderDepth, transducerDepth) {
+  const immersion = sounderDepth < 0 ? 0 : (transducerDepth ?? 0);
+  return level - sounderDepth - immersion;
 }
 
 function fmt(value, digits) {
