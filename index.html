@@ -44,6 +44,8 @@
     <div class="topbar__actions">
       <button class="icon" id="btn-sim" type="button" title="Simulation d'étiage" aria-label="Mode simulation">🌊</button>
       <button class="icon" id="btn-fond" type="button" title="Fond de carte" aria-label="Basculer plan / photo">🛰</button>
+      <button class="icon" id="btn-soleil" type="button" title="Plein soleil : contraste maximal"
+              aria-label="Mode plein soleil" aria-pressed="false">☀</button>
       <a class="icon" href="#/etalonnage" title="Étalonnage" aria-label="Étalonnage">🎯</a>
       <a class="icon" href="#/parametres" title="Paramètres" aria-label="Paramètres">⚙</a>
     </div>
@@ -54,8 +56,10 @@
   </div>
 
   <div class="fabs">
-    <button class="fab" id="btn-suivi" type="button" title="Suivre le bateau" aria-label="Suivre le bateau">◎</button>
-    <button class="fab" id="btn-cap" type="button" title="Cap en haut / nord en haut" aria-label="Orientation">↑</button>
+    <button class="fab fab--zoom" id="btn-zoom-plus" type="button" title="Zoomer" aria-label="Zoomer">+</button>
+    <button class="fab fab--zoom" id="btn-zoom-moins" type="button" title="Dézoomer" aria-label="Dézoomer">−</button>
+    <button class="fab" id="btn-suivi" type="button" title="Suivre le bateau" aria-label="Suivre le bateau" aria-pressed="false">◎</button>
+    <button class="fab" id="btn-cap" type="button" title="Nord en haut" aria-label="Orientation" aria-pressed="false">↑</button>
     <button class="fab" id="btn-saisie" type="button" title="Saisir une sonde" aria-label="Afficher la saisie de profondeur">✎</button>
   </div>
 
@@ -170,6 +174,25 @@
         éloignées : un haut-fond peut y être totalement invisible et hériter de la
         profondeur des fosses voisines. Les hachures marquent ces zones ; afficher les
         traces permet de naviguer dessus, là où la donnée est mesurée.
+      </p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Lisibilité à l'écran</legend>
+      <label class="row row--switch">
+        <span>Plein soleil (contraste maximal)</span>
+        <input type="checkbox" id="set-sun">
+      </label>
+      <p class="hint">
+        Supprime les fonds translucides et les gris de l'habillage : en plein soleil, la
+        dalle renvoie plus de lumière qu'elle n'en produit et tout ce qui est estompé
+        disparaît. Les couleurs des fonds ne sont pas modifiées. Se règle aussi d'un
+        toucher sur ☀ depuis la carte.
+      </p>
+      <p class="hint" id="hint-veille"></p>
+      <p class="hint">
+        La luminosité de la dalle reste pilotée par iOS seul : aucune application web ne
+        peut l'imposer, et l'iPhone la baisse de lui-même quand il chauffe au soleil.
       </p>
     </fieldset>
 

@@ -16,6 +16,8 @@ import { defaultsFrom, Settings } from './settings.js';
 import { VERSION } from './version.js';
 
 const $ = (id) => document.getElementById(id);
+/** Pas des boutons de zoom : un niveau, donc un facteur deux — franc et prévisible. */
+const ZOOM_STEP = 1;
 const ROUTES = { '#/': 'vue-carte', '#/parametres': 'vue-parametres', '#/etalonnage': 'vue-etalonnage', '#/a-propos': 'vue-apropos' };
 
 const app = {
@@ -23,12 +25,12 @@ const app = {
   settings: null, level: null, geo: null, calibration: null, probes: null,
   sim: null, compass: null,
   lakeMap: null, depthLayer: null,
-  trackUp: false, alarmActive: false, lastAlarmAt: 0,
+  alarmActive: false, lastAlarmAt: 0,
   editingProbeId: null, editingSimId: null, simMode: false,
   captureOpen: false,
   heading: null,
   lastBigDepth: null,
-  wakeLock: null,
+  wakeLock: null, wakeState: 'lost', wakePending: false, wakeWarned: false,
   sync: null, syncPushTimer: null, suppressPush: false,
 };
 
@@ -67,6 +69,12 @@ async function boot() {
     app.depthLayer = new DepthLayer(app.bed, styleFromSettings());
     app.lakeMap.addDepthLayer(app.depthLayer);
     app.lakeMap.setBasemap(app.settings.get('basemap'));
+    // Cadrage de navigation dès l'ouverture, avant même le premier point GPS : le zoom
+    // initial du constructeur montre le lac entier, inutilisable pour barrer. On reprend
+    // le cadrage de la dernière sortie, et à défaut on vise la largeur de référence.
+    const savedZoom = app.settings.get('zoom');
+    if (Number.isFinite(savedZoom)) app.lakeMap.setZoom(savedZoom);
+    else app.lakeMap.setVisibleWidth(app.settings.get('initialWidth_m'));
 
     wireSettings();
     wireCalibration();
@@ -87,8 +95,8 @@ async function boot() {
     refreshSimOnMap();
     refreshCaptureUi();
     applyBigDepthMode();
+    applySunMode();
     applyModelCorrections(); // « carte 2009 corrigée » dès l'ouverture, s'il y a des relevés
-    startWakeLock();
     initSync(); // récupère les relevés partagés puis les applique (asynchrone, sans bloquer)
 
     app.geo.addEventListener('position', onPosition);
@@ -215,10 +223,9 @@ function refreshDepthStyle() {
 
 function onPosition(event) {
   const position = event.detail;
-  app.lakeMap.setPosition(position, {
-    follow: app.settings.get('followBoat'),
-    trackUp: app.trackUp,
-  });
+  // Suivi et cap en haut sont détenus par la carte (voir refreshCameraUi) : ici on ne fait
+  // que lui livrer la position, elle sait quoi en faire.
+  app.lakeMap.setPosition(position);
 
   const depth = depthAt(position.lon, position.lat);
   const draft = app.settings.get('draft_m');
@@ -298,29 +305,118 @@ function applyBigDepthMode() {
   app.lakeMap.setBigDepth(on ? (app.lastBigDepth ?? { value: '—', label: '', color: '' }) : null);
 }
 
-// ------------------------------------------------- veille écran (navigation)
+// --------------------------------------- veille écran et lisibilité au soleil
+
+/** Reprise de sécurité du verrou d'écran (ms) : sans coût quand le verrou tient déjà. */
+const WAKE_LOCK_CHECK_MS = 30e3;
 
 /**
- * Empêche la mise en veille de l'écran tant que l'application est au premier plan : en
- * navigation on regarde la carte sans toucher l'écran, et un réveil manuel permanent est
- * intenable. Le verrou se relâche seul en arrière-plan (l'API le libère quand l'onglet est
- * masqué), et on le reprend au retour au premier plan.
+ * Garde l'écran allumé tant que l'application est au premier plan.
+ *
+ * En navigation on regarde la carte sans y toucher : laisser l'iPhone s'assoupir est
+ * intenable — il commence par baisser fortement la luminosité, puis verrouille, et le
+ * réveil relance une recherche GPS. C'est la seule des baisses de luminosité de l'iPhone
+ * qu'un site web puisse empêcher ; les autres (capteur de lumière, bridage thermique) ne
+ * sont pilotables par aucune API, d'où le mode « plein soleil » ci-dessous, qui joue sur
+ * ce qui reste : le contraste de l'affichage.
+ *
+ * Le verrou est repris à plusieurs occasions, car aucune ne suffit seule : le système le
+ * relâche en arrière-plan, mais aussi lors d'un appel ou d'une bannière de notification,
+ * sans toujours émettre `visibilitychange`. La reprise périodique rattrape ces cas sans
+ * risquer la boucle qu'aurait provoquée une redemande immédiate à chaque relâchement.
  */
-async function startWakeLock() {
-  if (!('wakeLock' in navigator)) return;
+function keepScreenAwake() {
+  if (!('wakeLock' in navigator)) { app.wakeState = 'unsupported'; refreshWakeUi(); return; }
+
   const acquire = async () => {
-    if (document.visibilityState !== 'visible') return;
-    try { app.wakeLock = await navigator.wakeLock.request('screen'); }
-    catch { /* refusé (batterie faible, onglet inactif) : sans gravité */ }
+    // On interroge `released` plutôt que de se fier au seul événement `release` : WebKit ne
+    // l'émet pas toujours quand le système reprend le verrou (appel, bannière, bascule
+    // d'application). Le croire sur parole laissait une référence morte en main, `acquire`
+    // repartait aussitôt, et l'écran s'éteignait sans que rien ne le signale — c'est très
+    // probablement ce qui s'est passé pendant la sortie.
+    if (screenLockHeld() || document.visibilityState !== 'visible') return;
+    if (app.wakePending) return;
+    app.wakePending = true;
+    try {
+      app.wakeLock = await navigator.wakeLock.request('screen');
+      app.wakeState = 'held';
+    } catch {
+      // Refus le plus courant : le mode économie d'énergie de l'iPhone, qui interdit le
+      // verrou d'écran. Aucune application web ne peut passer outre — d'où l'affichage.
+      app.wakeLock = null;
+      app.wakeState = 'refused';
+    } finally {
+      app.wakePending = false;
+      refreshWakeUi();
+    }
   };
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') acquire();
-  });
-  await acquire();
+
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) acquire(); });
+  window.addEventListener('focus', acquire);
+  document.addEventListener('pointerdown', acquire, { passive: true });
+  setInterval(() => { refreshWakeUi(); acquire(); }, WAKE_LOCK_CHECK_MS);
+  acquire();
+}
+
+/** Le verrou est-il réellement tenu ? Une sentinelle relâchée en est une morte. */
+function screenLockHeld() {
+  return Boolean(app.wakeLock) && app.wakeLock.released !== true;
+}
+
+/**
+ * Rend l'état de la veille écran visible.
+ *
+ * Sans cela le barreur navigue à l'aveugle : le verrou peut être refusé en silence, et il
+ * ne le découvre qu'en voyant l'écran s'éteindre au milieu du lac. On avertit une fois, au
+ * moment du refus, et l'état reste consultable dans les Paramètres.
+ */
+function refreshWakeUi() {
+  if (!('wakeLock' in navigator)) app.wakeState = 'unsupported';
+  else if (screenLockHeld()) app.wakeState = 'held';
+  else if (app.wakeState !== 'refused') app.wakeState = 'lost';
+
+  const hint = $('hint-veille');
+  if (hint) hint.textContent = WAKE_MESSAGES[app.wakeState] ?? '';
+
+  if (app.wakeState !== 'held' && app.wakeState !== 'unsupported' && !app.wakeWarned) {
+    app.wakeWarned = true;
+    toast("L'écran n'est pas maintenu allumé — désactivez le mode économie d'énergie", 6000);
+  }
+}
+
+const WAKE_MESSAGES = {
+  held: 'Écran maintenu allumé : oui.',
+  refused: "Écran maintenu allumé : non — refusé par l'appareil. C'est presque toujours le "
+    + "mode économie d'énergie de l'iPhone, qu'aucune application web ne peut contourner. "
+    + 'Le désactiver, ou brancher le téléphone, rétablit le maintien.',
+  lost: 'Écran maintenu allumé : pas pour le moment. La reprise est automatique dès que la '
+    + 'page revient au premier plan.',
+  unsupported: 'Écran maintenu allumé : impossible, ce navigateur ne fournit pas le verrou '
+    + "d'écran. Régler la mise en veille sur « Jamais » dans les réglages de l'appareil.",
+};
+
+/**
+ * Mode « plein soleil » : contraste maximal de l'habillage.
+ *
+ * Aucune API du web ne règle la luminosité de la dalle — ni celle du réglage, ni celle
+ * qu'iOS impose de lui-même. Ce qui reste jouable est ce que l'application émet : en plein
+ * soleil, la dalle renvoie plus de lumière ambiante qu'elle n'en produit, et tout ce qui
+ * est translucide, flouté ou gris se noie. Ce mode supprime les fonds semi-transparents et
+ * les flous, passe les textes secondaires en blanc franc et épaissit les bordures. Les
+ * couleurs des fonds, elles, ne sont pas touchées : elles portent la lecture des
+ * profondeurs, on ne les repeint pas.
+ */
+function applySunMode() {
+  const on = app.settings.get('sunMode');
+  document.body.classList.toggle('is-sun', on);
+  $('btn-soleil').classList.toggle('is-on', on);
+  $('btn-soleil').setAttribute('aria-pressed', String(on));
 }
 
 // ------------------------------------------- synchronisation des relevés (dépôt)
 
+// `transducer_m` n'est plus qu'un repli : chaque relevé porte désormais la sienne, celle
+// qui était réglée quand la mesure a été prise. Voir `CorrectionsSync.toFile`.
 function syncMeta() {
   return {
     transducer_m: app.settings.get('transducer_m'),
@@ -362,15 +458,20 @@ function probesToRecords() {
   return (app.probes?.records ?? []).map((p) => ({
     id: p.id, at: p.at, lon: p.lon, lat: p.lat, bedZ: p.bedZ,
     depth_m: p.sounderDepth ?? null, cote_m: p.level ?? null,
+    transducer_m: p.transducerDepth ?? null,
   }));
 }
 
+// L'immersion revient du relevé lui-même. Le réglage courant ne sert que de repli, pour
+// les relevés partagés avant que le fichier ne la transporte : leur attribuer la valeur
+// du jour donnerait un `z_fond` différent de celui qui a été mesuré.
 function recordsToProbes(records) {
-  const transducer = app.settings.get('transducer_m');
+  const fallback = app.settings.get('transducer_m');
   return records.map((r) => ({
     id: r.id, at: r.at, lon: r.lon, lat: r.lat, bedZ: r.bedZ,
     sounderDepth: r.depth_m ?? null, level: r.cote_m ?? null,
-    transducerDepth: transducer, levelSource: 'sync',
+    transducerDepth: Number.isFinite(r.transducer_m) ? r.transducer_m : fallback,
+    levelSource: 'sync',
     accuracy: null, modelBedZ: null, modelDepth: null,
   }));
 }
@@ -537,6 +638,7 @@ function wireSettings() {
   bind('set-safety', 'change', (el) => s.set('showSafety', el.checked));
   bind('set-soundings', 'change', (el) => s.set('showSoundings', el.checked));
   bind('set-voids', 'change', (el) => s.set('showVoids', el.checked));
+  bind('set-sun', 'change', (el) => s.set('sunMode', el.checked));
   bind('set-draft', 'change', (el) => s.set('draft_m', clampNumber(el, 0, 3)));
   bind('set-margin', 'change', (el) => s.set('margin_m', clampNumber(el, 0, 5)));
   bind('set-alarm', 'change', (el) => s.set('alarmEnabled', el.checked));
@@ -584,6 +686,9 @@ function wireSettings() {
     refreshDepthStyle();
     refreshProbesOnMap();
     refreshSimOnMap();
+    applySunMode();
+    // Un profil importé ou réinitialisé change `followBoat` sans passer par le bouton.
+    refreshCameraUi();
     app.lakeMap.setBasemap(s.get('basemap'));
     app.lakeMap.setSoundings(null, s.get('showSoundings'));
     setTimeout(refreshSoundingsDiag, 300);
@@ -612,6 +717,7 @@ function refreshSettingsUi() {
   $('set-safety').checked = s.get('showSafety');
   $('set-soundings').checked = s.get('showSoundings');
   $('set-voids').checked = s.get('showVoids');
+  $('set-sun').checked = s.get('sunMode');
   $('set-draft').value = s.get('draft_m');
   $('set-margin').value = s.get('margin_m');
   $('set-alarm').checked = s.get('alarmEnabled');
@@ -1272,7 +1378,7 @@ function scheduleMapHeading() {
   if (headingRaf) return;
   headingRaf = requestAnimationFrame(() => {
     headingRaf = 0;
-    if (app.lakeMap && Number.isFinite(app.heading)) app.lakeMap.setHeading(app.heading, app.trackUp);
+    if (app.lakeMap && Number.isFinite(app.heading)) app.lakeMap.setHeading(app.heading);
   });
 }
 
@@ -1517,33 +1623,38 @@ function wireMap() {
     toast(next === 'plan' ? 'Plan IGN' : 'Photo aérienne');
   });
 
+  $('btn-soleil').addEventListener('click', () => {
+    const on = !app.settings.get('sunMode');
+    app.settings.set('sunMode', on);
+    toast(on ? 'Plein soleil : contraste maximal' : 'Affichage normal');
+  });
+
+  $('btn-zoom-plus').addEventListener('click', () => app.lakeMap.zoomBy(ZOOM_STEP));
+  $('btn-zoom-moins').addEventListener('click', () => app.lakeMap.zoomBy(-ZOOM_STEP));
+  // Le cadrage est retrouvé à la réouverture : sur l'eau, on ne veut pas refaire ses
+  // réglages à chaque démarrage.
+  app.lakeMap.addEventListener('zoomchange', (event) => {
+    app.settings.set('zoom', round2(event.detail));
+  });
+
   $('btn-suivi').addEventListener('click', () => {
-    const follow = !app.settings.get('followBoat');
-    app.settings.set('followBoat', follow);
-    $('btn-suivi').classList.toggle('is-on', follow);
-    if (follow && app.geo.position) {
-      app.lakeMap.setPosition(app.geo.position, { follow: true, trackUp: app.trackUp });
-    }
+    app.settings.set('followBoat', !app.settings.get('followBoat'));
+    refreshCameraUi();
   });
 
   $('btn-cap').addEventListener('click', () => {
-    app.trackUp = !app.trackUp;
-    $('btn-cap').classList.toggle('is-on', app.trackUp);
-    $('btn-cap').textContent = app.trackUp ? '⇧' : '↑';
-    // Bascule immédiate, sans attendre la prochaine mesure de cap.
-    if (app.trackUp) app.lakeMap.setHeading(app.heading, true);
-    else app.lakeMap.resetNorth();
+    app.settings.set('trackUp', !app.settings.get('trackUp'));
+    refreshCameraUi();
     // « Cap en haut » sans boussole accordée ne sert à rien : on la demande au passage.
-    if (app.trackUp) ensureCompass();
+    if (app.settings.get('trackUp')) ensureCompass();
   });
 
   // Faire glisser la carte coupe le suivi : sinon l'écran ramène le bateau au centre
   // à chaque relevé GPS et il devient impossible de regarder devant soi.
   app.lakeMap.addEventListener('userpan', () => {
-    if (app.settings.get('followBoat')) {
-      app.settings.set('followBoat', false);
-      $('btn-suivi').classList.remove('is-on');
-    }
+    if (!app.settings.get('followBoat')) return;
+    app.settings.set('followBoat', false);
+    refreshCameraUi();
   });
 
   // Clic carte : en simulation, pose un point témoin ; sinon, sonde ponctuelle.
@@ -1557,7 +1668,28 @@ function wireMap() {
   });
 
   $('btn-cote').addEventListener('click', () => { location.hash = '#/parametres'; });
-  $('btn-suivi').classList.toggle('is-on', app.settings.get('followBoat'));
+  refreshCameraUi();
+}
+
+/**
+ * Unique endroit où l'état des deux boutons de caméra est rendu, puis poussé à la carte.
+ *
+ * Ils se lisaient et s'écrivaient jusqu'ici depuis quatre endroits (le clic de chacun, le
+ * glissement de carte, l'initialisation), chacun ne remettant à jour qu'une partie :
+ * pastille allumée sans suivi actif, cap en haut oublié après un import de profil… Passer
+ * par ici garantit que bouton, réglage et caméra disent toujours la même chose.
+ */
+function refreshCameraUi() {
+  const follow = app.settings.get('followBoat');
+  const trackUp = app.settings.get('trackUp');
+  $('btn-suivi').classList.toggle('is-on', follow);
+  $('btn-suivi').setAttribute('aria-pressed', String(follow));
+  $('btn-cap').classList.toggle('is-on', trackUp);
+  $('btn-cap').setAttribute('aria-pressed', String(trackUp));
+  $('btn-cap').textContent = trackUp ? '⇧' : '↑';
+  $('btn-cap').title = trackUp ? 'Cap en haut' : 'Nord en haut';
+  app.lakeMap.setFollow(follow);
+  app.lakeMap.setTrackUp(trackUp);
 }
 
 // ------------------------------------------------------------------ routeur
@@ -1624,16 +1756,7 @@ function download(filename, content, type) {
 
 const round2 = (value) => Math.round(value * 100) / 100;
 
-// Garder l'écran allumé tant que la carte est affichée : sur l'eau, se rallumer et
-// rechercher le GPS toutes les trente secondes est inutilisable.
-async function keepAwake() {
-  if (!('wakeLock' in navigator)) return;
-  try {
-    await navigator.wakeLock.request('screen');
-  } catch { /* refusé ou onglet en arrière-plan : sans conséquence */ }
-}
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') keepAwake();
-});
-
-boot().then(keepAwake);
+// L'écran ne dépend pas du chargement des données : on le verrouille avant tout le reste,
+// pour qu'il tienne même si la carte, elle, n'arrive pas à s'ouvrir.
+keepScreenAwake();
+boot();

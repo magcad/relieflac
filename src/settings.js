@@ -81,7 +81,15 @@ export function defaultsFrom(palette, model) {
     alarmDepth_m: 1.5,
     speedUnit: 'kmh',
     basemap: 'plan',
+    // Les deux verrous de caméra sont actifs à l'ouverture : sur l'eau, on veut le bateau
+    // au centre et l'étrave vers le haut sans avoir à y penser.
     followBoat: true,
+    trackUp: true,
+    // Largeur de terrain visée à l'écran (m) au tout premier lancement : de quoi voir la
+    // profondeur devant l'étrave sans perdre le contexte des rives. Ensuite c'est `zoom`,
+    // mémorisé d'une sortie à l'autre, qui commande — on retrouve son cadrage habituel.
+    initialWidth_m: 165,
+    zoom: null,
     calibrationOffset_m: 0,
     manualLevel: null,
     // Sondes saisies à la main : immersion du transducteur sous la flottaison, et
@@ -90,6 +98,8 @@ export function defaultsFrom(palette, model) {
     showProbes: true,
     // Grand affichage de la profondeur sous le bateau (bascule au toucher de l'indicateur).
     bigDepth: false,
+    // Contraste maximal de l'habillage, pour lire l'écran en plein soleil.
+    sunMode: false,
     // Rayon (m) sur lequel un relevé manuel corrige la grille du fond autour du point.
     correctionRadius_m: 20,
     // Synchronisation des relevés vers un fichier du dépôt (le jeton, lui, est stocké à

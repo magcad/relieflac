@@ -59,9 +59,16 @@ export class CorrectionsSync {
   markDirty() { setDirty(true); }
 
   // --- conversion enregistrement interne ↔ point du fichier -------------------
-  // Interne (sim.js) : { id, at, lon, lat, bedZ, depth_m, cote_m }
+  // Interne (sim.js) : { id, at, lon, lat, bedZ, depth_m, cote_m, transducer_m }
   // Fichier          : { id, lon, lat, depth_m, cote_m_ngf, transducer_m, z_fond_m_ngf,
   //                      radius_m, at, by }
+  //
+  // L'immersion accompagne le relevé au lieu d'être un réglage global : c'est un paramètre
+  // de la mesure, figé à l'instant où elle a été prise. Écrire le réglage courant à sa
+  // place réattribue aux anciens relevés une immersion qu'ils n'ont jamais eue — sans
+  // conséquence tant que `z_fond` reste figé, mais faux dès qu'on le recalcule, ce que
+  // fera toute correction d'échelle du sondeur. La valeur passée en paramètre ne sert
+  // plus que de repli, pour les relevés antérieurs à cette règle.
   toFile(records, { transducer_m, radius_m }) {
     return {
       schema: 'relieflac.corrections/1',
@@ -74,7 +81,7 @@ export class CorrectionsSync {
         lat: r.lat,
         depth_m: r.depth_m ?? null,
         cote_m_ngf: r.cote_m ?? null,
-        transducer_m,
+        transducer_m: r.transducer_m ?? transducer_m ?? null,
         z_fond_m_ngf: r.bedZ,
         radius_m,
         at: r.at,
@@ -95,6 +102,9 @@ export class CorrectionsSync {
         bedZ: p.z_fond_m_ngf,
         depth_m: p.depth_m ?? null,
         cote_m: p.cote_m_ngf ?? null,
+        // Relue et non redéduite du réglage courant : sans elle, le relevé n'est plus
+        // recalculable, et `z_fond` devient une valeur qu'on ne sait plus refaire.
+        transducer_m: Number.isFinite(p.transducer_m) ? p.transducer_m : null,
         by: p.by ?? null,
       }));
   }

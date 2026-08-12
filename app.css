@@ -70,6 +70,7 @@ a { color: var(--accent); }
   font-size: 1.15rem; text-decoration: none; cursor: pointer;
   backdrop-filter: blur(6px);
 }
+.icon.is-on { border-color: var(--accent); color: var(--accent); }
 
 .fabs {
   position: absolute; right: .6rem; bottom: calc(9.5rem + var(--safe-bottom)); z-index: 5;
@@ -81,6 +82,9 @@ a { color: var(--accent); }
   font-size: 1.2rem; cursor: pointer; backdrop-filter: blur(6px);
 }
 .fab.is-on { border-color: var(--accent); color: var(--accent); }
+/* « + » et « − » sont des glyphes maigres : il leur faut du corps pour rester visibles
+   d'un coup d'œil, gant au doigt et bateau qui bouge. */
+.fab--zoom { font-size: 1.6rem; font-weight: 600; line-height: 1; }
 
 .bottombar {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
@@ -137,6 +141,61 @@ a { color: var(--accent); }
   padding: .55rem .9rem; border-radius: 10px;
   background: #0f1417f2; border: 1px solid var(--line); font-size: .85rem;
 }
+
+/* ------------------------------------------------------------ plein soleil
+
+   Aucune API du web ne commande la luminosité de la dalle. En plein soleil, celle-ci
+   renvoie plus de lumière ambiante qu'elle n'en émet : le peu de contraste qui reste part
+   entièrement dans les fonds translucides, les flous et les gris. Ce mode les supprime —
+   noir franc, blanc franc, bordures épaisses — sur le seul habillage. Les couleurs des
+   fonds portent la lecture des profondeurs : on n'y touche pas. */
+
+body.is-sun {
+  --panel: #000;
+  --panel-2: #000;
+  --line: #fff;
+  --muted: #fff;
+  --text: #fff;
+}
+body.is-sun .chip,
+body.is-sun .icon,
+body.is-sun .fab,
+body.is-sun .toast,
+body.is-sun .alarm {
+  background: #000;
+  border-width: 2px;
+  backdrop-filter: none; /* le flou mélange l'habillage à la carte : illisible au soleil */
+}
+body.is-sun .topbar { background: linear-gradient(#000, #0000); }
+body.is-sun .bottombar { background: linear-gradient(#0000, #000 35%); }
+body.is-sun .compass { background: #000; border-bottom: 2px solid #fff; backdrop-filter: none; }
+body.is-sun .compass__fade { display: none; } /* dégradé de bord : mange les graduations */
+
+/* Les gris de hiérarchie disparaissent : au soleil, ils ne se distinguent plus du fond. */
+body.is-sun .chip__unit,
+body.is-sun .chip__meta,
+body.is-sun .depth__unit,
+body.is-sun .depth__label,
+body.is-sun .readouts dt,
+body.is-sun .readouts dd { color: #fff; }
+body.is-sun .depth__label,
+body.is-sun .readouts dt { font-weight: 600; }
+body.is-sun .readouts dd { font-size: .95rem; font-weight: 700; }
+body.is-sun .depth-under__unit,
+body.is-sun .depth-under__label { opacity: 1; }
+/* Le grand chiffre est posé sur la carte, sans fond : c'est le halo qui le détache. */
+body.is-sun .depth-under { text-shadow: 0 2px 3px #000, 0 0 6px #000, 0 0 18px #000; }
+/* L'état actif garde le fond noir : le plan IGN est presque blanc, et une pastille
+   blanche s'y noierait. C'est le noir qui tranche sur la carte, l'accent qui signale. */
+body.is-sun .fab.is-on,
+body.is-sun .icon.is-on { border-width: 3px; }
+
+/* Les couleurs d'alerte survivent au passage en contraste maximal : elles portent un sens
+   (cote périmée, profondeur sous le seuil) que le blanc effacerait. */
+body.is-sun .chip--stale .chip__meta,
+body.is-sun .depth__label.is-warning { color: var(--warn); }
+body.is-sun .chip--forbidden,
+body.is-sun .chip--delicate { border-width: 3px; }
 
 .boat { width: 34px; height: 34px; }
 .boat svg { width: 100%; height: 100%; filter: drop-shadow(0 1px 3px #000a); }

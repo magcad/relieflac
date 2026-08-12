@@ -6,6 +6,8 @@
 
 // MapLibre 6 n'expose plus d'export par défaut, seulement des exports nommés.
 import { Map as MaplibreMap, Marker, ScaleControl, setWorkerUrl } from '../vendor/maplibre-gl.js';
+import { angleDelta, BEARING_SETTLED_DEG, CameraFollow } from './camera.js';
+import { distanceMeters } from './geo.js';
 
 // Emplacement du worker de tuilage, déclaré explicitement.
 //
@@ -73,11 +75,29 @@ function circlePolygon(lon, lat, radiusMeters, sides = 64) {
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
 
+/**
+ * Plafond de finesse de rendu.
+ *
+ * Un iPhone annonce `devicePixelRatio` 3 : la couche de profondeur, qui est un shader
+ * évalué à chaque pixel de l'écran, coûte alors neuf fois le rendu d'un ratio 1. Sur un
+ * bateau au soleil, GPS allumé et écran à fond, c'est ce qui fait chauffer le téléphone —
+ * et la première parade d'iOS contre la chaleur est justement de baisser la luminosité,
+ * sans que ni l'application ni le réglage de luminosité n'y puissent rien.
+ * Plafonner à 2 (soit « retina », toujours net) supprime 55 % du travail par image.
+ */
+const MAX_PIXEL_RATIO = 2;
+
 export class LakeMap extends EventTarget {
   constructor(container, bed) {
     super();
     this.bed = bed;
     this.trail = [];
+
+    // État d'affichage du bateau et intention de caméra (calcul pur, voir camera.js).
+    this.follow = new CameraFollow();
+    // `held` : des doigts sont posés sur la carte, ils commandent — on suspend le suivi le
+    // temps du geste plutôt que de tirer l'image dans l'autre sens.
+    this.camera = { held: new Set(), raf: 0 };
 
     const { west, south, east, north } = bed.meta.bounds_wgs84;
     this.map = new MaplibreMap({
@@ -92,6 +112,7 @@ export class LakeMap extends EventTarget {
       dragRotate: true,
       pitchWithRotate: false,
       touchPitch: false,
+      pixelRatio: Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO),
     });
 
     this.map.addControl(new ScaleControl({ maxWidth: 110, unit: 'metric' }), 'bottom-left');
@@ -126,6 +147,28 @@ export class LakeMap extends EventTarget {
     });
 
     this.map.on('dragstart', () => this.dispatchEvent(new CustomEvent('userpan')));
+
+    // Tant qu'un doigt touche la carte, la boucle de suivi se tait : chaque ordre de
+    // caméra passe par `jumpTo`, qui interrompt les gestes en cours (`stop()` coupe aussi
+    // les gestionnaires d'interaction). Sans cela, pincer pour zoomer avec le cap en haut
+    // donne une carte qui colle au doigt. On compte les pointeurs : lâcher un doigt d'un
+    // pincement à deux ne rend pas la main.
+    // Un doigt sur la carte annule un zoom en cours : le pincement ne doit rien avoir à
+    // combattre, et surtout rien à quoi la boucle le ramènerait au relâchement.
+    const press = (event) => {
+      this.camera.held.add(event.pointerId);
+      this.follow.setZoom(null);
+    };
+    const release = (event) => {
+      if (!this.camera.held.delete(event.pointerId)) return;
+      if (this.camera.held.size === 0) { this.follow.resetClock(); this.#kick(); }
+    };
+    this.#wireZoomReport();
+    this.map.getContainer().addEventListener('pointerdown', press, { passive: true });
+    // Relâchement écouté sur la fenêtre, et non sur la carte : un doigt qui quitte la carte
+    // avant de se lever n'y émet aucun `pointerup`, et le suivi resterait suspendu à vie.
+    window.addEventListener('pointerup', release, { passive: true });
+    window.addEventListener('pointercancel', release, { passive: true });
     this.map.on('click', (event) => this.dispatchEvent(
       new CustomEvent('probe', { detail: event.lngLat }),
     ));
@@ -295,12 +338,18 @@ export class LakeMap extends EventTarget {
     });
   }
 
-  setPosition(position, { follow }) {
-    const { lon, lat, accuracy } = position;
-    this.boatLngLat = [lon, lat];
-    this.boat.setLngLat([lon, lat]);
-    if (!this.boat._map) this.boat.addTo(this.map);
-    this.#placeBigDepth();
+  /**
+   * Nouveau point GPS.
+   *
+   * Le bateau n'y saute pas : la position affichée est une estime continue, avancée à
+   * chaque image et recalée en douceur sur ce point (voir camera.js). Ce qui suit ici,
+   * en revanche, reste adossé au point vrai — la trace est un relevé de ce qu'on a
+   * réellement parcouru, et le cercle de précision décrit l'incertitude de la **mesure**,
+   * pas celle de l'interpolation. Les deux se contentent donc du rythme du GPS.
+   */
+  setPosition(position) {
+    const { lon, lat, accuracy, speed, heading } = position;
+    this.follow.setFix({ lon, lat, speed, heading, at: performance.now() });
 
     this.map.getSource('precision').setData(
       accuracy ? circlePolygon(lon, lat, accuracy) : EMPTY,
@@ -312,22 +361,146 @@ export class LakeMap extends EventTarget {
       type: 'Feature', geometry: { type: 'LineString', coordinates: this.trail }, properties: {},
     });
 
-    // Recentrage seul : le cap (aiguille + orientation de la carte) est piloté à part par
-    // setHeading, depuis la même source que la barre-boussole.
-    if (follow) this.map.easeTo({ center: [lon, lat], bearing: this.map.getBearing(), duration: 600 });
+    this.#kick();
   }
 
   /**
-   * Oriente l'aiguille du bateau et, en mode « cap en haut », la carte elle-même — à partir
-   * du cap unifié (boussole de l'appareil en priorité, cap GPS en repli). Appelé bien plus
-   * souvent qu'un point GPS : on utilise setBearing (instantané) plutôt qu'une animation,
-   * le cap étant déjà lissé en amont, pour une rotation fluide sans empiler d'easeTo.
+   * Cap mesuré (boussole de l'appareil en priorité, cap GPS en repli). Ni l'aiguille ni la
+   * carte ne sont touchées ici : le cap affiché est amorti dans la boucle, sans quoi le
+   * tremblement de la boussole ferait vibrer toute la carte en « cap en haut ».
    */
-  setHeading(heading, trackUp) {
+  setHeading(heading) {
     if (!Number.isFinite(heading)) return;
-    this.boat.setRotation(heading);
-    if (trackUp) this.map.setBearing(heading);
+    this.follow.setHeading(heading);
+    this.#kick();
   }
+
+  /** Suivre le bateau : la carte le ramène au centre et l'y garde. */
+  setFollow(on) {
+    if (this.follow.follow === Boolean(on)) return;
+    this.follow.setFollow(on);
+    this.follow.resetClock();
+    this.#kick();
+  }
+
+  /**
+   * Cap en haut : la carte tourne pour que l'étrave pointe vers le haut de l'écran.
+   *
+   * En le relâchant, on revient au nord en douceur — c'est la boucle qui s'en charge, et
+   * non un `easeTo`, qui serait annulé par le premier recentrage venu (voir camera.js).
+   * À l'inverse du suivi, tourner la carte à la main ne désarme pas le cap en haut : le
+   * bouton reste le seul maître du cap, sans quoi le moindre pincement le désactiverait.
+   */
+  setTrackUp(on) {
+    if (this.follow.trackUp === Boolean(on)) return;
+    this.follow.setTrackUp(on);
+    this.follow.resetClock();
+    this.#kick();
+  }
+
+  /**
+   * Règle le zoom pour montrer environ `metres` de largeur à l'écran.
+   *
+   * Mesuré plutôt que calculé : on déprojette les deux bords de la carte pour connaître la
+   * largeur réellement affichée, et on corrige le zoom du rapport. Aucune constante de
+   * projection à maintenir, et le cadrage est le même sur tous les téléphones, quelle que
+   * soit la largeur de leur écran.
+   */
+  /**
+   * Zoom par paliers, depuis les boutons. On part du zoom déjà visé s'il y en a un, pour
+   * que deux appuis rapides s'additionnent au lieu de se remplacer. Le résultat est borné
+   * aux limites de la carte : viser un zoom inatteignable ferait tourner la boucle sans
+   * jamais arriver.
+   */
+  zoomBy(delta) {
+    const from = this.follow.zoomTarget ?? this.map.getZoom();
+    const target = Math.min(Math.max(from + delta, this.map.getMinZoom()), this.map.getMaxZoom());
+    this.follow.setZoom(target);
+    this.#kick();
+  }
+
+  getZoom() {
+    return this.map.getZoom();
+  }
+
+  setZoom(zoom) {
+    if (Number.isFinite(zoom)) this.map.setZoom(zoom);
+  }
+
+  /**
+   * Prévient d'un changement de zoom, une fois qu'il s'est calmé.
+   *
+   * Amorti parce que la boucle de caméra rend le zoom image par image : sans cela, un seul
+   * appui sur « + » déclencherait une trentaine d'écritures de réglage.
+   */
+  #wireZoomReport() {
+    let timer = 0;
+    this.map.on('zoomend', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        this.dispatchEvent(new CustomEvent('zoomchange', { detail: this.map.getZoom() }));
+      }, 800);
+    });
+  }
+
+  setVisibleWidth(metres) {
+    const container = this.map.getContainer();
+    const width = container.clientWidth;
+    if (!(width > 0) || !(metres > 0)) return;
+    const y = container.clientHeight / 2;
+    const left = this.map.unproject([0, y]);
+    const right = this.map.unproject([width, y]);
+    const shown = distanceMeters(left.lng, left.lat, right.lng, right.lat);
+    if (!(shown > 0)) return;
+    this.map.setZoom(this.map.getZoom() + Math.log2(shown / metres));
+  }
+
+  /** Demande une image de suivi, si une n'est pas déjà en attente. */
+  #kick() {
+    if (this.camera.raf || this.camera.held.size) return;
+    this.camera.raf = requestAnimationFrame(this.#tick);
+  }
+
+  /**
+   * Une image de suivi : on avance l'état d'affichage, on place le bateau, puis on commande
+   * la carte — centre et cap dans un seul ordre, c'est ce qui empêche l'un d'annuler
+   * l'autre. On ne redemande une image que s'il reste du mouvement : au mouillage, boussole
+   * comprise, la boucle s'arrête complètement.
+   */
+  #tick = (now) => {
+    this.camera.raf = 0;
+    if (this.camera.held.size) return;
+
+    const out = this.follow.step(now, {
+      center: this.map.getCenter().toArray(),
+      bearing: this.map.getBearing(),
+      zoom: this.map.getZoom(),
+    });
+
+    if (out.position) {
+      this.boatLngLat = out.position;
+      this.boat.setLngLat(out.position);
+      if (!this.boat._map) this.boat.addTo(this.map);
+    }
+    if (Number.isFinite(out.heading)) this.boat.setRotation(out.heading);
+
+    const move = {};
+    if (out.center) move.center = out.center;
+    if (out.bearing !== null) move.bearing = out.bearing;
+    if (out.zoom !== null) move.zoom = out.zoom;
+    if (move.center || move.bearing !== null || move.zoom !== undefined) this.map.jumpTo(move);
+    // Suivi coupé : la carte ne bouge pas, donc son événement `move` ne se déclenche pas —
+    // c'est ici qu'il faut resituer le grand affichage sous le bateau qui, lui, avance.
+    else if (out.position) this.#placeBigDepth();
+
+    if (this.follow.toNorth
+      && Math.abs(angleDelta(this.map.getBearing(), 0)) <= BEARING_SETTLED_DEG) {
+      this.follow.toNorth = false; // arrivé au nord : la carte est rendue à l'utilisateur
+    }
+
+    if (out.done) this.follow.resetClock();
+    else this.#kick();
+  };
 
   /**
    * Grand affichage de profondeur sous le bateau. `state` = null pour masquer, sinon
@@ -351,10 +524,6 @@ export class LakeMap extends EventTarget {
     // translate(-50%, …) centre horizontalement ; le décalage vertical dégage l'icône du
     // bateau pour placer le chiffre juste en dessous.
     this.bigDepth.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, 30px)`;
-  }
-
-  resetNorth() {
-    this.map.easeTo({ bearing: 0, duration: 400 });
   }
 
   clearTrail() {

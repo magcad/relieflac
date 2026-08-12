@@ -2,7 +2,7 @@
 
 **Dernière mise à jour** : 12 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 77 contrôles, tous passants
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 95 contrôles, tous passants
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
 Ce document sert à reprendre le travail sans relire tout l'historique.
@@ -39,6 +39,16 @@ tient dans `bedAltitude()` ([`src/probes.js`](src/probes.js)), reprise par
 `src/calibration.js` et par `tools/import_soundings.py` — qui conserve maintenant les
 profondeurs négatives au lieu de les jeter, tout en continuant d'écarter le zéro exact
 (signature d'un sondeur qui décroche). Doctrine au § 15.2 de la spécification.
+
+**Immersion du transducteur attachée au relevé** (12/08/2026) : elle était écrite dans
+`data/corrections/<lac>.json` depuis le **réglage courant**, la même valeur pour tous les
+points, et n'était jamais relue — un relevé pris à 0,30 m se voyait réattribuer le 0,25 m
+du jour. Sans effet tant que `z_fond` reste figé, faux dès qu'on le recalcule. Corrigé
+dans `src/sync.js` (`toFile`/`fromFile`) et `src/main.js`
+(`probesToRecords`/`recordsToProbes`) ; le réglage courant ne sert plus que de repli pour
+les relevés antérieurs. Vérifié sur le fichier publié : les 4 sondes gardent leurs 0,30 m
+et leur altitude se refait à 0,0000 m près. Préalable indispensable à toute correction
+d'échelle du sondeur (§ 3.2 bis).
 
 L'application est utilisable sur l'eau. Elle n'a **jamais été vue fonctionner par
 l'assistant** : l'environnement de test a une page masquée, où `requestAnimationFrame`
@@ -105,11 +115,38 @@ profondeurs d'une constante. Valeur provisoire retenue : **648,0 m NGF**, plage 
 645–648,8 (établi : les 460 sondes les moins profondes tombent dans le plan d'eau LiDAR).
 
 Le mode Étalonnage de l'application est fait pour la mesurer — protocole au § 15 de la
-spécification. Une sortie avec sondeur suffit. **Non encore réalisé.**
+spécification. **Sortie réalisée le 12/08/2026** : 22 relevés, tous sur trace, de 1,85 à
+24,25 m, soit toute la gamme du lac. Résultat au § 3.2 bis — la valeur cherchée n'est pas
+isolable tant que l'échelle du sondeur n'est pas réglée.
 
 Une fois la valeur stabilisée : la reporter dans `config/model.json`
 (`reference_levels.ofb2009.value_m_ngf`), passer `confirmed` à `true`, relancer
 `build_grid.py`, et remettre le décalage d'étalonnage à zéro dans l'application.
+
+### 3.2 bis Le sondeur Eagle sous-lit d'environ 10 %
+
+Découvert par la sortie du 12/08/2026 (`data/mesuresEtalonnage/etalonnage_12_08_2026.json`).
+L'écart entre le modèle et le sondeur **n'est pas une constante** : il vaut 12 % de la
+profondeur (pente 9,8 % ± 1,2, soit 8 σ ; bootstrap 6,8–12,3 % ; +13 %/m dans chacun des
+deux bassins pris séparément, donc pas un effet de lieu).
+
+Le coupable est l'instrument, pas le modèle :
+
+- la grille reproduit les sondes 2009 brutes à 0,977 de pente près → `build_grid.py` hors de cause ;
+- aucune cote ne redresse une pente : `Z_2009` reste à 11,8 % de résidu quelle qu'elle soit, et il faudrait 649,7 m NGF, au-dessus du plafond LiDAR de 648,8 ;
+- contrôle de volume : la grille donne 106,3 hm³ et une fosse de 31,5 m à 650 m NGF, contre 106 hm³ et 32 m au registre CFBR. Un levé 12 % trop profond donnerait 94 hm³ et 28 m.
+
+Contrôle au mètre fait au port par 2,4 m : conforme — mais à cette profondeur les deux
+hypothèses ne diffèrent que de 0,19 m, moins que l'immersion elle-même. **Non concluant par
+construction.** Le contrôle qui tranche est le *bar check* : une plaque suspendue sous le
+transducteur à 3, 5, 8 et 10 m de fil marqué — elle dérive avec le bateau, donc la stabilité
+n'entre pas en jeu. Attendu si l'hypothèse tient : 2,50 / 4,32 / 7,05 / 8,87 m à l'affichage.
+
+Conséquences tant que ce n'est pas réglé :
+
+- **ne pas appuyer sur « Appliquer la correction »** : `usable` refuse le modèle `proportionnel` mais laisse passer `indetermine` ([`src/calibration.js`](src/calibration.js) l. 99), donc le bouton était actif et aurait appliqué +1,66 m de constante à une carte juste ;
+- les sondes saisies au Eagle portent la même erreur d'échelle ; les relevés **à pied** sur haut-fond découvert, eux, sont indemnes ;
+- couple estimé si l'hypothèse se confirme : facteur **1,098** et `Z_2009` = **648,39 m NGF** (résidu 0,38 m RMS).
 
 ### 3.3 IGN69 ou NGF-Lallemand ?
 
@@ -208,11 +245,12 @@ python tools/preview_grid.py            # contrôle visuel → data/preview.png
 
 ### Vérifications
 
-Ouvrir `/test/`. 56 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 95 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
-simulation**, index des sondes, géométrie, cote, et **le shader rendu hors MapLibre dans un
-canvas WebGL2**.
+simulation**, index des sondes, géométrie, cote, **la caméra de suivi** (le rendu n'est pas
+testable, la décision de caméra l'est), et **le shader rendu hors MapLibre dans un canvas
+WebGL2**.
 
 Après toute modification de `config/palette.json` ou de la grille, relancer
 `python tools/dump_reference.py`, sinon les tests comparent à une référence périmée.
@@ -253,6 +291,24 @@ Après toute modification de `config/palette.json` ou de la grille, relancer
 - **`load` de MapLibre.** Il exige une première image rendue ; dans un onglet masqué,
   `requestAnimationFrame` est suspendu et l'application restait bloquée sur
   « Chargement… ». On attend `style.load`, et la visibilité est attendue explicitement.
+- **Deux pilotes pour une seule caméra.** Le recentrage sur le bateau (`easeTo`, 600 ms) et
+  le « cap en haut » (`setBearing`) commandaient la vue chacun de leur côté. Or
+  `setBearing` passe par `jumpTo`, qui commence par `stop()` : chaque mesure de boussole —
+  une par image — annulait l'animation de recentrage avant qu'elle n'ait parcouru 1 % de sa
+  course. Cap en haut activé, le suivi ne rattrapait plus rien, et il fallait éteindre le
+  cap pour que le recentrage aboutisse. Désormais un seul ordre de caméra porte le centre
+  **et** le cap ([`src/camera.js`](src/camera.js), boucle dans `src/map.js`). Règle
+  générale : ne jamais mêler une animation MapLibre à un `jumpTo` périodique.
+- **Afficher le dernier point GPS.** Corollaire du précédent, découvert sur l'eau : même
+  recentrage réparé, la carte sursautait une fois par seconde. Le GPS ne parle qu'à 1 Hz —
+  accrocher le bateau au dernier point le fait sauter de trois mètres à chaque fois, et
+  accrocher la caméra dessus la fait avancer par à-coups (elle arrive en sept dixièmes de
+  seconde, puis attend, immobile). On affiche donc une **estime** : entre deux points, le
+  bateau avance à son cap et à sa vitesse, à chaque image ; un nouveau point n'est pas un
+  saut mais un écart absorbé, à vitesse plafonnée pour que le bruit du GPS ne se traduise
+  jamais par un bond. Le cap de la carte est amorti à part, sinon le tremblement de la
+  boussole (±1,5°) fait vibrer le monde entier. L'estime ne sert **qu'à l'affichage** :
+  profondeur lue, sondes et étalonnage restent adossés au point GPS vrai.
 - **Collision de noms dans `build_grid.py`.** `coverage` désignait déjà le taux de
   cellules valides.
 

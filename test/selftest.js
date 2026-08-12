@@ -10,6 +10,7 @@
 // afficheraient des couleurs différentes pour la même profondeur.
 
 import { BedGrid, correctedAltitude } from '../src/bed.js';
+import { angleDelta, CameraFollow, catchUp, deadReckon } from '../src/camera.js';
 import { CorrectionsSync } from '../src/sync.js';
 import { Calibration, makeRecord } from '../src/calibration.js';
 import { bearing, distanceMeters, formatSpeed } from '../src/geo.js';
@@ -317,6 +318,33 @@ export async function run(base = '..') {
   check('format : point sans altitude ignoré',
     CorrectionsSync.fromFile({ points: [{ lon: 1, lat: 2 }] }).length === 0);
 
+  // L'immersion appartient à la mesure, pas au réglage du jour. Deux relevés pris avec
+  // deux immersions différentes doivent garder chacun la sienne, à l'écriture comme à la
+  // relecture — sans quoi `z_fond = cote − profondeur − immersion` n'est plus refaisable,
+  // et toute correction ultérieure (échelle du sondeur) recalculerait de travers.
+  const twoRigs = [
+    { ...rec, id: 'r030', transducer_m: 0.30 },
+    { ...rec, id: 'r025', transducer_m: 0.25 },
+  ];
+  const rigFile = sync.toFile(twoRigs, { transducer_m: 0.25, radius_m: 20 });
+  check('immersion : propre à chaque relevé à l\'écriture',
+    rigFile.points[0].transducer_m === 0.30 && rigFile.points[1].transducer_m === 0.25,
+    `${rigFile.points[0].transducer_m} / ${rigFile.points[1].transducer_m}`);
+  const rigBack = CorrectionsSync.fromFile(rigFile);
+  check('immersion : relue depuis le fichier, pas du réglage courant',
+    rigBack[0].transducer_m === 0.30 && rigBack[1].transducer_m === 0.25,
+    `${rigBack[0].transducer_m} / ${rigBack[1].transducer_m}`);
+  check('immersion : aller-retour stable sur un second passage',
+    sync.toFile(rigBack, { transducer_m: 0.10, radius_m: 20 })
+      .points.map((p) => p.transducer_m).join() === '0.3,0.25');
+  // Relevé d'avant cette règle : rien à relire, le repli reprend la main.
+  const legacy = CorrectionsSync.fromFile({
+    points: [{ lon: 1.87, lat: 45.79, z_fond_m_ngf: 644.7, depth_m: 2.3, cote_m_ngf: 647.0 }],
+  });
+  check('immersion : absente du fichier → repli explicite', legacy[0].transducer_m === null);
+  check('immersion : repli appliqué à l\'écriture suivante',
+    sync.toFile(legacy, { transducer_m: 0.3, radius_m: 20 }).points[0].transducer_m === 0.3);
+
   // --- sondes de 2009 ---------------------------------------------------------
   const soundings = await Soundings.load(base);
   check('8 118 sondes chargées', soundings.count === 8118, `${soundings.count}`);
@@ -353,6 +381,222 @@ export async function run(base = '..') {
   check('cap vers l\'est', near(bearing(1.87, 45.8, 1.88, 45.8), 90, 0.5));
   check('vitesse en nœuds', formatSpeed(5, 'kn') === '9.7 nd', formatSpeed(5, 'kn'));
   check('vitesse en km/h', formatSpeed(5, 'kmh') === '18.0 km/h', formatSpeed(5, 'kmh'));
+
+  // --- caméra de suivi ------------------------------------------------------------
+  // Le rendu cartographique n'est pas vérifiable ici (voir l'en-tête), mais la décision
+  // de caméra, elle, est du calcul pur — et c'est là que se sont logés les deux bugs de
+  // suivi : le recentrage annulé par le cap en haut, puis la carte qui sursautait à chaque
+  // point GPS. Les contrôles ci-dessous mesurent donc la *fluidité*, pas seulement
+  // l'arrivée à destination.
+  const LON = 1.87;
+  const LAT = 45.8;
+  const DEG = Math.PI / 180;
+  const M_PER_DEG = 111320;
+  const FRAME_MS = 1000 / 60;
+  const gapTo = (a, b) => distanceMeters(a[0], a[1], b[0], b[1]);
+
+  check('rattrapage indépendant de la cadence',
+    near(catchUp(1 / 60, 0.22), 1 - (1 - catchUp(1 / 120, 0.22)) ** 2, 1e-12),
+    'deux images à 120 Hz avancent autant qu\'une à 60 Hz');
+
+  check('retour au nord par le plus court chemin',
+    angleDelta(350, 0) === 10 && angleDelta(10, 0) === -10,
+    `350°→0° : ${angleDelta(350, 0)}° · 10°→0° : ${angleDelta(10, 0)}°`);
+
+  // --- estime entre deux points GPS ---
+  {
+    const fix = { lon: LON, lat: LAT, speed: 5, heading: 90, at: 0 };
+    const after2s = deadReckon(fix, 2000);
+    check('estime : 5 m/s vers l\'est pendant 2 s = 10 m à l\'est',
+      near(gapTo([LON, LAT], after2s), 10, 0.05)
+      && near(bearing(LON, LAT, after2s[0], after2s[1]), 90, 0.5),
+      `${gapTo([LON, LAT], after2s).toFixed(2)} m au cap `
+      + `${bearing(LON, LAT, after2s[0], after2s[1]).toFixed(1)}°`);
+
+    // GPS perdu : sans plafond, le bateau continuerait tout seul jusqu'à l'autre rive.
+    check('estime plafonnée quand le GPS se tait',
+      near(gapTo([LON, LAT], deadReckon(fix, 60000)), 20, 0.05),
+      `${gapTo([LON, LAT], deadReckon(fix, 60000)).toFixed(1)} m après une minute sans point`);
+
+    // À l'arrêt le GPS ne donne pas de cap fiable : extrapoler ferait dériver le bateau.
+    check('à l\'arrêt, aucune estime',
+      gapTo([LON, LAT], deadReckon({ ...fix, speed: 0 }, 5000)) === 0);
+  }
+
+  // --- fluidité : le contrôle qui compte ---
+  // Bateau à 10 km/h, point GPS chaque seconde avec du bruit, boussole à chaque image.
+  // Le bateau affiché ne doit jamais bondir : c'est la définition du « ça sursaute ».
+  {
+    const speed = 10e3 / 3600;
+    const course = 45;
+    const truthAt = (ms) => {
+      const s = ms / 1000;
+      return [
+        LON + (speed * Math.sin(course * DEG) * s) / (M_PER_DEG * Math.cos(LAT * DEG)),
+        LAT + (speed * Math.cos(course * DEG) * s) / M_PER_DEG,
+      ];
+    };
+    // Bruit GPS reproductible : ±2 m, l'ordre de grandeur d'un téléphone en vue du ciel.
+    let seed = 7;
+    const noise = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return ((seed / 2147483648) - 0.5) * 4;
+    };
+
+    const follow = new CameraFollow();
+    follow.setFollow(true);
+    follow.setTrackUp(true);
+    const view = { center: null, bearing: 0 };
+    let previous = null;
+    let biggestStep = 0;
+    let offCentre = 0;
+    const nominal = speed / 60; // déplacement attendu par image : ~4,7 cm
+
+    for (let frame = 0; frame < 60 * 20; frame += 1) {
+      const now = frame * FRAME_MS;
+      if (frame % 60 === 0) {
+        const [lon, lat] = truthAt(now);
+        follow.setFix({
+          lon: lon + noise() / (M_PER_DEG * Math.cos(LAT * DEG)),
+          lat: lat + noise() / M_PER_DEG,
+          speed, heading: course, at: now,
+        });
+      }
+      follow.setHeading(course);
+      const out = follow.step(now, view);
+      if (out.center) view.center = out.center;
+      if (out.bearing !== null) view.bearing = out.bearing;
+
+      if (frame > 120) { // après la convergence initiale
+        if (previous) biggestStep = Math.max(biggestStep, gapTo(previous, out.position));
+        offCentre = Math.max(offCentre, gapTo(view.center, out.position));
+      }
+      previous = out.position;
+    }
+
+    // Avant correction, une image sur soixante déplaçait le bateau de 2,8 m d'un coup —
+    // soixante fois le pas nominal. C'est cela qu'on interdit ici.
+    check('aucune image ne fait bondir le bateau',
+      biggestStep < nominal * 3,
+      `pas maximal ${(biggestStep * 100).toFixed(1)} cm par image, `
+      + `pour ${(nominal * 100).toFixed(1)} cm attendus`);
+
+    check('bateau verrouillé au centre de l\'écran',
+      offCentre < 0.1, `écart maximal au centre ${(offCentre * 100).toFixed(1)} cm`);
+  }
+
+  // --- le cap ne doit pas faire vibrer la carte ---
+  // La boussole tremble de ±1,5° : appliqué tel quel au cap de la carte, c'est le monde
+  // entier qui frissonne à chaque image.
+  {
+    const follow = new CameraFollow();
+    follow.setTrackUp(true);
+    const view = { center: null, bearing: 90 };
+    let low = 360;
+    let high = 0;
+    for (let frame = 0; frame < 600; frame += 1) {
+      follow.setHeading(90 + (frame % 2 ? 1.5 : -1.5));
+      const out = follow.step(frame * FRAME_MS, view);
+      if (out.bearing !== null) view.bearing = out.bearing;
+      if (frame > 120) { low = Math.min(low, view.bearing); high = Math.max(high, view.bearing); }
+    }
+    check('le tremblement de la boussole ne passe pas dans la carte',
+      high - low < 0.3,
+      `${(high - low).toFixed(3)}° d'amplitude en sortie, pour 3° en entrée`);
+  }
+
+  // --- verrous de caméra ---
+  {
+    const follow = new CameraFollow();
+    follow.setFix({ lon: LON + 0.01, lat: LAT, speed: 0, heading: 90, at: 0 });
+    follow.step(0, { center: [LON, LAT], bearing: 0 });
+    check('suivi désactivé : la carte n\'est pas recentrée',
+      follow.step(FRAME_MS, { center: [LON, LAT], bearing: 0 }).center === null);
+  }
+
+  // Au mouillage, la boucle doit s'arrêter. Une image de plus, c'est du GPU pour rien :
+  // donc un téléphone qui chauffe, donc iOS qui baisse la luminosité de lui-même. On part
+  // d'un écart à résorber — bateau qui vient de stopper, GPS qui se recale d'un mètre —
+  // pour vérifier que la boucle converge puis se tait, au lieu de tourner indéfiniment.
+  {
+    const follow = new CameraFollow();
+    follow.setFollow(true);
+    follow.setTrackUp(true);
+    follow.setFix({ lon: LON, lat: LAT, speed: 0, heading: 42, at: 0 });
+    follow.setHeading(42);
+    const view = { center: null, bearing: 0 };
+    follow.step(0, view); // premier point : le bateau se pose ici
+    follow.setFix({ lon: LON, lat: LAT + 1 / M_PER_DEG, speed: 0, heading: 42, at: 0 });
+
+    let frame = 1;
+    let out = null;
+    for (; frame < 900; frame += 1) {
+      out = follow.step(frame * FRAME_MS, view);
+      if (out.center) view.center = out.center;
+      if (out.bearing !== null) view.bearing = out.bearing;
+      if (out.done) break;
+    }
+    check('au mouillage, la boucle s\'arrête',
+      out.done === true && frame < 400 && gapTo(out.position, [LON, LAT + 1 / M_PER_DEG]) < 0.1,
+      `recalage d'un mètre absorbé puis arrêt en ${frame} images`);
+  }
+
+  // Régression : « cap en haut » annulait le recentrage. Chaque mesure de boussole — une
+  // par image — passait par setBearing → jumpTo → stop(), qui tuait l'easeTo de suivi avant
+  // qu'il n'ait parcouru 1 % de sa course. La garantie est désormais structurelle : centre
+  // et cap sortent du même pas, donc partent dans le même ordre de caméra.
+  {
+    const follow = new CameraFollow();
+    follow.setFollow(true);
+    follow.setTrackUp(true);
+    follow.setFix({ lon: LON, lat: LAT, speed: 2.8, heading: 0, at: 0 });
+    const view = { center: [LON - 0.002, LAT], bearing: 0 };
+    let together = 0;
+    for (let frame = 0; frame < 120; frame += 1) {
+      follow.setHeading((frame * 3) % 360);
+      const out = follow.step(frame * FRAME_MS, view);
+      if (out.center && out.bearing !== null) together += 1;
+      if (out.center) view.center = out.center;
+      if (out.bearing !== null) view.bearing = out.bearing;
+    }
+    check('cap en haut n\'annule plus le recentrage',
+      together > 100, `${together} images sur 120 portant centre et cap ensemble`);
+  }
+
+  // Le zoom des boutons passe par la même boucle que le centre et le cap : un easeTo
+  // serait annulé dès l'image suivante par le jumpTo du suivi — le piège d'origine. Une
+  // fois arrivé, la cible est relâchée, sinon le pincement suivant serait ramené de force.
+  {
+    const follow = new CameraFollow();
+    follow.setZoom(16);
+    const view = { center: null, bearing: 0, zoom: 18 };
+    let frames = 0;
+    let out = null;
+    for (; frames < 600; frames += 1) {
+      out = follow.step(frames * FRAME_MS, view);
+      if (out.zoom !== null) view.zoom = out.zoom;
+      if (out.done) break;
+    }
+    check('zoom des boutons : amorti, atteint, puis relâché',
+      view.zoom === 16 && follow.zoomTarget === null && frames < 120,
+      `zoom ${view.zoom} atteint en ${frames} images`);
+  }
+
+  // Relâcher « cap en haut » ramène au nord en douceur, et s'arrête exactement dessus.
+  {
+    const follow = new CameraFollow();
+    follow.setTrackUp(true);
+    follow.setTrackUp(false); // c'est le relâchement qui arme le retour au nord
+    const view = { center: null, bearing: 120 };
+    let frames = 0;
+    for (; frames < 600; frames += 1) {
+      const out = follow.step(frames * FRAME_MS, view);
+      if (out.bearing !== null) view.bearing = out.bearing;
+      if (out.done) break;
+    }
+    check('retour au nord amorti puis exact',
+      view.bearing === 0 && frames < 200, `nord atteint en ${frames} images`);
+  }
 
   // --- shader de profondeur -----------------------------------------------------
   await runShaderChecks(base, check);
