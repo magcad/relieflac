@@ -126,10 +126,10 @@ export class LakeMap extends EventTarget {
         // Pastilles blanches cerclées de sombre : lisibles à la fois sur le plan IGN clair
         // et sur les fonds colorés. Plus grosses et plus opaques qu'avant, où elles étaient
         // quasi invisibles. Le cercle sombre garantit le contraste sur fond clair.
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 1.6, 14, 3, 17, 5, 19, 7.5],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2, 13, 3.5, 16, 6, 19, 9],
         'circle-color': '#ffffff',
-        'circle-opacity': 0.95,
-        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 15, 1.4, 19, 2],
+        'circle-opacity': 1,
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 15, 1.8, 19, 2.6],
         'circle-stroke-color': '#0b1a2b',
       },
     });

@@ -392,6 +392,12 @@ export class DepthLayer {
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // On rend l'état d'attributs à MapLibre : laisser ces tableaux activés et ce tampon lié
+    // peut brouiller le tracé des couches dessinées juste au-dessus (sondes, trace, repères).
+    gl.disableVertexAttribArray(this.attributes.pos);
+    gl.disableVertexAttribArray(this.attributes.uv);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
   }
 
   onRemove(map, gl) {
