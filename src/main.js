@@ -678,8 +678,11 @@ function recordCalibration() {
   const state = currentLevel();
   if (state.value == null) { toast('Cote du lac inconnue'); return; }
 
-  // Altitude brute : le décalage cherché est précisément celui qu'on appliquera ensuite.
-  const modelBedZ = app.bed.altitudeAt(position.lon, position.lat);
+  // Altitude du levé 2009 SEUL : le décalage cherché est précisément celui qu'on
+  // appliquera ensuite. `altitudeAt()` renverrait la grille de travail, déjà tirée vers
+  // les relevés manuels — un étalonnage pris dans un disque de correction mesurerait son
+  // écart contre une surface qu'on a soi-même déplacée, donc un résidu rabattu vers zéro.
+  const modelBedZ = app.bed.baseAltitudeAt(position.lon, position.lat);
   if (!Number.isFinite(modelBedZ)) { toast('Hors emprise du modèle'); return; }
 
   app.calibration.add(makeRecord({
@@ -712,6 +715,31 @@ function refreshCalibrationContext() {
       : 'aucune sonde 2009 à proximité — relevé peu fiable');
 }
 
+/**
+ * Second verdict : la forme du résidu. Un décalage de référence est constant ; une erreur
+ * d'échelle du sondeur croît avec la profondeur. Les deux se ressemblent tant qu'on n'a
+ * sondé qu'une bande étroite — et c'est justement là que la constante devient un piège,
+ * puisqu'elle serait appliquée à un lac qui descend à 31 m.
+ */
+function depthVerdict(stats) {
+  if (!Number.isFinite(stats.depthMin)) return null;
+  const span = `sondé de ${stats.depthMin.toFixed(1)} à ${stats.depthMax.toFixed(1)} m`;
+
+  if (stats.model === 'proportionnel') {
+    return ['verdict--spread', `L'écart suit la profondeur (environ ${stats.slopePercent.toFixed(0)} %`
+      + ` de la profondeur, ${span}) : ce n'est pas la référence du levé qui est en cause,`
+      + ' mais l\'échelle du sondeur. Une constante corrigerait le petit fond et fausserait'
+      + ' le large — vérifiez le réglage de vitesse du son.'];
+  }
+  if (stats.model === 'constant') {
+    return ['verdict--ok', `L'écart ne suit pas la profondeur (${span}) : un décalage constant`
+      + ' est bien le bon modèle.'];
+  }
+  return ['verdict--wait', `Impossible encore de distinguer un décalage constant d'une erreur`
+    + ` proportionnelle à la profondeur (${span}) : relevez aussi en eau nettement plus`
+    + ' profonde, sans quoi la correction sera fausse au large.'];
+}
+
 function refreshCalibrationUi() {
   const stats = app.calibration.stats();
   const container = $('cal-stats');
@@ -721,18 +749,26 @@ function refreshCalibrationUi() {
     container.innerHTML = '<p class="hint">Aucun relevé.</p>';
     apply.disabled = true;
   } else {
-    const verdict = stats.usable
-      ? ['verdict--ok', `Écarts groupés (interquartile ${stats.iqr.toFixed(2)} m) : c'est bien un décalage de référence.`]
-      : stats.count < 5
-        ? ['verdict--wait', `Encore ${5 - stats.count} relevé(s) pour conclure.`]
-        : ['verdict--spread', `Écarts dispersés (interquartile ${stats.iqr.toFixed(2)} m) : le problème est l'interpolation, pas la référence. Aucune constante ne le corrigera.`];
+    // Premier verdict : la dispersion seule. Conclure ici « c'est bien un décalage de
+    // référence » contredirait le second quand la forme du résidu n'est pas tranchée —
+    // sur un outil de navigation, deux verdicts qui se contredisent ne valent rien.
+    const verdict = stats.count < 5
+      ? ['verdict--wait', `Encore ${5 - stats.count} relevé(s) pour conclure.`]
+      : stats.iqr > 1.0
+        ? ['verdict--spread', `Écarts dispersés (interquartile ${stats.iqr.toFixed(2)} m) : `
+          + (stats.model === 'proportionnel'
+            ? 'ils suivent la profondeur — voir ci-dessous.'
+            : "le problème est l'interpolation, pas la référence. Aucune constante ne le corrigera.")]
+        : ['verdict--ok', `Écarts groupés (interquartile ${stats.iqr.toFixed(2)} m) : les relevés sont cohérents entre eux.`];
 
+    const shape = depthVerdict(stats);
     container.innerHTML = `
       <div class="big-number">${stats.median > 0 ? '+' : ''}${stats.median.toFixed(2)} m</div>
       <p class="hint">Médiane des écarts sur ${stats.count} relevé(s)
         ${stats.trustedCount ? `dont ${stats.trustedCount} sur trace` : ''} ·
         étendue ${stats.min.toFixed(2)} à ${stats.max.toFixed(2)} m</p>
-      <p class="verdict ${verdict[0]}">${verdict[1]}</p>`;
+      <p class="verdict ${verdict[0]}">${verdict[1]}</p>
+      ${shape ? `<p class="verdict ${shape[0]}">${shape[1]}</p>` : ''}`;
     apply.disabled = !stats.usable;
   }
 

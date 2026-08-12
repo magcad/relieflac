@@ -12,6 +12,15 @@
 // commun, le problème est l'interpolation et non la référence : aucune constante ne le
 // corrigera.
 //
+// Un troisième cas se cache derrière le premier, et c'est le dangereux : un résidu
+// **proportionnel à la profondeur**. Une erreur d'échelle du sondeur (vitesse du son mal
+// réglée) produit exactement ça. Relevée en petit fond seulement, elle est indiscernable
+// d'un décalage constant — les résidus se groupent tout aussi bien, l'écart interquartile
+// est tout aussi rassurant — et la constante qu'on en tire fausse le large d'autant plus
+// qu'il est profond. Séparer les deux exige des relevés à des profondeurs franchement
+// différentes ; `stats()` le vérifie et refuse de conclure quand la bande sondée est trop
+// étroite pour trancher.
+//
 // La médiane est préférée à la moyenne : un relevé aberrant — sondeur qui accroche une
 // thermocline, position GPS partie à la dérive — ne doit pas déplacer le résultat.
 
@@ -55,11 +64,15 @@ export class Calibration extends EventTarget {
    */
   stats(useTrustedOnly = true) {
     const source = useTrustedOnly && this.trusted.length >= 3 ? this.trusted : this.records;
-    const residuals = source.map((r) => r.residual).filter(Number.isFinite).sort((a, b) => a - b);
+    const sample = source
+      .map((r) => ({ residual: r.residual, depth: r.sounderDepth + (r.transducerDepth ?? 0) }))
+      .filter((r) => Number.isFinite(r.residual));
+    const residuals = sample.map((r) => r.residual).sort((a, b) => a - b);
     if (residuals.length === 0) return null;
 
     const median = quantile(residuals, 0.5);
     const spread = quantile(residuals, 0.75) - quantile(residuals, 0.25);
+    const shape = depthShape(sample, median);
     return {
       count: residuals.length,
       trustedCount: this.trusted.length,
@@ -67,9 +80,11 @@ export class Calibration extends EventTarget {
       iqr: spread,
       min: residuals[0],
       max: residuals[residuals.length - 1],
+      ...shape,
       // Un écart interquartile supérieur au mètre signale une dispersion telle qu'aucun
-      // décalage constant ne rendra le modèle juste.
-      usable: residuals.length >= 5 && spread <= 1.0,
+      // décalage constant ne rendra le modèle juste. Et si la forme du résidu suit la
+      // profondeur, la constante est carrément le mauvais remède : on la refuse.
+      usable: residuals.length >= 5 && spread <= 1.0 && shape.model !== 'proportionnel',
     };
   }
 
@@ -122,6 +137,62 @@ export function makeRecord({ position, level, levelSource, modelBedZ, sounderDep
     residual: trueBedZ - modelBedZ,
     nearestSounding,
     onTrack: nearestSounding <= ON_TRACK_RADIUS_M,
+  };
+}
+
+/**
+ * Le résidu est-il une constante, ou une fraction de la profondeur ?
+ *
+ * On ajuste les deux modèles — `résidu = c` et `résidu = k × profondeur` — et on compare
+ * ce qu'il reste d'écart après chacun. Médianes partout plutôt que moyennes : un relevé
+ * aberrant ne doit pas désigner le vainqueur.
+ *
+ * Le point délicat est de savoir quand se taire. Les deux modèles se croisent à une
+ * profondeur et ne divergent qu'en s'en éloignant ; sur une bande étroite, leur écart
+ * reste sous le bruit de mesure et les départager n'a aucun sens. On exige donc que la
+ * divergence entre les deux prédictions, sur les profondeurs réellement sondées, dépasse
+ * nettement la dispersion résiduelle — faute de quoi le verdict est « indéterminé », et
+ * la seule réponse utile est d'aller sonder plus creux.
+ */
+function depthShape(sample, median) {
+  const unknown = {
+    model: 'indetermine',
+    depthMin: NaN,
+    depthMax: NaN,
+    slopePercent: NaN,
+  };
+  // Sous cinq relevés, les médianes sautent d'un point à l'autre et le verdict serait
+  // dicté par le hasard de l'échantillon. Même seuil que le reste du module.
+  const usable = sample.filter((r) => Number.isFinite(r.depth) && r.depth > 0.2);
+  if (usable.length < 5) return unknown;
+
+  const depths = usable.map((r) => r.depth);
+  const ratios = usable.map((r) => r.residual / r.depth).sort((a, b) => a - b);
+  const slope = quantile(ratios, 0.5);
+
+  const typical = (errors) => quantile(errors.map(Math.abs).sort((a, b) => a - b), 0.5);
+  const flatSpread = typical(usable.map((r) => r.residual - median));
+  const slopedSpread = typical(usable.map((r) => r.residual - slope * r.depth));
+
+  const divergence = Math.max(...usable.map((r) => Math.abs(median - slope * r.depth)));
+  // Le bruit de mesure, c'est ce qui reste après le MEILLEUR des deux ajustements. Prendre
+  // le pire reviendrait à mesurer le bruit avec le modèle faux, dont la dispersion est
+  // grande précisément parce qu'il est faux — et à ne jamais rien pouvoir conclure.
+  // Plancher : deux relevés ne tombent jamais exactement d'accord, et sans lui un
+  // échantillon trop docile passerait pour concluant.
+  const noise = Math.max(Math.min(flatSpread, slopedSpread), 0.05);
+
+  let model = 'indetermine';
+  if (divergence >= 3 * noise) {
+    if (slopedSpread < flatSpread * 0.6) model = 'proportionnel';
+    else if (flatSpread < slopedSpread * 0.6) model = 'constant';
+  }
+
+  return {
+    model,
+    depthMin: Math.min(...depths),
+    depthMax: Math.max(...depths),
+    slopePercent: slope * 100,
   };
 }
 

@@ -156,6 +156,43 @@ export async function run(base = '..') {
   check('dispersion forte jugée inexploitable', calibration.stats().usable === false);
   calibration.clear();
 
+  // Forme du résidu : constante ou proportionnelle à la profondeur ?
+  //
+  // Le piège que ces trois cas verrouillent : relevé en petit fond seulement, une erreur
+  // d'échelle du sondeur se groupe aussi bien qu'un décalage de référence, et la constante
+  // qu'on en tirerait fausserait le large d'autant plus qu'il est profond.
+  const shaped = (pairs) => {
+    calibration.clear();
+    pairs.forEach(([depth, residual]) => calibration.add({
+      lon: 1.87, lat: 45.79, accuracy: 8, level: 647, levelSource: 'live',
+      modelBedZ: 630, sounderDepth: depth - 0.3, transducerDepth: 0.3,
+      residual, nearestSounding: 10, onTrack: true,
+    }));
+    return calibration.stats();
+  };
+
+  const wide = [3, 5, 9, 15, 22, 28];
+  const flat = shaped(wide.map((d) => [d, 1.0]));
+  check('écart constant sur une large plage : décalage de référence',
+    flat.model === 'constant' && flat.usable === true, `${flat.model}`);
+
+  const sloped = shaped(wide.map((d) => [d, 0.27 * d]));
+  check('écart proportionnel à la profondeur : erreur d\'échelle détectée',
+    sloped.model === 'proportionnel', `${sloped.model}`);
+  check('erreur proportionnelle : la correction constante est refusée',
+    sloped.usable === false, `usable ${sloped.usable}`);
+  check('pente rapportée en % de la profondeur',
+    near(sloped.slopePercent, 27, 0.5), `${sloped.slopePercent}`);
+
+  // Écarts de l'ordre de ceux relevés à Vauveix, tous entre 3,4 et 4,1 m. Les deux modèles
+  // y collent aussi bien — l'app doit refuser de trancher plutôt que de rassurer à tort.
+  const narrow = shaped([[3.4, 0.85], [3.5, 0.95], [3.6, 1.09], [3.8, 1.02], [4.1, 1.10]]);
+  check('bande de profondeurs trop étroite : aucune conclusion',
+    narrow.model === 'indetermine', `${narrow.model}`);
+  check('profondeurs sondées rapportées',
+    near(narrow.depthMin, 3.4, 1e-9) && near(narrow.depthMax, 4.1, 1e-9));
+  calibration.clear();
+
   // --- sondes saisies à la main -----------------------------------------------
   // fond = 647,0 − 8,1 − 0,3 = 638,6 ; le modèle dit 630,0 → il annonçait 17,0 m d'eau
   // là où le sondeur en mesure 8,1 : c'est exactement le haut-fond que le levé a comblé.
