@@ -131,11 +131,14 @@ function whenVisible(message) {
 // Les 8 118 sondes ne sont utiles qu'à l'affichage optionnel et à l'étalonnage :
 // on ne bloque pas l'ouverture de la carte pour elles.
 async function loadSoundingsLazily() {
+  const status = $('soundings-status');
   try {
     app.soundings = await Soundings.load('.');
     app.lakeMap.setSoundings(app.soundings.toGeoJSON(), app.settings.get('showSoundings'));
+    if (status) status.textContent = `Sondes 2009 : ${app.soundings.count} chargées`;
   } catch (err) {
     console.warn('sondes 2009 indisponibles', err);
+    if (status) status.textContent = `Sondes 2009 : échec du chargement (${err.message})`;
   }
 }
 
