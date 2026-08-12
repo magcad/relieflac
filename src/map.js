@@ -5,7 +5,25 @@
 // déjà leur toponymie.
 
 // MapLibre 6 n'expose plus d'export par défaut, seulement des exports nommés.
-import { Map as MaplibreMap, Marker, ScaleControl } from '../vendor/maplibre-gl.js';
+import { Map as MaplibreMap, Marker, ScaleControl, setWorkerUrl } from '../vendor/maplibre-gl.js';
+
+// Emplacement du worker de tuilage, déclaré explicitement.
+//
+// Laissé à lui-même, le bundle déduit cette URL de `import.meta.url` en y forçant
+// l'extension `.mjs` — alors que tools/vendor_maplibre.py renomme les modules en `.js`
+// (voir l'en-tête du script). Il demande donc `vendor/maplibre-gl-worker.mjs`, qui
+// n'existe pas.
+//
+// Cette panne est silencieuse, et c'est ce qui la rend coûteuse : le 404 du worker ne
+// remonte aucune erreur MapLibre, la promesse du pool de workers ne se résout jamais, et
+// TOUTE source `geojson` reste muette à vie — sondes 2009, trace, cercle de précision,
+// repères — pendant que les fonds raster, les marqueurs HTML et la couche WebGL des
+// profondeurs s'affichent normalement, puisqu'eux ne passent pas par le worker.
+// D'où une carte d'apparence saine où seuls les calques vectoriels manquent.
+//
+// Fixer l'URL ici plutôt que de réécrire la chaîne dans le bundle minifié : la
+// correction reste visible et survit à une remise à jour de vendor/.
+setWorkerUrl(new URL('../vendor/maplibre-gl-worker.js', import.meta.url).href);
 
 const IGN_WMTS = 'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0'
   + '&LAYER={layer}&STYLE=normal&FORMAT={format}&TILEMATRIXSET=PM'
@@ -196,12 +214,23 @@ export class LakeMap extends EventTarget {
     this.map.setLayoutProperty('sondes-2009', 'visibility', visible ? 'visible' : 'none');
   }
 
-  /** Diagnostic : état réel du calque des sondes 2009 tel que MapLibre le voit. */
+  /**
+   * Diagnostic : état réel du calque des sondes 2009 tel que MapLibre le voit.
+   *
+   * Trois mesures, à lire dans cet ordre — c'est ce qui localise la panne d'un coup d'œil :
+   *   `data`   : ce que la source détient côté page (`serialize()`, et non le champ interne
+   *              `_data`, dont le nom change au gré des versions et de la minification —
+   *              le lire donnait « source vide » alors que la source était pleine) ;
+   *   `tiled`  : ce que le worker de tuilage a effectivement produit. À 0 avec `data` plein,
+   *              le worker ne répond pas (voir setWorkerUrl en haut de ce fichier) ;
+   *   `rendered` : ce qui est peint à l'écran. À 0 avec `tiled` plein, c'est le rendu.
+   */
   soundingsDebug() {
     const m = this.map;
-    const out = { vis: '?', data: -1, rendered: -1, err: this.lastError || 'aucune' };
+    const out = { vis: '?', data: -1, tiled: -1, rendered: -1, err: this.lastError || 'aucune' };
     try { out.vis = m.getLayoutProperty('sondes-2009', 'visibility') ?? 'visible'; } catch { /* */ }
-    try { out.data = m.getSource('sondes-2009')?._data?.features?.length ?? -2; } catch { /* */ }
+    try { out.data = m.getSource('sondes-2009')?.serialize()?.data?.features?.length ?? -2; } catch { /* */ }
+    try { out.tiled = m.querySourceFeatures('sondes-2009').length; } catch { /* */ }
     try { out.rendered = m.queryRenderedFeatures({ layers: ['sondes-2009'] }).length; } catch { /* */ }
     return out;
   }

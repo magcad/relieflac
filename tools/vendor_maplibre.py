@@ -6,6 +6,14 @@ JavaScript — `python -m http.server` le sert en `text/plain`, ce qui bloque le
 chargement. L'extension `.js` est reconnue partout ; le risque disparaît au lieu d'être
 contourné au cas par cas.
 
+Attention : renommer ne suffit pas. Le bundle reconstruit AUSSI l'URL de son worker à
+l'exécution, à partir de `import.meta.url` et d'un nom de fichier écrit en dur sans le
+préfixe `./` (`new URL(`./${t}`, e)`). La réécriture ci-dessous couvre donc les deux
+formes, avec et sans `./`. À défaut, le worker est demandé en `.mjs`, répond 404 sans
+qu'aucune erreur ne remonte, et toutes les couches `geojson` restent vides — panne
+diagnostiquée dans docs/BUG-sondes-2009-invisibles.md. Par sécurité, src/map.js fixe de
+toute façon l'URL explicitement via `setWorkerUrl`.
+
     python tools/vendor_maplibre.py
 """
 
@@ -33,8 +41,10 @@ def main() -> int:
 
     for name in MODULES:
         text = (SOURCE / "dist" / name).read_text(encoding="utf-8")
-        for other in MODULES:
-            text = text.replace(f"./{other}", f"./{other[:-4]}.js")
+        for other in MODULES + ["maplibre-gl-worker-dev.mjs"]:
+            # Nom nu (URL de worker recomposée à l'exécution) autant que spécificateur
+            # d'import : voir l'avertissement en tête de fichier.
+            text = text.replace(other, f"{other[:-4]}.js")
         destination = TARGET / f"{name[:-4]}.js"
         destination.write_text(text, encoding="utf-8", newline="\n")
         print(f"  {destination.name}  {len(text) / 1000:.0f} ko")

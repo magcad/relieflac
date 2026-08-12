@@ -150,7 +150,7 @@ function refreshSoundingsDiag() {
   if (!status || !app.soundings || !app.lakeMap) return;
   const d = app.lakeMap.soundingsDebug();
   status.textContent = `Sondes 2009 : ${app.soundings.count} chargées · couche ${d.vis}`
-    + ` · source ${d.data} · rendues ${d.rendered} · err: ${d.err}`;
+    + ` · source ${d.data} · tuilées ${d.tiled} · rendues ${d.rendered} · err: ${d.err}`;
 }
 
 // ------------------------------------------------------------- profondeurs

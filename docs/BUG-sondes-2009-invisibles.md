@@ -1,8 +1,161 @@
-# Bug en cours — Les « Traces du levé 2009 » ne s'affichent pas sur la carte
+# Résolu — Les « Traces du levé 2009 » ne s'affichaient pas sur la carte
 
-> Document de passation. Objectif : permettre à une autre session (autre compte) de
-> reprendre la résolution sans reconstruire le contexte. Rédigé le 2026-08-12,
-> version déployée au moment de l'écriture : **`2026-08-12.8`**.
+> Post-mortem. Bug ouvert le 2026-08-12 (version `2026-08-12.8`), corrigé le même jour
+> dans la version **`2026-08-12.9`**. Le document de passation d'origine est conservé
+> plus bas, avec ce qu'il avait de juste et ce qui l'avait fait dérailler.
+
+## Cause réelle
+
+**Le worker de tuilage de MapLibre ne se chargeait pas — 404 — et aucune source `geojson`
+n'a donc jamais été tuilée.**
+
+`vendor/maplibre-gl.js` recompose l'URL de son worker à l'exécution, à partir de
+`import.meta.url`, avec l'extension `.mjs` écrite en dur :
+
+```js
+function bi(){
+  let e = import.meta.url;
+  if (!/^https?:/.test(e)) return ``;
+  let t = e.endsWith(`-dev.mjs`) ? `maplibre-gl-worker-dev.mjs` : `maplibre-gl-worker.mjs`;
+  return new URL(`./${t}`, e).href;       // → vendor/maplibre-gl-worker.mjs
+}
+```
+
+Or `tools/vendor_maplibre.py` renomme les modules `.mjs` → `.js` (pour échapper aux
+serveurs qui servent `.mjs` en `text/plain`). Sa réécriture ne portait que sur la forme
+`"./maplibre-gl-worker.mjs"` — avec le préfixe `./`. Ici le `./` est ajouté à l'exécution
+par l'interpolation `` `./${t}` ``, si bien que le nom nu `maplibre-gl-worker.mjs` est
+passé au travers. Le fichier livré s'appelle `maplibre-gl-worker.js` :
+
+```
+GET /vendor/maplibre-gl-worker.mjs → 404
+GET /vendor/maplibre-gl-worker.js  → 200
+```
+
+`new Worker(…/maplibre-gl-worker.mjs, {type:'module'})` échouait, la promesse du pool de
+workers ne se résolvait jamais, et `dispatcher.waitForInitComplete()` restait en attente
+à vie.
+
+### Pourquoi la carte avait l'air saine
+
+Tout ce qui ne passe pas par le worker continuait de fonctionner, ce qui masquait la panne :
+
+| Élément | Chemin | État |
+|---|---|---|
+| Fonds IGN (raster) | fil principal | ✅ s'affichait |
+| Couche WebGL des profondeurs | fil principal, custom layer | ✅ s'affichait |
+| Bateau, pastilles de sondes manuelles, points de simulation | marqueurs HTML | ✅ s'affichaient |
+| `sondes-2009`, `trace`, `precision`, `reperes` | **worker geojson** | ❌ muettes à vie |
+
+Et la panne était **silencieuse** : une promesse qui ne se résout jamais ne déclenche
+aucun événement `error`, d'où le `err: aucune` qui semblait innocenter le style.
+
+## La fausse piste qui a coûté la session précédente
+
+Le document de passation posait comme acquis :
+
+> **Une couche `circle`/`geojson` identique fonctionne** : `reperes` (mêmes type et source
+> GeoJSON, pastilles cyan) s'affiche parfaitement. → Le rendu générique des couches
+> `circle` n'est pas cassé. C'est spécifique à `sondes-2009`.
+
+**C'était faux, et c'est ce qui a fait chercher au mauvais endroit.** Les pastilles cyan
+de la capture ne sont pas la couche `reperes` : ce sont les marqueurs HTML `.probe-mark`
+(`app.css:174`, fond `#22d3ee`), créés par `setProbes()` et qui ne passent pas du tout par
+MapLibre. La couche `reperes`, elle, est verte `#22c55e` ou ambre `#f59e0b`
+(`src/map.js`) — et elle ne s'affichait pas davantage que les sondes.
+
+Mesure faite après coup sur les quatre sources, avant correction :
+
+```
+sondes-2009 | _data=objet | loaded=false | qs=0
+reperes     | _data=objet | loaded=false | qs=0
+trace       | _data=objet | loaded=false | qs=0
+precision   | _data=objet | loaded=false | qs=0
+styleLoaded=false
+```
+
+Aucune source `geojson` ne se chargeait. Le bug n'était donc pas « spécifique à
+`sondes-2009` » — il était général, et l'unique contre-exemple invoqué n'en était pas un.
+
+**Leçon :** avant de bâtir sur un « ça, ça marche », vérifier que l'élément qui marche est
+bien celui qu'on croit. Ici, une couleur mal attribuée a écarté la bonne hypothèse.
+
+## Le second signal trompeur : `source -2`
+
+Le diagnostic lisait `getSource('sondes-2009')._data.features.length` et rapportait `-2`.
+Le document soupçonnait à juste titre un champ interne renommé. Vérification faite,
+MapLibre 6 enveloppe la donnée :
+
+```js
+this._data = typeof t.data === `string` ? { url: t.data } : { geojson: t.data };
+```
+
+`_data` vaut donc `{ geojson: <FeatureCollection> }` : `_data.features` est bien
+`undefined`, et le `-2` ne disait rien de l'état réel de la source. `serialize()` renvoyait
+`8118` depuis le début.
+
+## Correctif
+
+1. **`src/map.js`** — l'URL du worker est déclarée explicitement, avant toute création de
+   carte, plutôt que déduite par le bundle :
+
+   ```js
+   import { …, setWorkerUrl } from '../vendor/maplibre-gl.js';
+   setWorkerUrl(new URL('../vendor/maplibre-gl-worker.js', import.meta.url).href);
+   ```
+
+   Résolu relativement au module, donc valable aussi bien en local qu'au sous-chemin de
+   GitHub Pages. Choisi plutôt qu'une réécriture de la chaîne dans le bundle minifié : la
+   correction reste lisible et survit à une remise à jour de `vendor/`.
+
+2. **`tools/vendor_maplibre.py`** — la réécriture couvre désormais les noms nus en plus des
+   spécificateurs d'import (et `maplibre-gl-worker-dev.mjs`), et l'en-tête documente le
+   piège, pour qu'une future revendorisation ne le réintroduise pas.
+
+3. **`src/map.js` / `src/main.js`** — `soundingsDebug()` ne lit plus `_data`. Il rapporte
+   trois mesures qui localisent la panne d'un coup d'œil :
+   `source` (`serialize()`, côté page) · `tuilées` (`querySourceFeatures`, sortie du
+   worker) · `rendues` (`queryRenderedFeatures`, à l'écran).
+   Un `source` plein avec `tuilées 0` désigne le worker ; `tuilées` plein avec `rendues 0`
+   désignerait le rendu.
+
+## Vérification
+
+Ligne de diagnostic des Paramètres, avant puis après :
+
+```
+avant : 8118 chargées · couche visible · source -2   · rendues 0    · err: aucune
+après : 8118 chargées · couche visible · source 8118 · tuilées 12354 · rendues 8118 · err: aucune
+```
+
+(`tuilées` dépasse `source` : les points proches d'un bord de tuile sont comptés dans
+chaque tuile qui les tamponne. C'est normal.)
+
+Preuve au pixel, en lisant le tampon WebGL réellement dessiné (`gl.readPixels`), couche
+masquée puis visible — le panneau navigateur ne composite pas d'image, la capture d'écran
+y est impossible :
+
+```
+canvas 1280x720 · pixels quasi blancs : couche masquée = 97690 · couche visible = 108568
+delta = +10878 pixels
+```
+
+Les pastilles sont donc bien peintes. Enfin, `GET /vendor/maplibre-gl-worker.js → 200`
+remplace le `404` sur `.mjs`, et la suite de vérifications passe : **64 tests, 0 échec**.
+
+> Note pour reproduire en local : dans le panneau navigateur, la page est `hidden`, le
+> `requestAnimationFrame` est suspendu et le démarrage reste bloqué sur `whenVisible`.
+> Poser un `rAF` de substitution sur `setTimeout`, forcer `document.hidden`/
+> `visibilityState`, puis émettre `visibilitychange` suffit à faire démarrer la carte et à
+> l'instrumenter.
+
+---
+
+# Document de passation d'origine (2026-08-12, version `2026-08-12.8`)
+
+> Conservé tel quel pour mémoire. Attention : la section « Une couche `circle`/`geojson`
+> identique fonctionne » est fausse (voir plus haut), et les hypothèses A, B et C sont
+> toutes écartées — la panne était en amont, dans le chargement du worker.
 
 ## Symptôme (mots de l'utilisateur)
 
@@ -10,119 +163,41 @@ Il coche « Traces du levé 2009 » dans les Paramètres, aucune autre couche ac
 pastille blanche n'apparaît sur le lac**. Sur sa capture : la carte des profondeurs colorée
 s'affiche, les 4 pastilles cyan des relevés (`reperes`) sont visibles, **mais zéro sonde 2009**.
 
-## Ce qui est CONFIRMÉ (ne pas re-tester)
+## Ce qui était donné pour CONFIRMÉ
 
-- **Les données se chargent** : `app.soundings.count === 8118`. Le fetch de
-  `data/soundings/ofb2009.csv` réussit sur GitHub Pages.
-- **Le CSV est sain** : en-tête `lon,lat,depth_m,timestamp`, colonnes dans le bon ordre,
-  valeurs `lon≈1.87 / lat≈45.79` → bien au centre du Lac de Vassivière, dans `maxBounds`.
-  → **L'hypothèse « colonnes lon/lat inversées » est écartée.**
-- **`toGeoJSON()` est correct** : renvoie un objet `{type:'FeatureCollection', features:[…8118…]}`
-  (un objet, pas une chaîne ; géométries `Point` en `[lon,lat]`). Voir `src/soundings.js:68`.
-- **La couche existe et est visible** : le diagnostic rapporte `couche visible`
-  (`getLayoutProperty('sondes-2009','visibility') === 'visible'`).
-- **Aucune erreur MapLibre** : `err: aucune` (un listener `map.on('error')` remonterait toute
-  expression de style invalide ; la source/le style ne signalent rien). Voir `src/map.js:116`.
-- **Le style n'est PAS rechargé au changement de fond** : `setBasemap()` ne fait que basculer la
-  visibilité des couches `fond-*`, il ne rappelle pas `setStyle`. → **L'hypothèse « le changement
-  de basemap efface la source » est écartée.**
-- **Pas de course d'initialisation** : `#addOverlays()` (qui crée la source+couche `sondes-2009`)
-  s'exécute sur `style.load` à l'intérieur de la promesse `lakeMap.ready` ; `setSoundings()` est
-  appelé dans `loadSoundingsLazily()` APRÈS que le boot a `await lakeMap.ready`. La source existe
-  donc quand `setData` est appelé.
-- **Une couche `circle`/`geojson` identique fonctionne** : `reperes` (mêmes type et source
-  GeoJSON, pastilles cyan) s'affiche parfaitement. → **Le rendu générique des couches `circle`
-  n'est pas cassé.** C'est spécifique à `sondes-2009`.
+- **Les données se chargent** : `app.soundings.count === 8118`. ✅ exact.
+- **Le CSV est sain**, colonnes non inversées. ✅ exact.
+- **`toGeoJSON()` est correct**. ✅ exact.
+- **La couche existe et est visible**. ✅ exact.
+- **Aucune erreur MapLibre** (`err: aucune`). ✅ exact — mais c'était un symptôme, pas un
+  blanc-seing : une promesse en attente éternelle ne lève rien.
+- **Le style n'est PAS rechargé au changement de fond**. ✅ exact.
+- **Pas de course d'initialisation**. ✅ exact.
+- **Une couche `circle`/`geojson` identique fonctionne** (`reperes`). ❌ **FAUX** — les
+  pastilles cyan étaient des marqueurs HTML ; `reperes` ne s'affichait pas non plus.
 
-## Le signal trompeur : `source -2`
+## Hypothèses d'alors
 
-Le dernier diagnostic affiche `source -2`. Ce `-2` vient de :
+- **A. Ordre d'empilement** : la couche des profondeurs recouvrirait les sondes.
+  ❌ Écartée : l'ordre était bien celui voulu, et rien n'était tuilé de toute façon.
+- **B. `setData` n'a pas peuplé la source.**
+  ❌ Écartée : `serialize()` rapportait `8118` dès le départ.
+- **C. Expression de paint dégénérée.**
+  ❌ Écartée : les pastilles apparaissent avec les expressions d'origine, inchangées.
 
-```js
-out.data = m.getSource('sondes-2009')?._data?.features?.length ?? -2;   // src/map.js:204
-```
+## État des demandes de la sortie terrain (contexte)
 
-**`-2` ≠ preuve que la source est vide.** Le MapLibre vendu (`vendor/maplibre-gl.js`) n'expose
-probablement pas la donnée sous `_data` (champ interne, susceptible d'être renommé/minifié, ou
-vidé après transfert au worker de tuilage). Le probe lit donc `undefined` → `-2`, **même si
-`setData` a parfaitement fonctionné**. Ce diagnostic est à remplacer (voir plus bas).
-
-Le signal FIABLE, lui, est `rendues 0` : `queryRenderedFeatures({layers:['sondes-2009']})`
-renvoie 0. **Rien n'est effectivement peint.** C'est le vrai mystère.
-
-## Prochaine étape n°1 — mesurer le VRAI contenu de la source
-
-Remplacer le probe `_data` par une mesure fiable, puis redéployer et demander la ligne. Deux
-sources de vérité MapLibre :
-
-```js
-// Nombre de features réellement stockées dans la source (indépendant du nom de champ interne) :
-const src = m.getSource('sondes-2009');
-let real = -3;
-try { real = (src.serialize?.().data?.features?.length) ?? -4; } catch {}
-
-// Nombre de features tuilées/parsées dans la vue courante (0 tant que le worker n'a pas fini) :
-let tiled = -3;
-try { tiled = m.querySourceFeatures('sondes-2009').length; } catch {}
-```
-
-Interprétation attendue :
-- `serialize().data.features.length === 8118` → **`setData` a bien peuplé la source** → le bug
-  est au **rendu/tuilage**, pas aux données. Passer à l'étape n°2.
-- `serialize()` renvoie 0 / `EMPTY` → **`setData` n'a rien injecté** → enquêter sur pourquoi
-  `getSource('sondes-2009').setData(obj)` échoue sur l'appareil (worker GeoJSON, taille de
-  l'objet, etc.). Tester avec un sous-échantillon de 50 points.
-
-## Prochaine étape n°2 — isoler rendu vs données
-
-Test décisif : forcer un rendu trivial et voir s'il apparaît.
-
-```js
-// À injecter temporairement (console de debug ou build jetable) :
-m.setPaintProperty('sondes-2009', 'circle-radius', 8);
-m.setPaintProperty('sondes-2009', 'circle-color', '#ff0000');
-m.setPaintProperty('sondes-2009', 'circle-stroke-width', 0);
-m.setLayoutProperty('sondes-2009', 'visibility', 'visible');
-```
-
-- Des points rouges apparaissent → le problème venait d'une **expression de paint** (peu probable,
-  elles sont simples : `circle-radius` interpolé zoom 10→19 = 2→9 px, voir `src/map.js:132`) ou du
-  **z-order** (voir hypothèse A).
-- Toujours rien → le problème est **en amont du paint** : source vide, ou couche masquée par une
-  autre couche opaque au-dessus.
-
-## Hypothèses classées (la plus probable en premier)
-
-### A. Ordre d'empilement : la couche custom des profondeurs recouvre les sondes
-`addDepthLayer()` insère la couche WebGL2 des profondeurs avec
-`this.map.addLayer(layer, 'sondes-2009')` (`src/map.js:185`) — donc **juste avant** `sondes-2009`,
-ce qui met les profondeurs DESSOUS et les sondes DESSUS. C'est l'intention. **MAIS** : vérifier
-que, sur l'appareil, `sondes-2009` existe bien au moment où `addDepthLayer` est appelé. Si la
-couche cible n'existe pas encore, MapLibre **ajoute au sommet** au lieu d'insérer → la couche
-custom des profondeurs se retrouve **au-dessus** et **peint tout le lac en couleur, masquant les
-sondes**. Ce serait cohérent avec la capture (couleurs partout, sondes invisibles, `reperes` —
-ajoutées encore après — visibles).
-- **Vérifier** : `m.getStyle().layers.map(l=>l.id)` et regarder la position de `sondes-2009`
-  vs l'id de la couche de profondeurs custom. Confirmer l'ordre réel d'empilement.
-- **Note** : `queryRenderedFeatures` peut renvoyer 0 pour des features masquées par une couche
-  opaque au-dessus, selon les versions — donc `rendues 0` est compatible avec cette hypothèse.
-
-### B. `setData` n'a pas peuplé la source
-Écartée en apparence (le code est correct, pas d'erreur), mais non prouvée tant que
-`serialize()` (étape n°1) n'a pas confirmé 8118. À trancher en premier car c'est binaire.
-
-### C. Expression de paint dégénérée à ce zoom
-Peu probable : les expressions sont triviales et `reperes` (rayon fixe) marche. Le test de
-l'étape n°2 (rayon fixe 8) l'élimine d'un coup.
-
-## Fichiers concernés
-
-- `src/map.js` — `#addOverlays()` (création source+couche `sondes-2009`, `map.js:122`),
-  `addDepthLayer()` (`map.js:183`, insertion beforeId), `setSoundings()` (`map.js:194`),
-  `soundingsDebug()` (`map.js:200`, **le probe à corriger**), listener `error` (`map.js:116`).
-- `src/soundings.js` — `Soundings.load()` et `toGeoJSON()` (confirmés corrects).
-- `src/main.js` — `loadSoundingsLazily()` (`main.js:133`), `refreshSoundingsDiag()`
-  (`main.js:148`, format de la ligne de diagnostic).
+- ✅ Hachures plus voyantes (voile magenta + hachures blanches denses).
+- ✅ Correction live de la carte par les relevés (patch de grille + ré-upload GPU).
+- ✅ Persistance serveur des relevés via jeton GitHub perso (modèle « propriétaire écrit /
+  lecture publique »), format générique réutilisable pour d'autres plans d'eau
+  (`data/corrections/vassiviere.json`).
+- ✅ Anti-mise-en-veille (wake lock) quand l'app est visible.
+- ✅ Service worker « réseau d'abord » (fin du cache iOS collant).
+- ✅ **CE BUG** : affichage des traces du levé 2009.
+- ⏳ Ensuite : reprendre l'**étalonnage à Port de Vauveix** (écran Étalonnage : sondes sur
+  trace, ≥5, résidu médian, IQR ≤ 1,0 m, bouton « Appliquer la correction ». Près de
+  Vauveix : 57 sondes dans 100 m, la plus proche à 17 m).
 
 ## Rituel de déploiement (rappel)
 
@@ -130,23 +205,8 @@ l'étape n°2 (rayon fixe 8) l'élimine d'un coup.
    (JAMAIS `python -m http.server` ; le `python` du PATH est le stub Microsoft Store).
 2. Bump `src/version.js` **et** `CACHE` dans `sw.js` (même chaîne, ex. `2026-08-12.9`).
 3. `git` : rebaser sur `origin/main` avant push (le workflow horaire `level.yml` commite la cote).
-   Message de commit terminé par `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 4. Vérifier le déploiement en interrogeant GitHub Pages (curl sur `src/version.js`) jusqu'à voir
    le nouveau numéro.
 5. La carte MapLibre **ne s'affiche pas dans le panneau navigateur intégré** (page `hidden`,
    rAF suspendu, boot bloqué à `whenVisible`/`lakeMap.ready`). Les tests passent via
    `import('/test/selftest.js')` sur `http://localhost:8140/test/`. Pas de Node en local.
-
-## État des demandes de la sortie terrain (contexte)
-
-- ✅ Hachures plus voyantes (voile magenta + hachures blanches denses).
-- ✅ Correction live de la carte par les relevés (patch de grille + ré-upload GPU).
-- ✅ Persistance serveur des relevés via jeton GitHub perso (modèle « propriétaire écrit / lecture
-  publique »), format générique réutilisable pour d'autres plans d'eau
-  (`data/corrections/vassiviere.json`).
-- ✅ Anti-mise-en-veille (wake lock) quand l'app est visible.
-- ✅ Service worker « réseau d'abord » (fin du cache iOS collant).
-- ⏳ **CE BUG** : affichage des traces du levé 2009.
-- ⏳ Ensuite : reprendre l'**étalonnage à Port de Vauveix** (écran Étalonnage : sondes sur trace,
-  ≥5, résidu médian, IQR ≤ 1,0 m, bouton « Appliquer la correction ». Près de Vauveix : 57 sondes
-  dans 100 m, la plus proche à 17 m).
