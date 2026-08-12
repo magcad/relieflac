@@ -100,6 +100,7 @@ async function boot() {
     setInterval(() => app.level.refresh().then(refreshLevelUi), 10 * 60e3);
 
     loadSoundingsLazily();
+    registerServiceWorker();
     $('chargement').hidden = true;
     $('app-version').textContent = VERSION;
     $('apropos-version').textContent = `${VERSION} · levé ${app.bed.meta.sources?.ofb2009?.label ? '2009' : '—'} · grille ${app.bed.width}×${app.bed.height}`;
@@ -1475,16 +1476,24 @@ function toast(message, duration = 2500) {
 async function reloadApp() {
   toast('Rechargement…');
   try {
-    if ('serviceWorker' in navigator) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map((r) => r.unregister()));
-    }
+    // On garde le service worker (c'est lui qui garantit la fraîcheur), mais on vide son
+    // cache et on le force à vérifier une mise à jour : au rechargement, il ira au réseau.
     if ('caches' in window) {
       const keys = await caches.keys();
       await Promise.all(keys.map((k) => caches.delete(k)));
     }
+    const reg = await navigator.serviceWorker?.getRegistration();
+    await reg?.update();
   } catch { /* purge best-effort : on recharge quoi qu'il arrive */ }
   location.replace(`${location.pathname}?r=${Date.now()}${location.hash}`);
+}
+
+/** Enregistre le service worker « réseau d'abord » (mises à jour auto + hors ligne). */
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    navigator.serviceWorker.register(new URL('../sw.js', import.meta.url)).catch(() => {});
+  } catch { /* contexte sans service worker (ex. certains navigateurs privés) */ }
 }
 
 function download(filename, content, type) {
