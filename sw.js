@@ -9,7 +9,7 @@
 // réponse en cache, et on ne se rabat sur le cache qu'en cas d'échec réseau. Les requêtes
 // vers d'autres origines (tuiles IGN, API GitHub, cote EDF) ne sont pas interceptées.
 
-const CACHE = 'relieflac-2026-08-12.3';
+const CACHE = 'relieflac-2026-08-12.4';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -29,7 +29,9 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith((async () => {
     try {
-      const fresh = await fetch(request);
+      // `no-cache` : on revalide toujours auprès du serveur (304 bon marché si inchangé),
+      // pour ne pas laisser le cache HTTP du navigateur intercaler une version périmée.
+      const fresh = await fetch(request, { cache: 'no-cache' });
       if (fresh && fresh.ok) {
         const cache = await caches.open(CACHE);
         cache.put(request, fresh.clone());
