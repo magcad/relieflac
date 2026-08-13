@@ -264,6 +264,78 @@ Effet mesuré sur le levé de 2009 : **10,6 %** des cellules relevées, de **0,9
 jusqu'à **9,46 m** au point le plus défavorable — un haut-fond que le lissage effaçait
 complètement. Désactivable par `grid.shoal_bias.enabled`.
 
+### 4.2 ter Corrections manuelles — forme d'un relevé sur la carte
+
+Les relevés saisis dans l'application (sondes ✎, témoins 🌊, zones ▲) sont reportés sur la
+grille du levé à chaque changement, pour produire la « carte 2009 corrigée » affichée en
+navigation. La question n'est pas *si* la carte doit bouger — c'est la seule façon de
+rattraper le défaut du § 3.1 bis — mais **sur quelle forme**.
+
+Règle retenue : **plateau, puis fondu, et fusion des recouvrements**.
+
+> Chaque relevé pose une surface où la carte vaut **exactement** la valeur relevée, entourée
+> d'un fondu en cosinus qui rejoint le levé de 2009. Pour un point, le plateau occupe la
+> moitié centrale de son rayon ; pour une zone, c'est l'intérieur du contour, et le rayon
+> mesure la largeur du fondu au-delà du bord.
+
+Le plateau n'est pas un ornement : une mesure de haut-fond ne dit pas « le fond est à
+2,10 m en ce point et retombe à 18 m un mètre plus loin », elle dit « au moins ça, sur une
+certaine surface ». La version précédente n'appliquait la valeur qu'au **centre exact** et
+retombait vers 2009 dès le premier mètre : chaque relevé devenait une pointe, que
+l'interpolation bilinéaire du rendu émoussait encore. Un îlot relevé à pied s'affichait
+comme une aiguille, là où l'on voulait une plaque.
+
+Les recouvrements se **fusionnent** au lieu de s'empiler :
+
+| Cellule | Valeur retenue |
+|---|---|
+| couverte par un ou plusieurs plateaux | moyenne de **ces relevés-là seuls** |
+| atteinte par des fondus seulement | moyenne pondérée par la distance, mêlée au levé selon la somme des poids, plafonnée à 1 |
+| hors de portée | levé de 2009 intact |
+
+Deux conséquences voulues. D'abord le résultat ne dépend plus de l'**ordre** des relevés :
+ils étaient appliqués l'un après l'autre sur le résultat du précédent, si bien que deux
+points voisins se corrigeaient mutuellement et que la carte changeait selon l'ordre de
+saisie. Ensuite un plateau reste maître chez lui — le fondu d'un voisin ne déplace pas une
+valeur mesurée ici, sans quoi une sonde afficherait autre chose que ce qu'on a saisi.
+
+Le **rayon appartient au relevé**, comme l'immersion du transducteur (§ 15.2) : c'est
+l'étendue sur laquelle son auteur a jugé sa mesure représentative. Il voyage avec lui dans
+le fichier partagé ; le réglage général ne sert que de valeur initiale.
+
+Enfin, la carte de couverture (§ 3.1 bis) est ramenée à la distance réelle au relevé : le
+hachurage « non sondé » et la mise en garde d'interpolation disparaissent là où l'on vient
+effectivement de mesurer.
+
+Code : `BedGrid.applyCorrections` ([`src/bed.js`](src/bed.js)).
+
+### 4.2 quater Zones émergées tracées à la main
+
+Une sonde corrige un caillou ; elle ne dit rien de l'**étendue** de la terre autour. Or le
+défaut du § 3.1 bis porte précisément sur des surfaces : le bateau sondeur ne passe pas sur
+un haut-fond, l'îlot est un trou dans les données, et la triangulation le comble en reliant
+les fosses voisines.
+
+D'où un second outil : un **contour fermé**, tracé à la main sur la photo aérienne ou
+d'après ce qu'on voit depuis le bateau, dont tout l'intérieur est porté à une même altitude
+de sol. C'est la seule chose qu'on sache honnêtement dire d'une île sans l'avoir arpentée.
+
+Comme partout, on stocke l'altitude et non la hauteur d'eau :
+
+```
+z_sol = cote_du_jour + hauteur_au-dessus_de_l'eau
+```
+
+La zone se recolorie donc d'elle-même quand la cote bouge — émergée en étiage, submergée à
+la retenue normale — et le curseur du mode 🌊 montre le passage de l'une à l'autre.
+
+Statut de la donnée : une zone est une **interprétation**, pas une mesure. Elle reste donc
+locale à l'appareil et ne part pas dans `data/corrections/<lac>.json`, qui ne transporte que
+des points mesurés. L'export GeoJSON permet de la verser au modèle par la chaîne de
+préparation quand elle aura été confirmée sur le terrain.
+
+Code : [`src/zones.js`](src/zones.js), tracé câblé dans `src/main.js` (`wireZones`).
+
 ### 4.3 Format de livraison de la grille
 
 Encodage **Terrain-RGB** (altitude sur 24 bits) dans un PNG, servi statiquement :
@@ -428,6 +500,13 @@ contours reste de 2 à 3 px pour un rapport de zoom de 5.
   - vitesse (nœuds ou km/h, au choix) et cap.
 - **Boutons** : recentrage / suivi auto · verrouillage nord ou cap en haut · plein écran · accès Paramètres.
 - **Appui long sur la carte** : affiche la profondeur au point touché (« sonde ponctuelle »).
+- **Clic droit sur la carte** : pose un point à l'endroit montré et ouvre la saisie de
+  profondeur, **sans attendre le GPS**. C'est ce qui rend l'application manipulable sur un
+  ordinateur, où il n'y a aucune position : on désigne l'endroit au lieu d'y aller. Le
+  relevé qui en sort est une sonde ordinaire, partagée comme les autres, mais il porte la
+  marque de sa provenance (`position_source: "map"`) jusque dans le fichier publié — une
+  position pointée au doigt ne vaut pas une position mesurée, et sans cette marque plus
+  rien ne permettrait d'arbitrer entre deux relevés qui se contredisent.
 - **Maintien de l'écran allumé** (Screen Wake Lock API) tant que l'app est au premier plan.
 
 ### 6.1 bis Signalement des zones non sondées
@@ -449,6 +528,28 @@ interpolation avec l'aplomb d'une mesure serait la faute la plus grave.
 - Réglage « Hachurer les zones non sondées », actif par défaut.
 
 `BedGrid.soundingDistanceAt()` expose la même donnée au reste de l'application.
+
+### 6.1 ter Actions destructrices — aucune boîte de dialogue
+
+Supprimer un relevé, une zone, ou vider une liste demande une confirmation. Elle ne passe
+**jamais** par `window.confirm` : Chrome propose « Empêcher cette page de créer des boîtes
+de dialogue supplémentaires » dès la deuxième, et la case une fois cochée, l'appel renvoie
+`false` en silence pour toute la vie de la page. Le bouton paraît alors mort, sans message
+— exactement le genre de panne qu'on découvre au milieu du lac, et qui s'est effectivement
+produite.
+
+Le bouton s'arme à la place : un premier appui le passe en rouge et change son libellé en
+« Confirmer ? », un second exécute, et il se désarme seul au bout de 4 secondes ou dès
+qu'on change d'écran. Aucune dépendance au navigateur, l'état se lit d'un coup d'œil, et le
+geste reste faisable d'une main sur un bateau qui bouge. `wireArmed` dans `src/main.js`.
+
+Corollaire pour les relevés partagés : une suppression doit **survivre à la fusion**. Celle-ci
+est une union — deux appareils qui relèvent chacun de leur côté doivent additionner leurs
+sondes, jamais s'effacer l'un l'autre — mais une union ne sait pas exprimer une suppression,
+et ramenait à chaque ouverture le relevé qu'on venait d'effacer. L'appareil retient donc les
+identifiants supprimés avec leur horodatage (`Probes.deletedIds`, six mois) : un relevé
+distant plus ancien que sa propre suppression est écarté ; plus récent, il repasse, car
+c'est alors qu'il a été mesuré à nouveau.
 
 ### 6.2 Page Paramètres — Couleurs des fonds (exigence n°4)
 

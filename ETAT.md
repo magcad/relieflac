@@ -1,8 +1,9 @@
 # État du projet — reprise de session
 
-**Dernière mise à jour** : 12 août 2026
+**Dernière mise à jour** : 13 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 97 contrôles, tous passants
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 124 contrôles, tous passants
+**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 34 gestes, tous passants
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
 Ce document sert à reprendre le travail sans relire tout l'historique.
@@ -50,10 +51,74 @@ les relevés antérieurs. Vérifié sur le fichier publié : les 4 sondes garden
 et leur altitude se refait à 0,0000 m près. Préalable indispensable à toute correction
 d'échelle du sondeur (§ 3.2 bis).
 
-L'application est utilisable sur l'eau. Elle n'a **jamais été vue fonctionner par
-l'assistant** : l'environnement de test a une page masquée, où `requestAnimationFrame`
-est suspendu et MapLibre ne s'initialise pas. Tout ce qui est vérifiable hors carte l'est
-par `test/` ; le rendu cartographique a été validé par retour de l'utilisateur.
+**Correction de la carte refondue, point posé sans GPS, zones émergées** (13/08/2026) —
+trois changements liés, autour d'une même question : comment un relevé manuel doit
+déformer la carte.
+
+1. **Clic droit = point désigné.** `recordProbe` exigeait une position GPS, qu'un ordinateur
+   de bureau n'a pas : l'application n'était manipulable que sur l'eau. Un clic droit (ou un
+   appui long tactile) pose désormais un repère de visée à l'endroit montré et ouvre la
+   saisie ; la sonde qui en sort est ordinaire et partagée, mais porte
+   `position_source: "map"` jusque dans `data/corrections/vassiviere.json` — une position
+   pointée ne vaut pas une position mesurée. Voir `placePin` dans `src/main.js`.
+2. **Plateau, fondu, fusion** (§ 4.2 ter de la spécification). L'ancien `applyCorrections`
+   appliquait la valeur au **seul centre** — chaque relevé devenait une pointe — et traitait
+   les relevés **en séquence sur le résultat du précédent**, si bien que deux points voisins
+   se corrigeaient mutuellement et que la carte dépendait de l'ordre de saisie. Désormais
+   chaque relevé pose un plateau (moitié centrale de son rayon) où la carte vaut exactement
+   la valeur relevée, puis un fondu ; les recouvrements se fusionnent par accumulation de
+   poids, et un plateau n'est jamais entamé par le fondu d'un voisin. Le **rayon appartient
+   au relevé**, comme l'immersion, et se règle point par point sur la carte.
+   Profil mesuré sur la vraie grille, écart au levé 2009 (m), relevé +8 m :
+
+   | distance (m) | 0 | 5 | 10 | 15 | 20 | 25 | 30 | 35 | 40 | 45 |
+   |---|---|---|---|---|---|---|---|---|---|---|
+   | point r=40 | 8,00 | 8,00 | 8,00 | 8,00 | 8,00 | 7,71 | 6,00 | 3,96 | 2,95 | 3,30 |
+   | point r=20 | 8,00 | 8,00 | 8,00 | 6,76 | 1,82 | 1,32 | — | — | — | — |
+   | 2 points à 25 m | 8,00 | 8,00 | 8,00 | 8,00 | 8,00 | 8,00 | 8,00 | 8,00 | 7,13 | 3,89 |
+   | levé 2009 seul | 0,00 | 0,12 | 0,31 | 0,57 | 0,92 | 1,32 | 1,78 | 2,27 | 2,78 | 3,30 |
+
+   La dernière ligne est la référence : le fondu y revient exactement.
+3. **Zones émergées** ▲ (§ 4.2 quater). Contour fermé tracé au clic, dont l'intérieur est
+   porté à `cote + hauteur hors d'eau` — l'altitude du sol, invariante, donc la zone découvre
+   ou se noie toute seule quand la cote change. Une sonde corrige un caillou ; c'est cet
+   outil-là qui corrige l'**étendue** d'un îlot que le levé a comblé. Local à l'appareil et
+   **non synchronisé** : une zone est une interprétation, pas une mesure.
+   [`src/zones.js`](src/zones.js), `wireZones` dans `src/main.js`.
+
+**Suppression d'un point réparée** (13/08/2026) — signalée par l'utilisateur, reproduite,
+et due à **deux** causes indépendantes qui donnaient le même symptôme :
+
+1. **La fusion ressuscitait le relevé.** `mergeById` est une union — volontairement non
+   destructive, pour que deux appareils s'additionnent au lieu de s'effacer — mais une
+   union ne sait pas exprimer une suppression. Le relevé effacé était toujours dans
+   `data/corrections/vassiviere.json`, et revenait à chaque ouverture. Sur localhost, où
+   les 4 sondes publiées sont les seules présentes, la suppression paraissait donc
+   totalement inopérante. Réparé par des **pierres tombales** (`Probes.deletedIds`,
+   [`src/probes.js`](src/probes.js)) : un relevé distant plus ancien que sa propre
+   suppression est écarté de la fusion ; plus récent, il repasse — c'est alors une mesure
+   refaite depuis. Conservées six mois, largement de quoi couvrir le délai avant l'envoi
+   qui les propage.
+2. **`window.confirm` n'est pas fiable.** Toutes les suppressions passaient par lui. Or
+   Chrome propose « Empêcher cette page de créer des boîtes de dialogue supplémentaires »
+   dès la deuxième, et la case cochée, l'appel renvoie `false` en silence pour toute la vie
+   de la page : le bouton paraît mort, sans le moindre message. Remplacé par un **bouton
+   qui s'arme** — un premier appui le passe en rouge « Confirmer ? », un second exécute, et
+   il se désarme seul au bout de 4 s (`wireArmed` dans `src/main.js`, sept boutons
+   concernés). Plus aucune boîte de dialogue dans l'application.
+
+**Banc d'essai des enchaînements** (13/08/2026) : `test/interaction.html`. Il démarre la
+**vraie** application avec une carte factice ([`test/stub-map.js`](test/stub-map.js))
+substituée à MapLibre par une carte d'import, et provoque les mêmes événements que la vraie
+carte. C'est ce banc qui a reproduit les deux défauts ci-dessus, qu'aucune vérification de
+module ne pouvait voir : elles étaient dans le câblage, entre un bouton et un état.
+
+L'application est utilisable sur l'eau. Son **rendu cartographique** n'a jamais été vu
+fonctionner par l'assistant : l'environnement de test a une page masquée, où
+`requestAnimationFrame` est suspendu et MapLibre ne s'initialise pas (revérifié le
+13/08/2026 : 0 image en 2 s). Les enchaînements de l'interface, eux, sont désormais
+vérifiables — reste à valider par l'utilisateur ce qui se voit à l'écran : dessin des
+contours de zone, repère de visée, empilement des barres du bas.
 
 ---
 
@@ -245,15 +310,29 @@ python tools/preview_grid.py            # contrôle visuel → data/preview.png
 
 ### Vérifications
 
-Ouvrir `/test/`. 97 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 122 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
-simulation**, index des sondes, géométrie, cote, **la caméra de suivi** (le rendu n'est pas
+simulation**, **forme de la correction (plateau, fondu, indépendance à l'ordre) et zones
+émergées**, index des sondes, géométrie, cote, **la caméra de suivi** (le rendu n'est pas
 testable, la décision de caméra l'est), et **le shader rendu hors MapLibre dans un canvas
 WebGL2**.
 
+Piège des vérifications sur la grille : elle est en `Float32Array`, où une altitude vers
+640 m ne tient qu'à 6·10⁻⁵ près — une tolérance de 10⁻⁶ fait échouer un calcul juste. Et
+`rawAltitudeAt` lit la cellule la plus proche quand `baseAltitudeAt` interpole
+bilinéairement : les comparer revient à comparer deux choses différentes.
+
 Après toute modification de `config/palette.json` ou de la grille, relancer
 `python tools/dump_reference.py`, sinon les tests comparent à une référence périmée.
+
+Ouvrir aussi `/test/interaction.html`. 34 enchaînements : l'application entière démarre
+avec [`test/stub-map.js`](test/stub-map.js) à la place de MapLibre — substitué par une
+carte d'import, le reste du code ne voit pas la différence — et le banc provoque les mêmes
+événements que la vraie carte (`pinpoint`, `probeselect`, `zonevertex`…). Le balisage est
+chargé depuis `index.html` lui-même : rien à tenir à jour de ce côté. Couvre le point posé
+sans GPS, les quatre chemins de suppression, le tracé et la reprise d'une zone, et la
+survie d'une suppression à la synchronisation.
 
 ---
 
@@ -267,6 +346,9 @@ Après toute modification de `config/palette.json` ou de la grille, relancer
 | Contours | Analytiques, normalisés par `fwidth` | Épaisseur constante à l'écran à tous les zooms, sans vectorisation hors ligne |
 | Interpolation | Bilinéaire sur les altitudes **décodées** | `NEAREST` obligatoire sur du Terrain-RGB, d'où le décodage avant mélange |
 | Généralisation | Biaisée vers le haut-fond, rayon 15 m | Les erreurs vont toujours dans le sens prudent |
+| Correction manuelle | Plateau + fondu, recouvrements fusionnés | Une mesure de haut-fond dit « au moins ça, sur une surface », pas « une pointe » ; et la carte ne doit pas dépendre de l'ordre de saisie |
+| Rayon d'une correction | Attaché au relevé, pas au réglage | Comme l'immersion : c'est l'étendue sur laquelle son auteur a jugé sa mesure représentative |
+| Zones émergées | Locales, jamais synchronisées | Une interprétation n'a pas à voyager dans un fichier de mesures |
 | Décalage d'étalonnage | Appliqué **seulement** sous le plan d'eau LiDAR | Au-dessus, la grille vient du MNT : ce sont des altitudes absolues |
 | Dépendances | MapLibre vendorisé en `.js` | La vérification stricte du type MIME rejette `.mjs` sur certains serveurs |
 | Build | Aucun — modules ES natifs | Le code lu est le code exécuté ; rien à casser entre les deux |
@@ -322,6 +404,21 @@ Après toute modification de `config/palette.json` ou de la grille, relancer
   un `Float64Array`, vérifié et non supposé. Résiduel mesuré contre `map.project()` au zoom
   19 : 0,002 px. Règle : dans une couche personnalisée, ne jamais envoyer de coordonnées
   monde absolues à un shader ; toujours ancrer localement.
+- **Corrections appliquées en séquence.** `applyCorrections` reportait chaque relevé sur le
+  résultat du précédent : deux points voisins se corrigeaient l'un l'autre, leurs disques
+  s'additionnaient dans le recouvrement, et la carte obtenue dépendait de l'**ordre du
+  tableau** — donc de l'ordre de saisie, et du hasard de la fusion avec les relevés
+  distants. Le défaut ne se voyait pas sur un point isolé, ce qui l'a laissé passer.
+  Règle depuis : accumuler les contributions par cellule, écrire une seule fois.
+- **`window.confirm` comme garde-fou.** Chrome permet de supprimer définitivement les
+  boîtes de dialogue d'une page ; l'appel renvoie alors `false` sans rien afficher, et
+  toute action qui en dépendait devient muette. Sur un outil de navigation, cela veut dire
+  un bouton qui ne répond plus, sans explication, au milieu du lac. Ne rien confier à
+  `confirm`, `alert` ou `prompt` : la confirmation doit vivre dans l'application.
+- **Une union ne sait pas supprimer.** La fusion des relevés partagés est non destructive
+  par construction — c'est ce qu'on veut entre deux appareils. Mais sans mémoire des
+  suppressions, elle ramène à chaque ouverture ce qu'on vient d'effacer. Toute fusion par
+  union appelle des pierres tombales, sinon la suppression n'est qu'un délai.
 - **Collision de noms dans `build_grid.py`.** `coverage` désignait déjà le taux de
   cellules valides.
 

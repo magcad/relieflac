@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>ReliefLac — enchaînements de l'interface</title>
+<!-- L'application charge ses données par des adresses relatives (`config/palette.json`,
+     `data/bed.png`) : sans cette base, elles seraient cherchées dans `test/`. -->
+<base href="/">
+<link rel="stylesheet" href="/vendor/maplibre-gl.css">
+<link rel="stylesheet" href="/app.css">
+<style>
+  /* Le rapport se pose par-dessus l'application, qui tourne réellement en dessous. */
+  #rapport {
+    position: fixed; inset: 0; z-index: 9999; overflow: auto;
+    padding: 1rem 1.2rem; background: #0f1417; color: #e6edf3;
+    font: 14px/1.5 system-ui, sans-serif;
+  }
+  #rapport h1 { font-size: 1.1rem; margin: 0 0 .3rem; }
+  #rapport p { color: #8aa0ad; margin: .2rem 0 1rem; }
+  #rapport .n { font-weight: 700; margin: 0 0 .8rem; }
+  #rapport ol { margin: 0; padding-left: 1.2rem; }
+  #rapport li { margin: .15rem 0; }
+  #rapport li b { color: #22d3ee; display: block; margin: 1rem 0 .3rem; font-weight: 600; }
+  #rapport .ok::marker { content: '✓ '; color: #22c55e; }
+  #rapport .ko { color: #ffb4b4; }
+  #rapport .ko::marker { content: '✕ '; color: #ff5f5f; }
+  #rapport .detail { color: #8aa0ad; }
+</style>
+</head>
+<body>
+
+<div id="rapport"><h1>Enchaînements de l'interface</h1>
+<p>L'application est lancée pour de vrai — réglages, sondes, zones, corrections de la
+grille — avec une carte factice à la place de MapLibre, qui ne peut pas s'initialiser dans
+une page masquée. Les gestes (clic droit, toucher d'une pastille, tracé d'un contour) sont
+provoqués sur cette carte factice, et l'on vérifie ce qui en résulte à l'écran.</p>
+<p id="etat">Démarrage…</p></div>
+
+<script type="importmap">
+{ "imports": { "/src/map.js": "/test/stub-map.js" } }
+</script>
+
+<script>
+// Deux leurres, posés AVANT le chargement de l'application.
+//
+// La page de test est masquée (aucune image composée) : `boot()` s'arrête sur son attente
+// de visibilité et rien ne démarrerait. On lui répond que la page est visible — c'est vrai
+// du point de vue de ce qui nous intéresse, puisque la carte, seule à dépendre d'une image
+// rendue, est remplacée.
+Object.defineProperty(document, 'hidden', { get: () => false });
+Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
+// Et l'on écarte le service worker : il s'installerait à la racine du site pour une simple
+// page de test, et servirait ensuite ses réponses en cache à l'application elle-même.
+Object.defineProperty(navigator, 'serviceWorker', { get: () => undefined });
+</script>
+
+<script type="module" src="/test/interaction.js"></script>
+</body>
+</html>

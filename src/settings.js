@@ -100,8 +100,16 @@ export function defaultsFrom(palette, model) {
     bigDepth: false,
     // Contraste maximal de l'habillage, pour lire l'écran en plein soleil.
     sunMode: false,
-    // Rayon (m) sur lequel un relevé manuel corrige la grille du fond autour du point.
+    // Rayon (m) sur lequel un relevé manuel corrige la grille du fond autour du point : sa
+    // moitié centrale est un plateau à la valeur relevée, sa moitié extérieure se fond vers
+    // le levé de 2009 (voir BedGrid.applyCorrections). Valeur des nouveaux relevés ; chacun
+    // garde ensuite la sienne.
     correctionRadius_m: 20,
+    // Zones émergées tracées à la main : affichage des contours, et valeurs reprises d'une
+    // zone à l'autre — hauteur du sol au-dessus de l'eau, largeur du fondu au-delà du bord.
+    showZones: true,
+    zoneHeight_m: 0.5,
+    zoneFeather_m: 10,
     // Synchronisation des relevés vers un fichier du dépôt (le jeton, lui, est stocké à
     // part et jamais exporté). Ces valeurs se changent pour un autre plan d'eau.
     syncRepo: 'magcad/relieflac',

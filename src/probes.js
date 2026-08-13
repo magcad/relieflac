@@ -23,6 +23,22 @@
 // là où le modèle est aveugle. Même geste de capture, intention opposée.
 
 const STORAGE_KEY = 'relieflac.probes.v1';
+const TOMBSTONE_KEY = 'relieflac.probes.deleted.v1';
+
+/**
+ * Durée de conservation d'une suppression, en jours.
+ *
+ * Une sonde supprimée doit le rester, y compris après la synchronisation qui la retrouve
+ * dans le fichier partagé : sans mémoire de la suppression, la fusion — qui est une union,
+ * volontairement non destructive — la ressuscite à chaque ouverture. C'est exactement ce
+ * qui se passait, et cela donnait une suppression qui « ne marche pas ».
+ *
+ * Six mois : bien plus que le délai qui sépare la suppression de l'envoi qui la propage
+ * (quelques secondes dès qu'il y a du réseau et un jeton), et assez court pour que la liste
+ * ne grossisse pas indéfiniment. Passé ce délai, le fichier partagé ne contient de toute
+ * façon plus la sonde, et la pierre tombale n'a plus rien à retenir.
+ */
+const TOMBSTONE_DAYS = 180;
 
 export class Probes extends EventTarget {
   constructor() {
@@ -43,6 +59,7 @@ export class Probes extends EventTarget {
 
   remove(id) {
     this.records = this.records.filter((r) => r.id !== id);
+    bury([id]);
     this.#persist();
   }
 
@@ -66,15 +83,37 @@ export class Probes extends EventTarget {
     this.#persist();
   }
 
+  /** Rayon d'influence d'une sonde sur la carte, ou le réglage courant si elle n'en porte pas. */
+  static radiusOf(record, fallback) {
+    return Number.isFinite(record?.radius_m) && record.radius_m > 0 ? record.radius_m : fallback;
+  }
+
   clear() {
+    bury(this.records.map((r) => r.id));
     this.records = [];
     this.#persist();
   }
 
-  /** Remplace tout le jeu de sondes (adoption d'une version partagée fusionnée). */
+  /**
+   * Remplace tout le jeu de sondes (adoption d'une version partagée fusionnée).
+   *
+   * Aucune pierre tombale ici, à la différence de `clear()` : adopter n'est pas supprimer.
+   * En poser reviendrait à enterrer, à chaque démarrage, tout ce que l'appareil détenait.
+   */
   replaceAll(records) {
     this.records = Array.isArray(records) ? records : [];
     this.#persist();
+  }
+
+  /**
+   * Suppressions mémorisées : identifiant → horodatage de la suppression.
+   *
+   * Sert à la fusion (`mergeById` dans `src/main.js`) : un relevé distant plus ancien que
+   * sa propre suppression est écarté. Plus récent, il repasse — c'est alors une mesure
+   * refaite depuis, et la règle « l'horodatage le plus récent gagne » doit valoir aussi ici.
+   */
+  static deletedIds() {
+    return new Map(Object.entries(readTombstones()));
   }
 
   /**
@@ -86,11 +125,13 @@ export class Probes extends EventTarget {
     const columns = [
       'lon', 'lat', 'depth', 'time', 'accuracy_m',
       'level_m_ngf', 'transducer_m', 'bed_m_ngf', 'model_depth_m',
+      'radius_m', 'fix',
     ];
     const rows = this.records.map((r) => [
       r.lon?.toFixed(6), r.lat?.toFixed(6), fmt(r.sounderDepth, 2), r.at,
       fmt(r.accuracy, 1), fmt(r.level, 2), fmt(r.transducerDepth, 2),
       fmt(r.bedZ, 2), fmt(r.modelDepth, 2),
+      fmt(r.radius_m, 0), r.fixSource ?? 'gps',
     ].join(','));
     return [columns.join(','), ...rows].join('\n');
   }
@@ -108,6 +149,8 @@ export class Probes extends EventTarget {
           level_m_ngf: round2(r.level),
           transducer_m: r.transducerDepth,
           accuracy_m: r.accuracy,
+          radius_m: r.radius_m ?? null,
+          fix: r.fixSource ?? 'gps',
         },
       })),
     }, null, 2);
@@ -127,8 +170,16 @@ export class Probes extends EventTarget {
  * Construit une sonde à partir de la position, de la cote du moment et de la profondeur
  * lue. `modelBedZ` est l'altitude brute du modèle au même point : conserver l'écart
  * modèle − mesure rend visible le défaut central (un haut-fond que le levé a comblé).
+ *
+ * `fixSource` dit d'où vient la position : `gps` quand le relevé a été pris sur place,
+ * `map` quand le point a été désigné à la main sur la carte. La distinction doit survivre
+ * à l'export et au partage : une position pointée au doigt ne vaut pas une position
+ * mesurée, et une sonde dont on ignore la provenance ne peut plus être arbitrée.
  */
-export function makeProbe({ position, level, levelSource, sounderDepth, transducerDepth, modelBedZ }) {
+export function makeProbe({
+  position, level, levelSource, sounderDepth, transducerDepth, modelBedZ,
+  radius_m = null, fixSource = 'gps',
+}) {
   const bedZ = bedAltitude(level, sounderDepth, transducerDepth);
   return {
     lon: position.lon,
@@ -139,6 +190,8 @@ export function makeProbe({ position, level, levelSource, sounderDepth, transduc
     sounderDepth,
     transducerDepth,
     bedZ,
+    radius_m: Number.isFinite(radius_m) && radius_m > 0 ? radius_m : null,
+    fixSource,
     modelBedZ: Number.isFinite(modelBedZ) ? modelBedZ : null,
     modelDepth: Number.isFinite(modelBedZ) ? level - modelBedZ : null,
   };
@@ -175,5 +228,33 @@ function load() {
     return JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? [];
   } catch {
     return [];
+  }
+}
+
+function readTombstones() {
+  try {
+    const graves = JSON.parse(localStorage.getItem(TOMBSTONE_KEY)) ?? {};
+    return graves && typeof graves === 'object' ? graves : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Note la suppression de ces relevés, et oublie au passage les plus anciennes. */
+function bury(ids) {
+  const graves = readTombstones();
+  const now = new Date();
+  const oldest = new Date(now.getTime() - TOMBSTONE_DAYS * 86400e3).toISOString();
+  for (const [id, at] of Object.entries(graves)) {
+    if (at < oldest) delete graves[id];
+  }
+  for (const id of ids) {
+    if (id) graves[id] = now.toISOString();
+  }
+  try {
+    localStorage.setItem(TOMBSTONE_KEY, JSON.stringify(graves));
+  } catch {
+    // Stockage indisponible : la suppression tient pour la session, et la sonde
+    // reviendra à la prochaine fusion. Mieux vaut cela que de perdre la suppression.
   }
 }

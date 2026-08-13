@@ -20,6 +20,7 @@ import { applyPaletteOverride, bandLimits, buildLut, LUT_SIZE, lutIndex } from '
 import { Probes, makeProbe } from '../src/probes.js';
 import { SimPoints } from '../src/sim.js';
 import { Soundings } from '../src/soundings.js';
+import { closeRing, dedupeRing, groundAltitude, ringArea, Zones } from '../src/zones.js';
 import { runShaderChecks } from './shader.js';
 
 const results = [];
@@ -117,6 +118,126 @@ export async function run(base = '..') {
     check('correction retirée : retour exact au 2009',
       near(bed.altitudeAt(lon, lat), before, 1e-9),
       `${bed.altitudeAt(lon, lat)} vs ${before}`);
+  }
+
+  // --- forme de la correction : plateau, fondu, fusion ------------------------
+  //
+  // Ce que la version précédente faisait mal, et qui se vérifie ici : la valeur relevée
+  // n'existait qu'au centre exact (un pic, pas une plaque), et les relevés étaient
+  // appliqués l'un après l'autre sur le résultat du précédent — deux points voisins se
+  // corrigeaient donc mutuellement, et le résultat dépendait de leur ordre de saisie.
+  {
+    const lon = 1.87132; const lat = 45.79328;
+    const east = (metres) => lon + metres / (111320 * Math.cos((lat * Math.PI) / 180));
+    // Valeur 2009 de la MÊME cellule que celle que lira `rawAltitudeAt` : comparer une
+    // lecture bilinéaire à une lecture de cellule ferait échouer des vérifications justes.
+    const cell2009 = (x, y) => bed.baseAltitudes[bed.indexAt(x, y)];
+    // La grille est en Float32 : une altitude vers 640 m n'y tient qu'à 6·10⁻⁵ près. La
+    // tolérance dit « exactement », au bruit du stockage — le rendu, lui, arrondit au cm.
+    const EXACT = 1e-3;
+    const raw2009 = bed.baseAltitudeAt(lon, lat);
+    const target = raw2009 + 8; // haut-fond relevé : le fond remonte de 8 m
+
+    // Plateau : sur la moitié centrale du rayon, la carte vaut EXACTEMENT la valeur relevée.
+    bed.applyCorrections([{ lon, lat, bedZ: target, radius_m: 40 }], 20);
+    check('plateau : la valeur relevée tient sur la moitié centrale du rayon',
+      near(bed.rawAltitudeAt(east(15), lat), target, EXACT),
+      `à 15 m : ${bed.rawAltitudeAt(east(15), lat).toFixed(3)} attendu ${target.toFixed(3)}`);
+    const edge = bed.rawAltitudeAt(east(30), lat);
+    check('fondu : entre le plateau et le bord, la carte rejoint le levé',
+      edge > Math.min(raw2009, target) && edge < Math.max(raw2009, target),
+      `à 30 m : ${edge.toFixed(2)} entre ${raw2009.toFixed(2)} et ${target.toFixed(2)}`);
+    check('portée : au-delà du rayon, le levé est intact',
+      near(bed.rawAltitudeAt(east(45), lat), cell2009(east(45), lat), 1e-9));
+
+    // Rayon propre à chaque relevé : le réglage général n'est qu'un défaut.
+    bed.applyCorrections([{ lon, lat, bedZ: target, radius_m: 8 }], 60);
+    check('rayon propre au relevé : il l\'emporte sur le réglage général',
+      near(bed.rawAltitudeAt(east(30), lat), cell2009(east(30), lat), 1e-9),
+      `${bed.rawAltitudeAt(east(30), lat).toFixed(2)}`);
+
+    // Fusion : deux relevés qui se recouvrent donnent le même résultat dans les deux sens.
+    const a = { lon, lat, bedZ: target, radius_m: 30 };
+    const b = { lon: east(25), lat, bedZ: raw2009 + 3, radius_m: 30 };
+    bed.applyCorrections([a, b], 20);
+    const ab = Array.from(bed.altitudes.slice(0, bed.altitudes.length));
+    bed.applyCorrections([b, a], 20);
+    const differing = ab.reduce((n, z, i) => {
+      const other = bed.altitudes[i];
+      return n + (Number.isFinite(z) === Number.isFinite(other) && (!Number.isFinite(z) || Math.abs(z - other) < 1e-9) ? 0 : 1);
+    }, 0);
+    check('fusion : le résultat ne dépend plus de l\'ordre des relevés', differing === 0,
+      `${differing} cellule(s) divergentes`);
+
+    // Et un plateau reste maître chez lui : le fondu d'un voisin ne déplace pas une valeur
+    // mesurée ici — sans quoi une sonde afficherait autre chose que ce qu'on a saisi.
+    check('un relevé voisin n\'entame pas le plateau d\'un autre',
+      near(bed.rawAltitudeAt(lon, lat), target, EXACT),
+      `${bed.rawAltitudeAt(lon, lat).toFixed(3)} attendu ${target.toFixed(3)}`);
+
+    bed.applyCorrections([], 20);
+  }
+
+  // --- zones émergées tracées à la main ---------------------------------------
+  {
+    const lon = 1.87132; const lat = 45.79328;
+    const dLon = 25 / (111320 * Math.cos((lat * Math.PI) / 180));
+    const dLat = 25 / 111320;
+    const ring = [
+      [lon - dLon, lat - dLat], [lon + dLon, lat - dLat],
+      [lon + dLon, lat + dLat], [lon - dLon, lat + dLat],
+    ];
+    const cote = 647;
+    const sol = groundAltitude(cote, 0.5); // 50 cm au-dessus de l'eau
+    const far = reference.bed.probes[2];
+    const farBefore = bed.baseAltitudeAt(far.lon, far.lat);
+
+    const cell2009 = (x, y) => bed.baseAltitudes[bed.indexAt(x, y)];
+    bed.applyCorrections([{ ring, bedZ: sol, radius_m: 10 }], 20);
+    check('zone : tout l\'intérieur du contour est porté à l\'altitude du sol',
+      near(bed.rawAltitudeAt(lon, lat), sol, 1e-3)
+      && near(bed.rawAltitudeAt(lon + dLon / 2, lat + dLat / 2), sol, 1e-3),
+      `centre ${bed.rawAltitudeAt(lon, lat).toFixed(3)} attendu ${sol.toFixed(3)}`);
+    check('zone : elle émerge à la cote qui a servi à la tracer',
+      cote - bed.rawAltitudeAt(lon, lat) < 0);
+    check('zone : au-delà du fondu, le levé est intact',
+      near(bed.altitudeAt(far.lon, far.lat), farBefore, 1e-9));
+    bed.applyCorrections([], 20);
+    check('zone retirée : retour exact au 2009',
+      near(bed.rawAltitudeAt(lon, lat), cell2009(lon, lat), 1e-9));
+
+    check('aire d\'un contour de 50 m de côté', Math.abs(ringArea(ring) - 2500) < 30,
+      `${ringArea(ring).toFixed(0)} m²`);
+    check('anneau refermé pour GeoJSON',
+      closeRing(ring).length === 5 && closeRing(ring)[4][0] === ring[0][0]
+      && closeRing(closeRing(ring)).length === 5);
+
+    // Fermeture au double-clic : le geste émet deux `click` avant de fermer, donc un sommet
+    // en double. Et un tracé bouclé à la main répète le premier sommet à la fin.
+    const doubled = [...ring, ring[3], ring[0]];
+    check('sommets confondus retirés du tracé',
+      dedupeRing(doubled).length === 4 && dedupeRing(ring).length === 4,
+      `${dedupeRing(doubled).length} sommets`);
+    check('un tracé de moins de trois sommets reste refusé',
+      dedupeRing([ring[0], ring[0]]).length === 1);
+
+    const zones = new Zones();
+    zones.clear();
+    const zone = zones.add({ ring, bedZ: sol, height_m: 0.5, cote_m: cote, feather_m: 10 });
+    check('zone mémorisée', zones.count === 1 && near(zones.get(zone.id).bedZ, sol, 1e-9));
+    // La hauteur se rectifie contre la cote du tracé, jamais contre celle du jour : une zone
+    // qui se déplacerait verticalement à chaque montée du lac ne voudrait plus rien dire.
+    zones.update(zone.id, { height_m: 1.5 });
+    check('hauteur corrigée : recalée sur la cote du tracé',
+      near(zones.get(zone.id).bedZ, cote + 1.5, 1e-9), `${zones.get(zone.id).bedZ}`);
+    const geo = JSON.parse(zones.toGeoJson());
+    check('export GeoJSON d\'une zone exploitable',
+      geo.features[0].geometry.type === 'Polygon'
+      && geo.features[0].geometry.coordinates[0].length === 5
+      && near(geo.features[0].properties.ground_m_ngf, cote + 1.5, 1e-9));
+    zones.remove(zone.id);
+    check('suppression d\'une zone', zones.count === 0 && zones.get(zone.id) === null);
+    zones.clear();
   }
 
   // Le décalage d'étalonnage ne doit toucher que ce qui vient du levé de 2009.
@@ -276,6 +397,45 @@ export async function run(base = '..') {
   check('suppression d\'une sonde', probes.count === 0 && probes.get(entry.id) === null);
   probes.clear();
 
+  // Position désignée à la main sur la carte, faute de GPS. La distinction doit survivre à
+  // l'export : un point pointé au doigt ne vaut pas un point relevé sur place, et sans cette
+  // marque plus rien ne permet d'arbitrer entre deux relevés qui se contredisent.
+  const pinned = makeProbe({
+    position: { lon: 1.87, lat: 45.79 },
+    level: 647.0, levelSource: 'live', sounderDepth: 3.0, transducerDepth: 0.3,
+    modelBedZ: 630.0, radius_m: 35, fixSource: 'map',
+  });
+  check('point désigné : provenance et rayon retenus',
+    pinned.fixSource === 'map' && pinned.radius_m === 35 && pinned.accuracy === null);
+  check('relevé au GPS : provenance par défaut', probe.fixSource === 'gps' && probe.radius_m === null);
+  check('rayon d\'une sonde : le sien, ou le réglage à défaut',
+    Probes.radiusOf(pinned, 20) === 35 && Probes.radiusOf(probe, 20) === 20);
+
+  probes.add(pinned);
+  const pinnedCsv = probes.toCsv().split('\n');
+  check('export CSV : rayon et provenance en colonnes',
+    pinnedCsv[0].endsWith('radius_m,fix') && pinnedCsv[1].endsWith(',35,map'), pinnedCsv[1]);
+  probes.clear();
+
+  // Suppression mémorisée. Sans cela, la fusion des relevés partagés — une union, donc non
+  // destructive par construction — ramène à chaque ouverture la sonde qu'on vient
+  // d'effacer : la suppression paraît sans effet. Voir `mergeById` dans src/main.js.
+  localStorage.removeItem('relieflac.probes.deleted.v1');
+  const buried = probes.add(probe);
+  const kept = probes.add(pinned);
+  probes.remove(buried.id);
+  const graves = Probes.deletedIds();
+  check('une suppression laisse une trace horodatée',
+    graves.has(buried.id) && !graves.has(kept.id) && !Number.isNaN(Date.parse(graves.get(buried.id))),
+    `${graves.size} trace(s)`);
+  // Adopter une version partagée n'est pas supprimer : `replaceAll` ne doit rien enterrer,
+  // sans quoi le démarrage enterrerait tout ce que l'appareil détient.
+  probes.replaceAll([]);
+  check('adopter une version partagée n\'enterre rien',
+    Probes.deletedIds().size === graves.size, `${Probes.deletedIds().size}`);
+  probes.clear();
+  localStorage.removeItem('relieflac.probes.deleted.v1');
+
   // --- retouche de palette -----------------------------------------------------
   // On travaille sur une copie profonde pour ne pas polluer la palette de référence.
   const editable = JSON.parse(JSON.stringify(palette));
@@ -318,6 +478,23 @@ export async function run(base = '..') {
     back.length === 1 && back[0].bedZ === 644.7 && back[0].cote_m === 647.0 && back[0].id === 'abc');
   check('format : point sans altitude ignoré',
     CorrectionsSync.fromFile({ points: [{ lon: 1, lat: 2 }] }).length === 0);
+
+  // Le rayon suit le même sort que l'immersion : c'est l'étendue sur laquelle l'auteur a
+  // jugé sa mesure représentative, pas un réglage d'affichage. Et la provenance de la
+  // position voyage avec elle, sinon un point désigné à la main devient indiscernable.
+  const spread = sync.toFile(
+    [{ ...rec, radius_m: 45, position_source: 'map' }, { ...rec, id: 'def' }],
+    { transducer_m: 0.3, radius_m: 20 },
+  );
+  check('format : rayon propre au relevé, réglage en repli',
+    spread.points[0].radius_m === 45 && spread.points[1].radius_m === 20,
+    `${spread.points[0].radius_m} / ${spread.points[1].radius_m}`);
+  check('format : provenance de la position transportée',
+    spread.points[0].position_source === 'map' && spread.points[1].position_source === 'gps');
+  const spreadBack = CorrectionsSync.fromFile(spread);
+  check('format : rayon et provenance relus tels quels',
+    spreadBack[0].radius_m === 45 && spreadBack[0].position_source === 'map'
+    && spreadBack[1].radius_m === 20 && spreadBack[1].position_source === 'gps');
 
   // L'immersion appartient à la mesure, pas au réglage du jour. Deux relevés pris avec
   // deux immersions différentes doivent garder chacun la sienne, à l'écriture comme à la

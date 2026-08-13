@@ -59,9 +59,10 @@ export class CorrectionsSync {
   markDirty() { setDirty(true); }
 
   // --- conversion enregistrement interne ↔ point du fichier -------------------
-  // Interne (sim.js) : { id, at, lon, lat, bedZ, depth_m, cote_m, transducer_m }
-  // Fichier          : { id, lon, lat, depth_m, cote_m_ngf, transducer_m, z_fond_m_ngf,
-  //                      radius_m, at, by }
+  // Interne : { id, at, lon, lat, bedZ, depth_m, cote_m, transducer_m, radius_m,
+  //             position_source }
+  // Fichier : { id, lon, lat, depth_m, cote_m_ngf, transducer_m, z_fond_m_ngf, radius_m,
+  //             position_source, at, by }
   //
   // L'immersion accompagne le relevé au lieu d'être un réglage global : c'est un paramètre
   // de la mesure, figé à l'instant où elle a été prise. Écrire le réglage courant à sa
@@ -83,7 +84,14 @@ export class CorrectionsSync {
         cote_m_ngf: r.cote_m ?? null,
         transducer_m: r.transducer_m ?? transducer_m ?? null,
         z_fond_m_ngf: r.bedZ,
-        radius_m,
+        // Comme l'immersion, le rayon appartient au relevé : c'est l'étendue sur laquelle
+        // son auteur a jugé sa mesure représentative. Le réglage global ne sert que de
+        // repli, pour les relevés antérieurs à cette règle.
+        radius_m: Number.isFinite(r.radius_m) ? r.radius_m : radius_m,
+        // « gps » (relevé sur place) ou « map » (position pointée à la main sur la carte).
+        // Une position désignée ne vaut pas une position mesurée : le fichier doit le dire,
+        // sans quoi rien ne permettra plus de trancher entre deux relevés qui se contredisent.
+        position_source: r.position_source ?? 'gps',
         at: r.at,
         by: r.by ?? null,
       })),
@@ -105,6 +113,8 @@ export class CorrectionsSync {
         // Relue et non redéduite du réglage courant : sans elle, le relevé n'est plus
         // recalculable, et `z_fond` devient une valeur qu'on ne sait plus refaire.
         transducer_m: Number.isFinite(p.transducer_m) ? p.transducer_m : null,
+        radius_m: Number.isFinite(p.radius_m) ? p.radius_m : null,
+        position_source: p.position_source ?? 'gps',
         by: p.by ?? null,
       }));
   }

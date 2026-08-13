@@ -170,16 +170,49 @@ export class BedGrid {
 
   /**
    * Applique des relevés manuels sur la grille du levé 2009 pour produire la « carte
-   * courante » : autour de chaque point, le fond est ramené vers l'altitude mesurée avec
-   * un fondu radial (cosinus) sur `radiusM` mètres. Le point mesuré étant désormais connu,
-   * on ramène aussi la carte de couverture à zéro sous son rayon, ce qui efface le
-   * hachurage « non sondé » et la mise en garde d'interpolation à cet endroit.
+   * courante ». Deux formes de relevé sont acceptées dans le même tableau :
+   *
+   *   • un **point** `{ lon, lat, bedZ, radius_m }` — une sonde ou un témoin ;
+   *   • une **zone** `{ ring: [[lon, lat], …], bedZ, radius_m }` — un contour fermé, tracé
+   *     à la main, dont tout l'intérieur est porté à `bedZ` (un îlot, une langue de terre).
+   *
+   * Chaque relevé pose un **plateau** — la surface où la carte vaut exactement la valeur
+   * relevée — entouré d'un **fondu** en cosinus qui rejoint le levé 2009. Pour un point, le
+   * plateau occupe la moitié centrale du rayon ; pour une zone, c'est l'intérieur du
+   * contour, et `radius_m` mesure la largeur du fondu au-delà du bord.
+   *
+   * Le plateau est ce qui distingue cette version de la précédente, qui n'appliquait la
+   * valeur relevée qu'au centre exact et retombait vers 2009 dès le premier mètre : une
+   * mesure de haut-fond y devenait une pointe, alors que ce qu'elle dit honnêtement est
+   * « au moins ça, sur une certaine surface ».
+   *
+   * Les recouvrements se **fusionnent** au lieu de s'empiler. Les relevés étaient
+   * auparavant appliqués l'un après l'autre sur le résultat du précédent : deux points
+   * voisins se corrigeaient l'un l'autre, et le résultat dépendait de leur ordre dans le
+   * tableau — donc de l'ordre de saisie. Ici chaque cellule collecte les contributions de
+   * tous les relevés qui l'atteignent, puis n'est écrite qu'une fois :
+   *
+   *   • couverte par un ou plusieurs plateaux → moyenne de ces relevés-là, eux seuls
+   *     (deux mesures du même endroit se moyennent ; un voisin lointain ne déplace pas
+   *     une valeur mesurée ici) ;
+   *   • atteinte par des fondus seulement → moyenne pondérée des relevés concernés, mêlée
+   *     au levé 2009 selon la somme des poids, plafonnée à 1. Plusieurs relevés qui se
+   *     recouvrent tirent donc la carte **plus fermement** vers leur valeur commune, sans
+   *     jamais la dépasser.
+   *
+   * Le relevé étant désormais connu, on ramène aussi la carte de couverture à la distance
+   * réelle au relevé, ce qui efface le hachurage « non sondé » et la mise en garde
+   * d'interpolation à cet endroit.
    *
    * On repart toujours de la grille brute : retirer un relevé suffit à revenir au 2009.
    * Renvoie le rectangle de cellules modifiées (pour un ré-upload ciblé), ou null.
    */
   applyCorrections(records, radiusM = 20) {
-    const patches = (records ?? []).filter((r) => Number.isFinite(r.bedZ));
+    const patches = (records ?? [])
+      .filter((r) => Number.isFinite(r.bedZ))
+      .map((r) => shapeOf(r, radiusM))
+      .filter(Boolean);
+
     if (patches.length === 0) {
       this.altitudes = this.baseAltitudes;
       this.coverage = this.baseCoverage;
@@ -188,44 +221,165 @@ export class BedGrid {
 
     const alt = this.baseAltitudes.slice();
     const cov = this.baseCoverage ? this.baseCoverage.slice() : null;
-    const cellW = (this.x1 - this.x0) / this.width;  // mètres mercator par colonne
-    const cellH = (this.y1 - this.y0) / this.height; // mètres mercator par ligne
+
+    // Accumulateurs épars. Un relevé ne touche qu'une poignée de cellules et la grille en
+    // compte 1,2 million : deux tableaux pleins coûteraient 10 Mo à chaque saisie, pour
+    // quelques centaines de cellules réellement écrites.
+    const core = new Map(); // cellule → { sum, count } : relevés dont le plateau la couvre
+    const halo = new Map(); // cellule → { w, wz }      : relevés dont seul le fondu l'atteint
+    const reach = cov ? new Map() : null; // cellule → distance au relevé le plus proche (m)
     let minC = this.width; let minR = this.height; let maxC = -1; let maxR = -1;
 
-    for (const p of patches) {
-      const [mx, my] = toMercator(p.lon, p.lat);
-      // Un mètre au sol vaut 1/cos(lat) mètre mercator : on convertit le rayon voulu.
-      const scale = Math.cos((p.lat * Math.PI) / 180);
-      const rMerc = radiusM / Math.max(scale, 1e-6);
-      const cCol = ((mx - this.x0) / (this.x1 - this.x0)) * this.width - 0.5;
-      const cRow = ((this.y1 - my) / (this.y1 - this.y0)) * this.height - 0.5;
-      const spanCol = Math.ceil(rMerc / cellW);
-      const spanRow = Math.ceil(rMerc / cellH);
-      const col0 = Math.max(0, Math.floor(cCol - spanCol));
-      const col1 = Math.min(this.width - 1, Math.ceil(cCol + spanCol));
-      const row0 = Math.max(0, Math.floor(cRow - spanRow));
-      const row1 = Math.min(this.height - 1, Math.ceil(cRow + spanRow));
-
-      for (let row = row0; row <= row1; row += 1) {
-        for (let col = col0; col <= col1; col += 1) {
-          const dMerc = Math.hypot((col - cCol) * cellW, (row - cRow) * cellH);
-          const dGround = dMerc * scale;
-          if (dGround > radiusM) continue;
-          const idx = row * this.width + col;
-          if (!Number.isFinite(this.baseAltitudes[idx])) continue; // hors du lac
-          const w = 0.5 * (1 + Math.cos((Math.PI * dGround) / radiusM)); // 1 au centre → 0 au bord
-          alt[idx] = alt[idx] * (1 - w) + p.bedZ * w;
-          if (cov) cov[idx] = Math.min(cov[idx], Math.round(dGround));
-          if (col < minC) minC = col; if (col > maxC) maxC = col;
-          if (row < minR) minR = row; if (row > maxR) maxR = row;
+    for (const patch of patches) {
+      this.#eachCell(patch, (idx, col, row, distance) => {
+        if (!Number.isFinite(this.baseAltitudes[idx])) return; // hors du lac : rien à corriger
+        if (distance <= patch.core) {
+          const cell = core.get(idx);
+          if (cell) { cell.sum += patch.bedZ; cell.count += 1; }
+          else core.set(idx, { sum: patch.bedZ, count: 1 });
+        } else {
+          const w = fade(distance, patch.core, patch.outer);
+          if (w <= 0) return;
+          const cell = halo.get(idx);
+          if (cell) { cell.w += w; cell.wz += w * patch.bedZ; }
+          else halo.set(idx, { w, wz: w * patch.bedZ });
         }
-      }
+        if (reach) {
+          const d = Math.max(0, Math.round(distance));
+          const known = reach.get(idx);
+          if (known === undefined || d < known) reach.set(idx, d);
+        }
+        if (col < minC) minC = col; if (col > maxC) maxC = col;
+        if (row < minR) minR = row; if (row > maxR) maxR = row;
+      });
     }
+
+    for (const [idx, cell] of core) alt[idx] = cell.sum / cell.count;
+    for (const [idx, cell] of halo) {
+      if (core.has(idx)) continue; // un plateau commande, le fondu d'un voisin ne l'entame pas
+      const w = Math.min(1, cell.w);
+      alt[idx] = this.baseAltitudes[idx] * (1 - w) + (cell.wz / cell.w) * w;
+    }
+    if (cov) for (const [idx, d] of reach) cov[idx] = Math.min(cov[idx], d);
 
     this.altitudes = alt;
     if (cov) this.coverage = cov;
     return maxC < 0 ? null : { minC, minR, maxC, maxR };
   }
+
+  /**
+   * Parcourt les cellules atteintes par un relevé et livre leur distance au sol à sa
+   * forme — négative à l'intérieur d'une zone, qui est son propre plateau.
+   */
+  #eachCell(shape, visit) {
+    const cellW = (this.x1 - this.x0) / this.width;  // mètres mercator par colonne
+    const cellH = (this.y1 - this.y0) / this.height; // mètres mercator par ligne
+    // Un mètre au sol vaut 1/cos(lat) mètre mercator : on convertit la portée voulue.
+    const scale = Math.max(Math.cos((shape.lat * Math.PI) / 180), 1e-6);
+    const margin = shape.outer / scale;
+
+    const col0 = Math.max(0, Math.floor((shape.x0 - margin - this.x0) / cellW - 0.5));
+    const col1 = Math.min(this.width - 1, Math.ceil((shape.x1 + margin - this.x0) / cellW - 0.5));
+    const row0 = Math.max(0, Math.floor((this.y1 - shape.y1 - margin) / cellH - 0.5));
+    const row1 = Math.min(this.height - 1, Math.ceil((this.y1 - shape.y0 + margin) / cellH - 0.5));
+
+    for (let row = row0; row <= row1; row += 1) {
+      const my = this.y1 - (row + 0.5) * cellH;
+      for (let col = col0; col <= col1; col += 1) {
+        const mx = this.x0 + (col + 0.5) * cellW;
+        const distance = shape.distance(mx, my) * scale;
+        if (distance > shape.outer) continue;
+        visit(row * this.width + col, col, row, distance);
+      }
+    }
+  }
+}
+
+/**
+ * Part du rayon d'un relevé ponctuel occupée par son plateau.
+ *
+ * La moitié : assez large pour qu'une sonde marque une surface plutôt qu'un pic — et pour
+ * que la lecture bilinéaire sous le bateau retrouve exactement la valeur saisie, les quatre
+ * cellules voisines tombant elles aussi dans le plateau — assez étroite pour que la
+ * transition vers le levé garde de quoi se faire sans marche.
+ */
+export const CORE_RATIO = 0.5;
+
+/** Poids du fondu : 1 au bord du plateau, 0 au bord extérieur, sans cassure aux deux bouts. */
+function fade(distance, core, outer) {
+  if (distance <= core) return 1;
+  if (distance >= outer || outer <= core) return 0;
+  return 0.5 * (1 + Math.cos((Math.PI * (distance - core)) / (outer - core)));
+}
+
+/**
+ * Traduit un relevé en forme géométrique prête à être estampée : emprise en mercator,
+ * latitude de référence pour l'échelle, plateau, portée, et fonction de distance.
+ */
+function shapeOf(record, defaultRadius) {
+  const radius = Number.isFinite(record.radius_m) && record.radius_m >= 0
+    ? record.radius_m
+    : defaultRadius;
+
+  if (Array.isArray(record.ring) && record.ring.length >= 3) {
+    const ring = record.ring
+      .filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat))
+      .map(([lon, lat]) => toMercator(lon, lat));
+    if (ring.length < 3) return null;
+    const xs = ring.map(([x]) => x);
+    const ys = ring.map(([, y]) => y);
+    const lat = record.ring.reduce((s, [, y]) => s + y, 0) / record.ring.length;
+    return {
+      bedZ: record.bedZ,
+      lat,
+      x0: Math.min(...xs), x1: Math.max(...xs),
+      y0: Math.min(...ys), y1: Math.max(...ys),
+      core: 0,        // le plateau, c'est l'intérieur du contour
+      outer: radius,  // et le rayon mesure la largeur du fondu au-delà du bord
+      // À l'intérieur, la distance exacte au bord n'importe pas : elle est négative, donc
+      // sous le plateau. La calculer quand même coûterait un parcours de segments par
+      // cellule, sur la partie la plus dense de la zone.
+      distance: (mx, my) => (inRing(mx, my, ring) ? -1 : distanceToRing(mx, my, ring)),
+    };
+  }
+
+  if (!Number.isFinite(record.lon) || !Number.isFinite(record.lat)) return null;
+  const [px, py] = toMercator(record.lon, record.lat);
+  return {
+    bedZ: record.bedZ,
+    lat: record.lat,
+    x0: px, x1: px, y0: py, y1: py,
+    core: radius * CORE_RATIO,
+    outer: radius,
+    distance: (mx, my) => Math.hypot(mx - px, my - py),
+  };
+}
+
+/** Point dans un contour fermé — lancer de rayon, sur les coordonnées projetées. */
+function inRing(x, y, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Distance d'un point au bord d'un contour (le plus court des segments). */
+function distanceToRing(x, y, ring) {
+  let best = Infinity;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    const dx = xj - xi;
+    const dy = yj - yi;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - xi) * dx + (y - yi) * dy) / len2)) : 0;
+    const d = Math.hypot(x - (xi + t * dx), y - (yi + t * dy));
+    if (d < best) best = d;
+  }
+  return best;
 }
 
 /**

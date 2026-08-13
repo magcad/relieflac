@@ -61,6 +61,7 @@
     <button class="fab" id="btn-suivi" type="button" title="Suivre le bateau" aria-label="Suivre le bateau" aria-pressed="false">◎</button>
     <button class="fab" id="btn-cap" type="button" title="Nord en haut" aria-label="Orientation" aria-pressed="false">↑</button>
     <button class="fab" id="btn-saisie" type="button" title="Saisir une sonde" aria-label="Afficher la saisie de profondeur">✎</button>
+    <button class="fab" id="btn-zone" type="button" title="Tracer une zone émergée" aria-label="Tracer une zone émergée" aria-pressed="false">▲</button>
   </div>
 
   <!-- Relevés manuels (corrigent la carte) + simulation d'étiage par la cote. -->
@@ -78,6 +79,11 @@
     <div class="sim__scale"><span>640</span><span>645</span><span>650</span></div>
     <div class="sim__sel" id="sim-sel" hidden>
       <span class="sim__sel-label" id="sim-sel-label">Relevé</span>
+      <label class="sim__sel-radius">
+        <span>rayon</span>
+        <input id="sim-radius" type="number" min="1" max="200" step="1" aria-label="Rayon d'influence du relevé, en mètres">
+        <span>m</span>
+      </label>
       <div class="sim__sel-btns">
         <button id="btn-sim-down" type="button" aria-label="Moins profond de 25 cm">–</button>
         <button id="btn-sim-up" type="button" aria-label="Plus profond de 25 cm">+</button>
@@ -91,12 +97,43 @@
     </div>
   </div>
 
+  <!-- Zone émergée : tracé d'un contour fermé, puis réglage de sa hauteur hors d'eau. -->
+  <div class="zone" id="zone" hidden>
+    <div class="sim__head">
+      <span class="zone__title" id="zone-title">Zone émergée</span>
+      <button class="sim__close" id="btn-zone-exit" type="button" aria-label="Quitter le tracé de zone">✕</button>
+    </div>
+    <p class="zone__hint" id="zone-hint">Touchez la carte pour poser les sommets du contour.</p>
+    <div class="zone__fields">
+      <label class="zone__field">
+        <span>Hauteur hors d'eau (m)</span>
+        <input type="number" id="zone-height" min="-5" max="15" step="0.1" value="0.5">
+      </label>
+      <label class="zone__field">
+        <span>Fondu au bord (m)</span>
+        <input type="number" id="zone-feather" min="0" max="60" step="1" value="10">
+      </label>
+    </div>
+    <p class="zone__meta" id="zone-meta"></p>
+    <div class="zone__btns">
+      <button class="sim__reset" id="btn-zone-undo" type="button">↶ Sommet</button>
+      <button class="sim__reset" id="btn-zone-close" type="button">✓ Fermer la zone</button>
+      <button class="sim__reset sim__reset--danger" id="btn-zone-del" type="button" hidden>Supprimer</button>
+    </div>
+  </div>
+
   <form class="capture" id="capture" autocomplete="off" hidden>
     <button class="capture__btn capture__btn--ghost sign-btn" id="btn-cap-sign" type="button"
             aria-label="Inverser le signe : haut-fond émergé, relevé à pied">±</button>
     <input class="capture__input" id="cap-input" type="number" inputmode="decimal"
            step="0.1" min="-10" max="60" placeholder="profondeur — négative si émergé"
            aria-label="Profondeur lue au sondeur en mètres, négative pour un haut-fond émergé relevé à pied">
+    <label class="capture__radius" id="cap-radius-box" hidden>
+      <span>rayon</span>
+      <input id="cap-radius" type="number" min="1" max="200" step="1"
+             aria-label="Rayon d'influence de la sonde sur la carte, en mètres">
+      <span>m</span>
+    </label>
     <button class="capture__btn" id="btn-capture" type="submit">Relever</button>
     <button class="capture__btn capture__btn--danger" id="btn-cap-delete" type="button" hidden>Suppr.</button>
     <button class="capture__btn capture__btn--ghost" id="btn-cap-cancel" type="button" aria-label="Annuler la correction" hidden>✕</button>
@@ -268,12 +305,46 @@
         <span>Afficher mes sondes sur la carte</span>
         <input type="checkbox" id="set-probes">
       </label>
+      <label class="row">
+        <span>Rayon d'influence (m)</span>
+        <input type="number" id="set-radius" min="1" max="200" step="1">
+      </label>
+      <p class="hint">
+        Surface qu'un relevé corrige autour de lui. La moitié centrale est un
+        <strong>plateau</strong> où la carte vaut exactement la valeur relevée ; la moitié
+        extérieure se fond vers le levé de 2009. Deux relevés voisins se
+        <strong>fusionnent</strong> au lieu de s'empiler. Ce réglage donne le rayon des
+        nouveaux relevés ; chacun se règle ensuite séparément en touchant sa pastille.
+      </p>
       <p class="hint" id="probe-count">Aucune sonde enregistrée.</p>
       <ol class="records" id="probe-records"></ol>
       <div class="actions">
         <button type="button" id="btn-probe-csv">Exporter CSV</button>
         <button type="button" id="btn-probe-geojson">Exporter GeoJSON</button>
         <button type="button" class="danger" id="btn-probe-clear">Tout effacer</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Zones émergées</legend>
+      <p class="hint">
+        Le bateau sondeur de 2009 ne passait pas sur un haut-fond : un îlot y est un trou
+        dans les données, comblé en reliant les fosses voisines. Une sonde corrige un
+        caillou, pas l'étendue de la terre autour. Tracez le contour avec le bouton ▲ de la
+        carte : tout l'intérieur est porté à la hauteur indiquée au-dessus de l'eau, et
+        l'altitude retenue, elle, ne bouge plus — la zone découvre ou se noie toute seule
+        quand la cote change. Ces zones restent sur cet appareil : elles sont une
+        interprétation, pas une mesure, et ne partent pas dans le fichier partagé.
+      </p>
+      <label class="row row--switch">
+        <span>Afficher les contours sur la carte</span>
+        <input type="checkbox" id="set-zones">
+      </label>
+      <p class="hint" id="zone-count">Aucune zone tracée.</p>
+      <ol class="records" id="zone-records"></ol>
+      <div class="actions">
+        <button type="button" id="btn-zone-geojson">Exporter GeoJSON</button>
+        <button type="button" class="danger" id="btn-zone-clear">Tout effacer</button>
       </div>
     </fieldset>
 

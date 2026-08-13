@@ -1,0 +1,267 @@
+// Banc d'essai des enchaînements de l'interface.
+//
+// On charge le vrai `index.html` (une seule source de vérité pour le balisage), on démarre
+// la vraie application, et l'on provoque sur la carte factice les mêmes événements que la
+// vraie carte. Ce qui est vérifié ici n'est pas la logique des modules — `selftest.js` s'en
+// charge — mais la chaîne complète : un geste, un état d'application, un affichage, et ce
+// qui reste dans le stockage local une fois l'opération faite.
+
+const results = [];
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
+
+function check(name, condition, detail = '') {
+  results.push({ name, ok: Boolean(condition), detail });
+}
+function group(name) {
+  results.push({ group: name });
+}
+
+/** Un bouton destructeur demande deux appuis : le premier arme, le second exécute. */
+function press(id) {
+  $(id).click();
+  $(id).click();
+}
+
+const stored = (key) => {
+  try { return JSON.parse(localStorage.getItem(key)) ?? []; } catch { return []; }
+};
+const probes = () => stored('relieflac.probes.v1');
+const zones = () => stored('relieflac.zones.v1');
+const sims = () => stored('relieflac.sim.v1');
+
+/** Attend qu'une condition devienne vraie, ou renonce — pour ne jamais figer la page. */
+async function until(condition, timeout = 5000) {
+  const t0 = performance.now();
+  while (performance.now() - t0 < timeout) {
+    if (condition()) return true;
+    await sleep(50);
+  }
+  return false;
+}
+
+async function boot() {
+  // Le balisage vient de l'application elle-même : dupliquer les écrans ici, ce serait
+  // vérifier une copie qui divergerait au premier bouton ajouté.
+  const html = await fetch('/index.html', { cache: 'no-cache' }).then((r) => r.text());
+  const page = new DOMParser().parseFromString(html, 'text/html');
+  const report = $('rapport');
+  for (const node of [...page.body.children]) {
+    if (node.tagName === 'SCRIPT') continue;
+    document.body.insertBefore(document.adoptNode(node), report);
+  }
+
+  // Ni sonde, ni zone, ni témoin d'une session précédente : le banc part d'un état connu.
+  // Les suppressions mémorisées sont effacées aussi, sans quoi les relevés partagés que
+  // l'essai supprime resteraient enterrés d'une exécution à la suivante.
+  for (const key of ['relieflac.probes.v1', 'relieflac.zones.v1', 'relieflac.sim.v1',
+    'relieflac.probes.deleted.v1']) {
+    localStorage.removeItem(key);
+  }
+  // Aucun leurre sur `confirm` : l'application ne doit plus en dépendre du tout. On le
+  // piège au contraire pour le prouver — ce navigateur, comme un Chrome où la case
+  // « empêcher les boîtes de dialogue » a été cochée, le fait renvoyer `false`, ce qui
+  // rendait toute suppression silencieusement inopérante.
+  let dialogs = 0;
+  Object.defineProperty(window, 'confirm', {
+    value: () => { dialogs += 1; return false; }, configurable: true, writable: true,
+  });
+  window.__dialogs = () => dialogs;
+
+  const { LakeMap } = await import('/src/map.js');
+  await import('/src/main.js');
+  const started = await until(() => $('chargement').hidden, 15000);
+  check('l\'application démarre entièrement', started,
+    started ? '' : $('chargement').textContent.trim());
+  if (!started) return null;
+
+  // `initSync` récupère les relevés publiés en tâche de fond et remplace le jeu local :
+  // provoquer un geste avant qu'il ait fini le ferait écraser sans rapport avec le geste.
+  await sleep(2000);
+  return LakeMap.last;
+}
+
+async function run() {
+  const map = await boot();
+  if (!map) return render();
+
+  const lngLat = { lng: 1.87132, lat: 45.79328 };
+  const fire = (type, detail) => map.dispatchEvent(new CustomEvent(type, { detail }));
+
+  // ---------------------------------------------------- point posé sans GPS
+  group('Point posé au clic droit, sans position GPS');
+  const before = probes().length;
+  fire('pinpoint', lngLat);
+  check('le repère de visée est posé sur la carte', map.pin !== null,
+    JSON.stringify(map.pin));
+  check('la barre de saisie s\'ouvre', $('capture').hidden === false);
+  check('l\'abandon est proposé', $('btn-cap-cancel').hidden === false);
+
+  $('cap-input').value = '3.2';
+  $('cap-input').dispatchEvent(new Event('input'));
+  $('btn-capture').click();
+  check('la sonde est enregistrée', probes().length === before + 1,
+    `${probes().length} sonde(s), ${before} avant`);
+  check('la position vient du point désigné',
+    probes().at(-1)?.fixSource === 'map' && probes().at(-1)?.lon === lngLat.lng,
+    `${probes().at(-1)?.fixSource}`);
+  check('le repère de visée est retiré une fois la sonde posée', map.pin === null);
+
+  // -------------------------------------------- suppression par la barre de saisie
+  group('Suppression depuis la barre de saisie');
+  const target = probes().at(-1);
+  fire('probeselect', target.id);
+  check('toucher la pastille ouvre la correction',
+    $('capture').hidden === false && $('capture').classList.contains('is-editing'));
+  check('le bouton de suppression apparaît', $('btn-cap-delete').hidden === false);
+  check('le rayon d\'influence est proposé', $('cap-radius-box').hidden === false,
+    `rayon ${$('cap-radius').value}`);
+
+  // Le premier appui ne doit rien détruire : il arme, et cela doit se voir.
+  $('btn-cap-delete').click();
+  check('un seul appui n\'efface rien',
+    probes().some((p) => p.id === target.id)
+    && $('btn-cap-delete').classList.contains('is-arming'),
+    `libellé « ${$('btn-cap-delete').textContent} »`);
+
+  $('btn-cap-delete').click();
+  check('la sonde est supprimée du stockage',
+    probes().every((p) => p.id !== target.id),
+    `${probes().length} restante(s)`);
+  check('la pastille disparaît de la carte',
+    map.probes.every((p) => p.id !== target.id));
+  check('la barre revient en saisie', $('btn-capture').textContent === 'Relever'
+    && $('btn-cap-delete').hidden === true);
+
+  // ------------------------------------- suppression depuis la liste des Paramètres
+  group('Suppression depuis la liste des Paramètres');
+  fire('pinpoint', { lng: 1.8720, lat: 45.7935 });
+  $('cap-input').value = '4.5';
+  $('cap-input').dispatchEvent(new Event('input'));
+  $('btn-capture').click();
+  const listed = probes().at(-1);
+  location.hash = '#/parametres';
+  await sleep(60);
+  // La liste est présentée du plus récent au plus ancien : la sonde qu'on vient de poser
+  // est en tête.
+  const row = $('probe-records').children[0];
+  check('la sonde figure en tête de liste', row?.textContent.includes('4.5 m'),
+    `${$('probe-records').children.length} ligne(s) · « ${row?.textContent.trim().slice(0, 24)} »`);
+  row?.querySelector('button:last-child')?.click();
+  check('la croix de la liste supprime la sonde',
+    probes().every((p) => p.id !== listed.id), `${probes().length} restante(s)`);
+  location.hash = '#/';
+  await sleep(60);
+
+  // ------------------------------------- la suppression survit-elle à la synchronisation ?
+  group('Suppression et relevés partagés');
+  const shared = probes().find((p) => p.levelSource === 'sync');
+  if (!shared) {
+    check('un relevé partagé est disponible pour l\'essai', false, 'aucun relevé venu du dépôt');
+  } else {
+    const others = probes().length - 1;
+    fire('probeselect', shared.id);
+    press('btn-cap-delete');
+    check('un relevé venu du dépôt se supprime localement',
+      probes().every((p) => p.id !== shared.id), `${probes().length} restante(s)`);
+    // « Récupérer les relevés » refait exactement ce que fait l'ouverture de l'application.
+    $('btn-sync-now').click();
+    await until(() => probes().length !== others, 4000);
+    check('et il ne revient pas à la synchronisation suivante',
+      probes().every((p) => p.id !== shared.id),
+      probes().some((p) => p.id === shared.id) ? 'ressuscité par la fusion' : 'bien absent');
+  }
+
+  // ------------------------------------------------------------- zones émergées
+  group('Zone émergée : tracé, sélection, suppression');
+  $('btn-zone').click();
+  check('le mode zone s\'arme', map.zoneMode === true && map.tracing === true);
+  const ring = [[1.8710, 45.7930], [1.8716, 45.7930], [1.8716, 45.7935], [1.8710, 45.7935]];
+  for (const [lng, lat] of ring) fire('zonevertex', { lngLat: { lng, lat }, zoneId: null });
+  check('les sommets s\'accumulent', map.zoneDraft.length === 4, `${map.zoneDraft.length}`);
+  check('la fermeture devient possible', $('btn-zone-close').disabled === false);
+
+  fire('zoneclose');
+  check('la zone est enregistrée', zones().length === 1, `${zones().length}`);
+  check('elle est reprise en réglage aussitôt', $('btn-zone-del').hidden === false);
+  check('son contour est affiché', map.zones.length === 1 && map.zones[0].selected === true);
+  const zoneId = zones()[0]?.id;
+
+  press('btn-zone-del');
+  check('la zone est supprimée du stockage', zones().length === 0, `${zones().length}`);
+  check('son contour disparaît de la carte', map.zones.length === 0);
+  check('le panneau repasse en tracé', $('btn-zone-del').hidden === true && map.tracing === true,
+    `zone ${zoneId ? 'créée' : 'absente'}`);
+  $('btn-zone-exit').click();
+  check('quitter le mode zone rend le clic à la sonde ponctuelle', map.zoneMode === false);
+
+  // -------------------------------------------------- témoins de simulation
+  group('Témoin de simulation : pose et suppression');
+  $('btn-sim').click();
+  fire('probe', { lng: 1.8714, lat: 45.7933 });
+  check('le témoin est posé', sims().length === 1, `${sims().length}`);
+  check('il est sélectionné pour réglage', $('sim-sel').hidden === false);
+  $('btn-sim-del').click();
+  check('le témoin est supprimé', sims().length === 0, `${sims().length}`);
+  check('sa pastille disparaît', map.simPoints.length === 0);
+  $('btn-sim-exit').click();
+
+  // ------------------------------------------ effacement en bloc et persistance
+  group('Effacement en bloc');
+  fire('pinpoint', lngLat);
+  $('cap-input').value = '2.0';
+  $('cap-input').dispatchEvent(new Event('input'));
+  $('btn-capture').click();
+  const withOne = probes().length;
+  location.hash = '#/parametres';
+  await sleep(60);
+  press('btn-probe-clear');
+  check('« Tout effacer » vide bien les sondes', probes().length === 0,
+    `${withOne} avant, ${probes().length} après`);
+  check('aucune suppression n\'a eu besoin d\'une boîte de dialogue', window.__dialogs() === 0,
+    `${window.__dialogs()} appel(s) à confirm()`);
+  location.hash = '#/';
+
+  render();
+}
+
+function render() {
+  const box = $('rapport');
+  const failed = results.filter((r) => r.name && !r.ok).length;
+  const total = results.filter((r) => r.name).length;
+  $('etat').remove();
+
+  const count = document.createElement('p');
+  count.className = 'n';
+  count.textContent = failed
+    ? `${failed} enchaînement(s) en échec sur ${total}`
+    : `${total} enchaînements vérifiés`;
+  count.style.color = failed ? '#ff8080' : '#22c55e';
+  box.append(count);
+
+  const list = document.createElement('ol');
+  for (const r of results) {
+    const item = document.createElement('li');
+    if (r.group) {
+      item.style.listStyle = 'none';
+      item.style.marginLeft = '-1.2rem';
+      item.innerHTML = `<b>${r.group}</b>`;
+    } else {
+      item.className = r.ok ? 'ok' : 'ko';
+      item.textContent = r.name;
+      if (r.detail) {
+        const detail = document.createElement('span');
+        detail.className = 'detail';
+        detail.textContent = ` — ${r.detail}`;
+        item.append(detail);
+      }
+    }
+    list.append(item);
+  }
+  box.append(list);
+}
+
+run().catch((err) => {
+  results.push({ name: `interrompu : ${err.message}`, ok: false, detail: String(err.stack).split('\n')[1] ?? '' });
+  render();
+});

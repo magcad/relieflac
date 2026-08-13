@@ -14,6 +14,7 @@ import { CorrectionsSync, getToken, setToken } from './sync.js';
 import { Soundings } from './soundings.js';
 import { defaultsFrom, Settings } from './settings.js';
 import { VERSION } from './version.js';
+import { closeRing, dedupeRing, DEFAULT_FEATHER_M, formatArea, groundAltitude, ringArea, Zones } from './zones.js';
 
 const $ = (id) => document.getElementById(id);
 /** Pas des boutons de zoom : un niveau, donc un facteur deux — franc et prévisible. */
@@ -23,11 +24,16 @@ const ROUTES = { '#/': 'vue-carte', '#/parametres': 'vue-parametres', '#/etalonn
 const app = {
   palette: null, model: null, bed: null, soundings: null,
   settings: null, level: null, geo: null, calibration: null, probes: null,
-  sim: null, compass: null,
+  sim: null, compass: null, zones: null,
   lakeMap: null, depthLayer: null,
   alarmActive: false, lastAlarmAt: 0,
   editingProbeId: null, editingSimId: null, simMode: false,
   captureOpen: false,
+  // Point désigné à la main sur la carte, en attente de sa profondeur — le seul moyen de
+  // poser une sonde sans signal GPS, donc de manipuler l'application sur un ordinateur.
+  pin: null,
+  // Tracé de zone émergée : sommets posés, et zone sélectionnée pour retouche.
+  zoneMode: false, zoneDraft: [], editingZoneId: null,
   heading: null,
   lastBigDepth: null,
   wakeLock: null, wakeState: 'lost', wakePending: false, wakeWarned: false,
@@ -51,6 +57,7 @@ async function boot() {
     app.calibration = new Calibration();
     app.probes = new Probes();
     app.sim = new SimPoints();
+    app.zones = new Zones();
     app.compass = new Compass();
     app.level = new Level('.');
     app.geo = new Geolocator();
@@ -80,6 +87,7 @@ async function boot() {
     wireCalibration();
     wireProbes();
     wireSim();
+    wireZones();
     wireCompass();
     wireMap();
     wireBigDepth();
@@ -93,6 +101,8 @@ async function boot() {
     refreshProbesUi();
     refreshProbesOnMap();
     refreshSimOnMap();
+    refreshZonesUi();
+    refreshZonesOnMap();
     refreshCaptureUi();
     applyBigDepthMode();
     applySunMode();
@@ -459,6 +469,8 @@ function probesToRecords() {
     id: p.id, at: p.at, lon: p.lon, lat: p.lat, bedZ: p.bedZ,
     depth_m: p.sounderDepth ?? null, cote_m: p.level ?? null,
     transducer_m: p.transducerDepth ?? null,
+    radius_m: p.radius_m ?? null,
+    position_source: p.fixSource ?? 'gps',
   }));
 }
 
@@ -471,15 +483,33 @@ function recordsToProbes(records) {
     id: r.id, at: r.at, lon: r.lon, lat: r.lat, bedZ: r.bedZ,
     sounderDepth: r.depth_m ?? null, level: r.cote_m ?? null,
     transducerDepth: Number.isFinite(r.transducer_m) ? r.transducer_m : fallback,
+    radius_m: Number.isFinite(r.radius_m) ? r.radius_m : null,
+    fixSource: r.position_source ?? 'gps',
     levelSource: 'sync',
     accuracy: null, modelBedZ: null, modelDepth: null,
   }));
 }
 
-/** Union par id, l'horodatage le plus récent gagne les conflits. Jamais destructif. */
+/**
+ * Union par id, l'horodatage le plus récent gagne les conflits.
+ *
+ * Non destructive par principe : deux appareils qui relèvent chacun de leur côté doivent
+ * additionner leurs sondes, jamais s'effacer l'un l'autre. Une union pure, en revanche, ne
+ * sait pas exprimer une suppression — le relevé effacé ici est toujours dans le fichier
+ * partagé, et la fusion le ramène à l'ouverture suivante. C'était le cas : la suppression
+ * paraissait sans effet sur les quatre sondes publiées, puisqu'elles revenaient à chaque
+ * démarrage.
+ *
+ * D'où les pierres tombales (`Probes.deletedIds`) : un relevé distant plus ancien que sa
+ * propre suppression est écarté. Plus récent, il repasse — c'est alors qu'il a été mesuré à
+ * nouveau depuis, et la même règle d'horodatage doit valoir.
+ */
 function mergeById(remote, local) {
+  const graves = Probes.deletedIds();
   const byId = new Map();
   for (const r of [...(remote || []), ...(local || [])]) {
+    const buried = graves.get(r.id);
+    if (buried && String(r.at || '') <= buried) continue;
     const prev = byId.get(r.id);
     if (!prev || String(r.at || '') >= String(prev.at || '')) byId.set(r.id, r);
   }
@@ -619,6 +649,9 @@ function refreshLevelUi() {
   refreshDepthStyle();
   refreshProbesOnMap();
   refreshSimOnMap();
+  // La zone sélectionnée annonce si elle émerge à la cote courante : le curseur d'étiage
+  // doit faire basculer ce verdict en même temps que la couleur du fond.
+  if (app.zoneMode) refreshZonePanel();
   if (app.simMode) refreshSimReadout();
 }
 
@@ -673,25 +706,29 @@ function wireSettings() {
     }
     event.target.value = '';
   });
-  $('btn-reset').addEventListener('click', () => {
-    if (confirm('Revenir à tous les réglages par défaut ?')) {
-      s.reset();
-      toast('Réglages réinitialisés');
-    }
+  wireArmed('btn-reset', 'Confirmer ?', () => {
+    s.reset();
+    toast('Réglages réinitialisés');
   });
   $('btn-reload').addEventListener('click', reloadApp);
 
-  s.addEventListener('change', () => {
+  s.addEventListener('change', (event) => {
     refreshSettingsUi();
     refreshDepthStyle();
     refreshProbesOnMap();
     refreshSimOnMap();
+    refreshZonesOnMap();
     applySunMode();
     // Un profil importé ou réinitialisé change `followBoat` sans passer par le bouton.
     refreshCameraUi();
     app.lakeMap.setBasemap(s.get('basemap'));
     app.lakeMap.setSoundings(null, s.get('showSoundings'));
     setTimeout(refreshSoundingsDiag, 300);
+    // Reporter les relevés sur la grille coûte un balayage de 1,2 million de cellules et un
+    // renvoi de texture : on ne le refait que si le rayon a bougé — ou si l'on ne sait pas
+    // ce qui a bougé (profil importé, réinitialisation), auquel cas il a pu bouger.
+    const key = event.detail?.key;
+    if (key == null || key === 'correctionRadius_m') applyModelCorrections();
   });
 
   wirePaletteEditor();
@@ -700,6 +737,51 @@ function wireSettings() {
 function bind(id, event, handler) {
   const element = $(id);
   element.addEventListener(event, () => handler(element));
+}
+
+// ------------------------------------- confirmer sans boîte de dialogue du navigateur
+
+/** Temps pendant lequel un bouton reste armé avant de reprendre son libellé (ms). */
+const ARM_MS = 4000;
+
+/** Désarmement de chaque bouton armé, par identifiant. */
+const armedButtons = new Map();
+
+/**
+ * Fait confirmer une action destructrice par un **second appui sur le bouton lui-même**.
+ *
+ * `window.confirm` n'est pas fiable ici, et le découvrir a coûté une suppression réputée
+ * cassée : Chrome propose « Empêcher cette page de créer des boîtes de dialogue
+ * supplémentaires » dès la deuxième, et la case une fois cochée, l'appel renvoie `false`
+ * en silence pour toute la vie de la page. Le bouton paraît alors mort. D'autres
+ * navigateurs — dont celui qui sert aux vérifications — les suppriment purement et
+ * simplement, avec le même effet.
+ *
+ * Un bouton qui s'arme ne dépend de rien, se lit d'un coup d'œil, se désarme seul si l'on
+ * passe son chemin, et reste manœuvrable d'une main sur un bateau qui bouge.
+ */
+function wireArmed(id, armedLabel, action) {
+  const button = $(id);
+  const idle = button.textContent;
+  let timer = 0;
+  const disarm = () => {
+    clearTimeout(timer);
+    timer = 0;
+    button.textContent = idle;
+    button.classList.remove('is-arming');
+  };
+  armedButtons.set(id, disarm);
+  button.addEventListener('click', () => {
+    if (timer) { disarm(); action(); return; }
+    button.textContent = armedLabel;
+    button.classList.add('is-arming');
+    timer = setTimeout(disarm, ARM_MS);
+  });
+}
+
+/** Changer d'écran ou de mode ne doit pas laisser un bouton amorcé derrière soi. */
+function disarmAll() {
+  for (const disarm of armedButtons.values()) disarm();
 }
 
 function clampNumber(element, min, max) {
@@ -727,7 +809,9 @@ function refreshSettingsUi() {
   $('set-manual-level').value = s.get('manualLevel') ?? '';
   $('set-transducer').value = s.get('transducer_m');
   $('set-probes').checked = s.get('showProbes');
+  $('set-radius').value = s.get('correctionRadius_m');
   refreshProbesUi();
+  refreshZonesUi();
 
   $('hint-safety').textContent = `Contour de sécurité tracé à ${s.safetyDepth.toFixed(2)} m `
     + `(tirant d'eau ${s.get('draft_m')} + marge ${s.get('margin_m')}).`;
@@ -767,9 +851,7 @@ function wireCalibration() {
   });
   $('btn-cal-csv').addEventListener('click', () => download('etalonnage.csv', app.calibration.toCsv(), 'text/csv'));
   $('btn-cal-json').addEventListener('click', () => download('etalonnage.json', app.calibration.toJson(), 'application/json'));
-  $('btn-cal-clear').addEventListener('click', () => {
-    if (confirm('Effacer tous les relevés d\'étalonnage ?')) app.calibration.clear();
-  });
+  wireArmed('btn-cal-clear', 'Confirmer ?', () => app.calibration.clear());
   app.calibration.addEventListener('change', refreshCalibrationUi);
 }
 
@@ -905,8 +987,8 @@ function wireProbes() {
     event.preventDefault();
     if (app.editingProbeId) saveProbeEdit(); else recordProbe();
   });
-  $('btn-cap-delete').addEventListener('click', deleteEditedProbe);
-  $('btn-cap-cancel').addEventListener('click', endProbeEdit);
+  wireArmed('btn-cap-delete', 'Sûr ?', deleteEditedProbe);
+  $('btn-cap-cancel').addEventListener('click', () => { clearPin(); endProbeEdit(); });
   wireSignToggle('btn-cap-sign', 'cap-input');
   app.lakeMap.addEventListener('probeselect', (event) => beginProbeEdit(event.detail));
 
@@ -914,20 +996,27 @@ function wireProbes() {
   // navigation seule. Fermer annule aussi une correction en cours.
   $('btn-saisie').addEventListener('click', () => {
     app.captureOpen = !app.captureOpen;
-    if (!app.captureOpen && app.editingProbeId) endProbeEdit();
+    if (!app.captureOpen) { clearPin(); if (app.editingProbeId) endProbeEdit(); }
     refreshCaptureUi();
   });
 
   bind('set-transducer', 'change', (el) => app.settings.set('transducer_m', clampNumber(el, 0, 2)));
   bind('set-probes', 'change', (el) => app.settings.set('showProbes', el.checked));
+  bind('set-radius', 'change', (el) => app.settings.set('correctionRadius_m', Math.round(clampNumber(el, 1, 200))));
+
+  // Le rayon de la sonde en cours de correction s'applique sans attendre « Enregistrer » :
+  // c'est un réglage qu'on juge à l'œil, sur la carte, en le faisant varier.
+  bind('cap-radius', 'change', (el) => {
+    if (!app.editingProbeId) return;
+    app.probes.update(app.editingProbeId, { radius_m: Math.round(clampNumber(el, 1, 200)) });
+  });
 
   $('btn-probe-csv').addEventListener('click', () => download('relieflac-sondes.csv', app.probes.toCsv(), 'text/csv'));
   $('btn-probe-geojson').addEventListener('click', () => download('relieflac-sondes.geojson', app.probes.toGeoJson(), 'application/geo+json'));
-  $('btn-probe-clear').addEventListener('click', () => {
-    if (app.probes.count && confirm('Effacer toutes les sondes enregistrées ?')) {
-      endProbeEdit();
-      app.probes.clear();
-    }
+  wireArmed('btn-probe-clear', 'Confirmer ?', () => {
+    if (!app.probes.count) return;
+    endProbeEdit();
+    app.probes.clear();
   });
 
   app.probes.addEventListener('change', () => {
@@ -938,11 +1027,75 @@ function wireProbes() {
   });
 }
 
-/** Barre de saisie : visible seulement si demandée, et jamais pendant la simulation. */
+/**
+ * Barre de saisie : visible seulement si demandée, et jamais pendant la simulation ou le
+ * tracé — sauf si un point a été désigné et attend sa profondeur, auquel cas elle s'impose.
+ * Sans cette exception, un clic droit posé depuis le mode 🌊 laisserait sur la carte un
+ * point qu'aucune commande visible ne permettrait plus de renseigner.
+ */
 function refreshCaptureUi() {
-  const open = app.captureOpen && !app.simMode;
+  const open = Boolean(app.pin) || (app.captureOpen && !app.simMode && !app.zoneMode);
   $('capture').hidden = !open;
   $('btn-saisie').classList.toggle('is-on', open);
+  // Le rayon d'influence ne concerne qu'un point existant : à la création, la sonde prend
+  // le réglage par défaut, et on l'ajuste ensuite en la voyant déformer la carte.
+  $('cap-radius-box').hidden = !app.editingProbeId;
+  // Une correction en cours comme un point désigné s'abandonnent : dans les deux cas la
+  // barre attend une décision, et il faut pouvoir en sortir sans rien enregistrer.
+  $('btn-cap-cancel').hidden = !app.editingProbeId && !app.pin;
+  stackBottomBars();
+}
+
+/**
+ * Empile les barres flottantes du bas d'écran, chacune au-dessus de la précédente.
+ *
+ * Elles visent toutes le même ancrage — juste au-dessus de la barre de profondeur — et se
+ * recouvraient dès que deux d'entre elles s'ouvraient ensemble, ce qui arrive dans le cas
+ * le plus courant : descendre la cote au mode 🌊 pour voir ce qui découvre, puis en faire
+ * le tour. On mesure la hauteur réelle de chacune plutôt que de deviner une marge, que la
+ * ligne de sélection du mode 🌊 démentirait dès qu'elle paraît.
+ */
+function stackBottomBars() {
+  let offset = 0;
+  for (const id of ['sim', 'zone', 'capture']) {
+    const element = $(id);
+    if (element.hidden) continue;
+    element.style.bottom = offset
+      ? `calc(6.3rem + var(--safe-bottom) + ${offset}px)`
+      : '';
+    offset += element.offsetHeight + 8;
+  }
+}
+
+// ------------------------------------------- point désigné à la main (sans GPS)
+
+/**
+ * Pose un point à l'endroit montré, en attente de sa profondeur.
+ *
+ * Sans cela l'application est inutilisable ailleurs que sur l'eau : `recordProbe` exige une
+ * position GPS, qu'un ordinateur de bureau n'a pas. On désigne donc l'endroit au lieu d'y
+ * aller — et le relevé qui en sort porte la marque de cette provenance jusque dans le
+ * fichier partagé (voir `makeProbe`, `CorrectionsSync.toFile`).
+ */
+function placePin(lngLat) {
+  app.pin = { lon: lngLat.lng, lat: lngLat.lat, accuracy: null };
+  app.captureOpen = true;
+  if (app.editingProbeId) endProbeEdit();
+  refreshCaptureUi();
+  app.lakeMap.setPin(lngLat);
+
+  const depth = depthAt(app.pin.lon, app.pin.lat);
+  $('cap-input').focus();
+  toast(Number.isFinite(depth)
+    ? `Point posé · la carte y annonce ${depth > 0 ? `${depth.toFixed(1)} m` : 'un fond émergé'} — saisissez la valeur`
+    : 'Point posé hors emprise du modèle');
+}
+
+function clearPin() {
+  if (!app.pin) return;
+  app.pin = null;
+  app.lakeMap.setPin(null);
+  refreshCaptureUi();
 }
 
 // -------------------------------------------------------- correction d'une sonde
@@ -951,6 +1104,7 @@ function beginProbeEdit(id) {
   const record = app.probes.get(id);
   if (!record) return;
 
+  clearPin(); // corriger un point existant abandonne celui qu'on venait de désigner
   app.editingProbeId = id;
   app.captureOpen = true; // corriger un point exige la barre de saisie déployée
   refreshCaptureUi();
@@ -958,10 +1112,11 @@ function beginProbeEdit(id) {
 
   const input = $('cap-input');
   setDepthInput('cap-input', record.sounderDepth);
+  $('cap-radius').value = Probes.radiusOf(record, app.settings.get('correctionRadius_m'));
   $('btn-capture').textContent = 'Enregistrer';
   $('btn-cap-delete').hidden = false;
-  $('btn-cap-cancel').hidden = false;
   $('capture').classList.add('is-editing');
+  refreshCaptureUi();
 
   refreshProbesOnMap();
   input.focus();
@@ -971,27 +1126,30 @@ function beginProbeEdit(id) {
 
 function endProbeEdit() {
   app.editingProbeId = null;
+  disarmAll();
   const input = $('cap-input');
   setDepthInput('cap-input');
   input.blur();
   $('btn-capture').textContent = 'Relever';
   $('btn-cap-delete').hidden = true;
-  $('btn-cap-cancel').hidden = true;
   $('capture').classList.remove('is-editing');
+  refreshCaptureUi();
   refreshProbesOnMap();
 }
 
 function saveProbeEdit() {
   const depth = readDepthInput('cap-input');
   if (depth === null) { toast('Saisissez une profondeur valide'); return; }
-  app.probes.update(app.editingProbeId, { sounderDepth: depth });
+  app.probes.update(app.editingProbeId, {
+    sounderDepth: depth,
+    radius_m: Math.round(clampNumber($('cap-radius'), 1, 200)),
+  });
   endProbeEdit();
   toast(`Sonde corrigée : ${depthLabel(depth)}`);
 }
 
 function deleteEditedProbe() {
   if (!app.editingProbeId) return;
-  if (!confirm('Supprimer cette sonde ?')) return;
   const id = app.editingProbeId;
   endProbeEdit();
   app.probes.remove(id);
@@ -999,8 +1157,14 @@ function deleteEditedProbe() {
 }
 
 function recordProbe() {
-  const position = app.geo.position;
-  if (!position) { toast('Position GPS indisponible'); return; }
+  // Le point désigné à la main l'emporte sur le GPS : quand il y en a un, c'est qu'on a
+  // explicitement montré l'endroit, y compris sur un ordinateur qui n'a aucune position.
+  const pinned = Boolean(app.pin);
+  const position = app.pin ?? app.geo.position;
+  if (!position) {
+    toast('Position GPS indisponible — clic droit sur la carte pour désigner un point', 5000);
+    return;
+  }
 
   const input = $('cap-input');
   const depth = readDepthInput('cap-input');
@@ -1015,14 +1179,17 @@ function recordProbe() {
     levelSource: state.source,
     sounderDepth: depth,
     transducerDepth: app.settings.get('transducer_m'),
+    radius_m: app.settings.get('correctionRadius_m'),
+    fixSource: pinned ? 'map' : 'gps',
     // Comparaison au levé 2009 BRUT (sinon on comparerait la sonde à une carte déjà
     // corrigée par les sondes précédentes — un écart artificiellement nul).
     modelBedZ: app.bed.baseAltitudeAt(position.lon, position.lat),
   }));
 
+  clearPin();
   setDepthInput('cap-input');
   input.blur(); // referme le clavier tactile pour dégager la carte
-  toast(`Sonde ${depthLabel(depth)} enregistrée · ${app.probes.count} au total`);
+  toast(`Sonde ${depthLabel(depth)} enregistrée${pinned ? ' au point désigné' : ''} · ${app.probes.count} au total`);
 }
 
 /**
@@ -1432,11 +1599,10 @@ function wireSim() {
     setSimLevel(app.simBaseLevel);
     $('sim-slider').value = app.simBaseLevel;
   });
-  $('btn-sim-clear').addEventListener('click', () => {
-    if (app.sim.count && confirm('Effacer tous les points témoins ?')) {
-      endSimEdit();
-      app.sim.clear();
-    }
+  wireArmed('btn-sim-clear', 'Confirmer ?', () => {
+    if (!app.sim.count) return;
+    endSimEdit();
+    app.sim.clear();
   });
   $('sim-slider').addEventListener('input', (e) => setSimLevel(Number(e.target.value)));
 
@@ -1444,6 +1610,10 @@ function wireSim() {
   $('btn-sim-up').addEventListener('click', () => nudgeSimPoint(-0.25));
   $('btn-sim-down').addEventListener('click', () => nudgeSimPoint(0.25));
   $('btn-sim-del').addEventListener('click', deleteSimPoint);
+  bind('sim-radius', 'change', (el) => {
+    if (!app.editingSimId) return;
+    app.sim.update(app.editingSimId, { radius_m: Math.round(clampNumber(el, 1, 200)) });
+  });
   app.lakeMap.addEventListener('simselect', (event) => selectSimPoint(event.detail));
 
   app.sim.addEventListener('change', () => {
@@ -1460,16 +1630,21 @@ function wireSim() {
  * s'applique en permanence — pas seulement en mode simulation — pour que la carte affichée
  * en navigation soit bien la « 2009 corrigée ».
  *
- * Deux sources se cumulent : les sondes ✎ « Relever » (mesures réelles, ancrées au GPS,
- * partagées) et les points 🌊 de simulation (locaux, pour tester un étiage). Toutes deux
- * portent une altitude de fond invariante `bedZ`.
+ * Trois sources se cumulent, toutes porteuses d'une altitude de fond invariante `bedZ` :
+ * les sondes ✎ « Relever » (mesures réelles, partagées), les points 🌊 de simulation
+ * (locaux, pour tester un étiage) et les zones ▲ émergées (contours tracés à la main).
+ * Chacune porte son propre rayon d'influence — largeur du fondu au-delà du bord pour une
+ * zone — ou hérite du réglage général quand elle n'en a pas.
  */
 function correctionRecords() {
   const fromProbes = (app.probes?.records ?? [])
     .filter((p) => Number.isFinite(p.bedZ))
-    .map((p) => ({ lon: p.lon, lat: p.lat, bedZ: p.bedZ }));
+    .map((p) => ({ lon: p.lon, lat: p.lat, bedZ: p.bedZ, radius_m: p.radius_m ?? null }));
   const fromSim = app.sim?.records ?? [];
-  return [...fromProbes, ...fromSim];
+  const fromZones = (app.zones?.records ?? [])
+    .filter((z) => Number.isFinite(z.bedZ))
+    .map((z) => ({ ring: z.ring, bedZ: z.bedZ, radius_m: z.feather_m ?? DEFAULT_FEATHER_M }));
+  return [...fromProbes, ...fromSim, ...fromZones];
 }
 
 function applyModelCorrections() {
@@ -1498,6 +1673,7 @@ function enterSim() {
 function exitSim() {
   app.simMode = false;
   app.editingSimId = null;
+  disarmAll();
   $('btn-sim').classList.remove('is-on');
   $('sim').hidden = true;
   refreshCaptureUi();
@@ -1540,7 +1716,11 @@ function addSimPoint(lon, lat) {
   if (!Number.isFinite(bedZ)) { toast('Hors emprise du modèle'); return; }
   const cote = currentLevel().value;
   const depth = Number.isFinite(cote) ? round2(cote - bedZ) : null;
-  const entry = app.sim.add({ lon, lat, bedZ, depth_m: depth, cote_m: Number.isFinite(cote) ? round2(cote) : null });
+  const entry = app.sim.add({
+    lon, lat, bedZ, depth_m: depth,
+    cote_m: Number.isFinite(cote) ? round2(cote) : null,
+    radius_m: app.settings.get('correctionRadius_m'),
+  });
   selectSimPoint(entry.id);
   toast(depth != null
     ? `Relevé posé · ${depth.toFixed(1)} m — ajustez à la profondeur lue`
@@ -1562,6 +1742,7 @@ function endSimEdit() {
 function refreshSimSelection() {
   const record = app.editingSimId ? app.sim.get(app.editingSimId) : null;
   $('sim-sel').hidden = !record;
+  stackBottomBars(); // la ligne de sélection change la hauteur du panneau
   if (!record) return;
   const level = currentLevel().value;
   const depth = Number.isFinite(level) ? level - record.bedZ : NaN;
@@ -1571,6 +1752,9 @@ function refreshSimSelection() {
       ? `Émergé de ${(-depth).toFixed(1)} m`
       : `${depth.toFixed(1)} m d'eau`;
   $('sim-sel-label').textContent = `${head} · fond ${record.bedZ.toFixed(2)} m NGF`;
+  $('sim-radius').value = Number.isFinite(record.radius_m) && record.radius_m > 0
+    ? record.radius_m
+    : app.settings.get('correctionRadius_m');
 }
 
 function nudgeSimPoint(delta) {
@@ -1612,6 +1796,235 @@ function refreshSimOnMap() {
     };
   });
   app.lakeMap.setSimPoints(points);
+}
+
+// ------------------------------------------------------------ zones émergées
+
+/** En dessous, un contour n'a plus de surface : c'est un point, et il y a l'outil pour. */
+const MIN_ZONE_VERTICES = 3;
+
+function wireZones() {
+  $('btn-zone').addEventListener('click', () => (app.zoneMode ? exitZoneMode() : enterZoneMode()));
+  $('btn-zone-exit').addEventListener('click', exitZoneMode);
+  $('btn-zone-undo').addEventListener('click', undoZoneVertex);
+  $('btn-zone-close').addEventListener('click', () => {
+    if (app.editingZoneId) endZoneEdit(); else closeZoneDraft();
+  });
+  wireArmed('btn-zone-del', 'Confirmer ?', deleteSelectedZone);
+
+  // Hauteur et fondu : mémorisés d'une zone à l'autre (on trace rarement un seul îlot), et
+  // appliqués sans attendre quand une zone est sélectionnée — on juge le résultat sur la carte.
+  bind('zone-height', 'change', (el) => {
+    const height = clampNumber(el, -5, 15);
+    app.settings.set('zoneHeight_m', round2(height));
+    if (app.editingZoneId) app.zones.update(app.editingZoneId, { height_m: round2(height) });
+  });
+  bind('zone-feather', 'change', (el) => {
+    const feather = Math.round(clampNumber(el, 0, 60));
+    app.settings.set('zoneFeather_m', feather);
+    if (app.editingZoneId) app.zones.update(app.editingZoneId, { feather_m: feather });
+  });
+
+  bind('set-zones', 'change', (el) => app.settings.set('showZones', el.checked));
+  $('btn-zone-geojson').addEventListener('click', () => download('relieflac-zones.geojson', app.zones.toGeoJson(), 'application/geo+json'));
+  wireArmed('btn-zone-clear', 'Confirmer ?', () => {
+    if (!app.zones.count) return;
+    endZoneEdit();
+    app.zones.clear();
+  });
+
+  app.zones.addEventListener('change', () => {
+    applyModelCorrections(); // une zone corrige la carte comme un relevé
+    refreshZonesOnMap();
+    refreshZonesUi();
+    refreshZonePanel();
+    // Volontairement pas de synchronisation : une zone est une interprétation, et le
+    // fichier partagé ne transporte que des points mesurés.
+  });
+}
+
+function enterZoneMode() {
+  app.zoneMode = true;
+  app.zoneDraft = [];
+  app.editingZoneId = null;
+  if (app.editingProbeId) endProbeEdit();
+  clearPin();
+  refreshCaptureUi(); // en tracé, la barre de saisie encombre pour rien
+  $('zone-height').value = app.settings.get('zoneHeight_m');
+  $('zone-feather').value = app.settings.get('zoneFeather_m');
+  refreshZonePanel();
+  toast('Posez les sommets du contour ; clic droit ou ✓ pour fermer', 4000);
+}
+
+function exitZoneMode() {
+  app.zoneMode = false;
+  app.zoneDraft = [];
+  app.editingZoneId = null;
+  disarmAll();
+  refreshZonePanel();
+  refreshZonesOnMap();
+  refreshCaptureUi();
+}
+
+function addZoneVertex(lngLat) {
+  app.zoneDraft.push([lngLat.lng, lngLat.lat]);
+  app.lakeMap.setZoneDraft(app.zoneDraft);
+  refreshZonePanel();
+}
+
+function undoZoneVertex() {
+  app.zoneDraft.pop();
+  app.lakeMap.setZoneDraft(app.zoneDraft);
+  refreshZonePanel();
+}
+
+/** Referme le contour et enregistre la zone. */
+function closeZoneDraft() {
+  const ring = dedupeRing(app.zoneDraft);
+  if (ring.length < MIN_ZONE_VERTICES) {
+    toast(`Il faut au moins ${MIN_ZONE_VERTICES} sommets pour délimiter une zone`);
+    return;
+  }
+  const state = currentLevel();
+  if (state.value == null) { toast('Cote du lac inconnue — impossible de caler la zone'); return; }
+
+  const height = round2(clampNumber($('zone-height'), -5, 15));
+  const entry = app.zones.add({
+    ring,
+    // L'altitude du sol, invariante : c'est elle qu'on garde, jamais la hauteur d'eau.
+    bedZ: round2(groundAltitude(state.value, height)),
+    height_m: height,
+    cote_m: round2(state.value),
+    feather_m: Math.round(clampNumber($('zone-feather'), 0, 60)),
+  });
+
+  app.zoneDraft = [];
+  app.lakeMap.setZoneDraft([]);
+  selectZone(entry.id);
+  toast(`Zone de ${formatArea(ringArea(ring))} · sol à ${entry.bedZ.toFixed(2)} m NGF`, 4000);
+}
+
+function selectZone(id) {
+  if (!app.zones.get(id)) return;
+  app.zoneMode = true;
+  app.zoneDraft = [];
+  app.editingZoneId = app.editingZoneId === id ? null : id;
+  const zone = app.editingZoneId ? app.zones.get(id) : null;
+  if (zone) {
+    $('zone-height').value = zone.height_m ?? app.settings.get('zoneHeight_m');
+    $('zone-feather').value = zone.feather_m ?? app.settings.get('zoneFeather_m');
+  }
+  refreshCaptureUi();
+  refreshZonePanel();
+  refreshZonesOnMap();
+}
+
+function endZoneEdit() {
+  app.editingZoneId = null;
+  disarmAll();
+  refreshZonePanel();
+  refreshZonesOnMap();
+}
+
+function deleteSelectedZone() {
+  if (!app.editingZoneId) return;
+  const id = app.editingZoneId;
+  endZoneEdit();
+  app.zones.remove(id);
+  toast('Zone supprimée');
+}
+
+/** Unique endroit où l'état du panneau de zone est rendu — tracé en cours ou zone choisie. */
+function refreshZonePanel() {
+  const zone = app.editingZoneId ? app.zones.get(app.editingZoneId) : null;
+  const tracing = app.zoneMode && !zone;
+
+  $('zone').hidden = !app.zoneMode;
+  $('btn-zone').classList.toggle('is-on', app.zoneMode);
+  $('btn-zone').setAttribute('aria-pressed', String(app.zoneMode));
+  app.lakeMap.setZoneMode(app.zoneMode, tracing);
+  if (!app.zoneMode) return;
+
+  $('zone-title').textContent = zone ? 'Zone sélectionnée' : 'Nouvelle zone émergée';
+  $('btn-zone-undo').hidden = Boolean(zone);
+  $('btn-zone-del').hidden = !zone;
+  $('btn-zone-close').textContent = zone ? '✓ Terminer' : '✓ Fermer la zone';
+  $('btn-zone-close').disabled = !zone && dedupeRing(app.zoneDraft).length < MIN_ZONE_VERTICES;
+  $('btn-zone-undo').disabled = app.zoneDraft.length === 0;
+
+  if (zone) {
+    const level = currentLevel().value;
+    const depth = Number.isFinite(level) ? level - zone.bedZ : NaN;
+    const state = !Number.isFinite(depth)
+      ? 'cote inconnue'
+      : depth <= 0
+        ? `émergée de ${(-depth).toFixed(1)} m à la cote du jour`
+        : `sous ${depth.toFixed(1)} m d'eau à la cote du jour`;
+    $('zone-hint').textContent = 'Réglez la hauteur du sol, ou supprimez la zone.';
+    $('zone-meta').textContent = `${formatArea(ringArea(zone.ring))} · sol à `
+      + `${zone.bedZ.toFixed(2)} m NGF · ${state} · tracée à la cote `
+      + `${Number.isFinite(zone.cote_m) ? zone.cote_m.toFixed(2) : '—'}`;
+  } else {
+    const count = app.zoneDraft.length;
+    $('zone-hint').textContent = count === 0
+      ? 'Touchez la carte pour poser les sommets du contour.'
+      : `Clic droit, double-clic ou ✓ pour refermer le contour.`;
+    $('zone-meta').textContent = count < MIN_ZONE_VERTICES
+      ? `${count} sommet${count > 1 ? 's' : ''} — il en faut ${MIN_ZONE_VERTICES}`
+      : `${count} sommets · ${formatArea(ringArea(app.zoneDraft))}`;
+  }
+  stackBottomBars();
+}
+
+/** Contours enregistrés, dans la couleur de terre du préréglage actif. */
+function refreshZonesOnMap() {
+  if (!app.zones || !app.lakeMap) return;
+  if (!app.settings.get('showZones')) { app.lakeMap.setZones([]); return; }
+  const color = app.palette.presets[app.settings.get('preset')].emerged_color;
+  app.lakeMap.setZones(app.zones.records.map((z) => ({
+    id: z.id,
+    ring: closeRing(z.ring),
+    selected: z.id === app.editingZoneId,
+  })), color);
+}
+
+function refreshZonesUi() {
+  const count = app.zones?.count ?? 0;
+  $('zone-count').textContent = count
+    ? `${count} zone${count > 1 ? 's' : ''} tracée${count > 1 ? 's' : ''}.`
+    : 'Aucune zone tracée.';
+  $('btn-zone-geojson').disabled = !count;
+  $('btn-zone-clear').disabled = !count;
+  $('set-zones').checked = app.settings.get('showZones');
+
+  const level = currentLevel().value;
+  const list = $('zone-records');
+  list.replaceChildren(...(app.zones?.records ?? []).slice().reverse().map((z) => {
+    const item = document.createElement('li');
+    const when = new Date(z.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+    const depth = Number.isFinite(level) ? level - z.bedZ : NaN;
+    const state = !Number.isFinite(depth) ? '—' : depth <= 0 ? `émergée +${(-depth).toFixed(1)} m` : `sous ${depth.toFixed(1)} m d'eau`;
+    item.innerHTML = `<span class="residual">${formatArea(ringArea(z.ring))}</span>
+      <span class="hint">${state} · sol ${z.bedZ.toFixed(2)} m NGF · ${when}</span>`;
+
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.textContent = '✎';
+    edit.title = 'Régler cette zone sur la carte';
+    edit.addEventListener('click', () => { location.hash = '#/'; selectZone(z.id); });
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.title = 'Supprimer cette zone';
+    remove.addEventListener('click', () => {
+      if (app.editingZoneId === z.id) endZoneEdit();
+      app.zones.remove(z.id);
+    });
+
+    item.append(edit, remove);
+    return item;
+  }));
 }
 
 // -------------------------------------------------------------------- carte
@@ -1667,6 +2080,21 @@ function wireMap() {
       : 'Hors emprise du modèle');
   });
 
+  // Clic droit : désigne une position, faute de GPS. En simulation, où le clic simple pose
+  // déjà un témoin, il pose une vraie sonde — c'est le seul geste qui les distingue.
+  app.lakeMap.addEventListener('pinpoint', (event) => placePin(event.detail));
+
+  // Clic en mode zone. Trois intentions se disputent le même geste, départagées par ce
+  // qui est déjà commencé : tant qu'aucun sommet n'est posé, toucher un contour existant
+  // le reprend ; une zone reprise se lâche en touchant ailleurs ; sinon on pose un sommet.
+  app.lakeMap.addEventListener('zonevertex', (event) => {
+    const { lngLat, zoneId } = event.detail;
+    if (zoneId && app.zoneDraft.length === 0) { selectZone(zoneId); return; }
+    if (app.editingZoneId) { endZoneEdit(); return; }
+    addZoneVertex(lngLat);
+  });
+  app.lakeMap.addEventListener('zoneclose', closeZoneDraft);
+
   $('btn-cote').addEventListener('click', () => { location.hash = '#/parametres'; });
   refreshCameraUi();
 }
@@ -1695,6 +2123,7 @@ function refreshCameraUi() {
 // ------------------------------------------------------------------ routeur
 
 function route() {
+  disarmAll(); // un bouton amorcé ne doit pas attendre au retour sur l'écran
   const target = ROUTES[location.hash] ?? 'vue-carte';
   Object.values(ROUTES).forEach((id) => {
     $(id).classList.toggle('is-active', id === target);

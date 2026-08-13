@@ -169,9 +169,42 @@ export class LakeMap extends EventTarget {
     // avant de se lever n'y émet aucun `pointerup`, et le suivi resterait suspendu à vie.
     window.addEventListener('pointerup', release, { passive: true });
     window.addEventListener('pointercancel', release, { passive: true });
-    this.map.on('click', (event) => this.dispatchEvent(
-      new CustomEvent('probe', { detail: event.lngLat }),
-    ));
+    // Hors mode zone, le clic reste ce qu'il a toujours été : une sonde ponctuelle. On ne
+    // teste même pas les contours — une zone couvre parfois un hectare, et l'ouvrir en
+    // édition au moindre toucher rendrait la lecture de profondeur inaccessible dessus.
+    this.map.on('click', (event) => {
+      if (this.zoneMode) {
+        this.dispatchEvent(new CustomEvent('zonevertex', {
+          detail: { lngLat: event.lngLat, zoneId: this.#zoneAt(event.point) },
+        }));
+        return;
+      }
+      this.dispatchEvent(new CustomEvent('probe', { detail: event.lngLat }));
+    });
+
+    /**
+     * Clic droit : pose un point là où l'on montre, sans attendre le GPS.
+     *
+     * C'est ce qui rend l'application manipulable sur un ordinateur, où il n'y a pas de
+     * position : on désigne l'endroit au lieu d'y aller. MapLibre émet aussi `contextmenu`
+     * sur un appui long tactile, donc le geste existe également sur le téléphone.
+     */
+    this.map.on('contextmenu', (event) => {
+      event.preventDefault?.();
+      if (this.tracing) { this.dispatchEvent(new CustomEvent('zoneclose')); return; }
+      this.dispatchEvent(new CustomEvent('pinpoint', { detail: event.lngLat }));
+    });
+    // Le menu natif du navigateur s'ouvrirait par-dessus le point qu'on vient de poser :
+    // sur cette carte, le clic droit appartient à l'application.
+    this.map.getContainer().addEventListener('contextmenu', (event) => event.preventDefault());
+
+    // Double-clic : referme la zone en cours de tracé. Le zoom au double-clic est neutralisé
+    // pendant le tracé (voir setZoneMode), sinon fermer une zone la ferait sauter d'un niveau.
+    this.map.on('dblclick', (event) => {
+      if (!this.tracing) return;
+      event.preventDefault();
+      this.dispatchEvent(new CustomEvent('zoneclose'));
+    });
     // Diagnostic : on retient la dernière erreur MapLibre (expression de style invalide,
     // tuile en échec…), pour la remonter à l'écran.
     this.map.on('error', (e) => { this.lastError = e?.error?.message || String(e?.error || e); });
@@ -195,6 +228,61 @@ export class LakeMap extends EventTarget {
         'circle-opacity': 1,
         'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 15, 1.8, 19, 2.6],
         'circle-stroke-color': '#0b1a2b',
+      },
+    });
+
+    // Zones émergées tracées à la main. Le fond colorié dit déjà, par sa couleur, que le
+    // terrain est hors d'eau : la zone n'a donc pas à le repeindre, seulement à montrer où
+    // s'arrête ce qu'on a affirmé. D'où un contour franc et un remplissage presque nul,
+    // renforcé sur la seule zone sélectionnée.
+    map.addSource('zones', { type: 'geojson', data: EMPTY });
+    map.addLayer({
+      id: 'zones-fond',
+      type: 'fill',
+      source: 'zones',
+      paint: {
+        'fill-color': ['get', 'color'],
+        'fill-opacity': ['case', ['get', 'selected'], 0.32, 0.12],
+      },
+    });
+    map.addLayer({
+      id: 'zones-bord',
+      type: 'line',
+      source: 'zones',
+      paint: {
+        'line-color': ['get', 'color'],
+        'line-width': ['case', ['get', 'selected'], 3, 2],
+        'line-opacity': 0.95,
+      },
+    });
+
+    // Tracé en cours : mêmes couleurs, mais en pointillé et sommets visibles — on doit voir
+    // que rien n'est encore décidé, et pouvoir viser le sommet qu'on va reprendre.
+    map.addSource('zone-trace', { type: 'geojson', data: EMPTY });
+    map.addLayer({
+      id: 'zone-trace-fond',
+      type: 'fill',
+      source: 'zone-trace',
+      filter: ['==', ['geometry-type'], 'Polygon'],
+      paint: { 'fill-color': '#c8a165', 'fill-opacity': 0.2 },
+    });
+    map.addLayer({
+      id: 'zone-trace-ligne',
+      type: 'line',
+      source: 'zone-trace',
+      filter: ['==', ['geometry-type'], 'LineString'],
+      paint: { 'line-color': '#f5d9a8', 'line-width': 2, 'line-dasharray': [2, 2] },
+    });
+    map.addLayer({
+      id: 'zone-trace-sommets',
+      type: 'circle',
+      source: 'zone-trace',
+      filter: ['==', ['geometry-type'], 'Point'],
+      paint: {
+        'circle-radius': 5,
+        'circle-color': '#f5d9a8',
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#3a2606',
       },
     });
 
@@ -336,6 +424,87 @@ export class LakeMap extends EventTarget {
       });
       return new Marker({ element, anchor: 'center' }).setLngLat([p.lon, p.lat]).addTo(this.map);
     });
+  }
+
+  /**
+   * Point désigné à la main, en attente de sa profondeur.
+   *
+   * Il ne s'agit pas encore d'une sonde : tant que la valeur n'est pas saisie, ce repère ne
+   * dit que « c'est ici ». On le distingue donc nettement des pastilles chiffrées, qui,
+   * elles, portent une mesure.
+   */
+  setPin(lngLat) {
+    if (!lngLat) { this.pinMarker?.remove(); this.pinMarker = null; return; }
+    if (!this.pinMarker) {
+      const element = document.createElement('div');
+      element.className = 'pin-mark';
+      element.title = 'Point posé à la main — saisissez la profondeur';
+      this.pinMarker = new Marker({ element, anchor: 'center' });
+    }
+    this.pinMarker.setLngLat([lngLat.lng ?? lngLat.lon, lngLat.lat]).addTo(this.map);
+  }
+
+  /** Zones émergées enregistrées. Les anneaux sont attendus fermés (premier sommet répété). */
+  setZones(zones, color = '#c8a165') {
+    const source = this.map.getSource('zones');
+    if (!source) return;
+    source.setData({
+      type: 'FeatureCollection',
+      features: zones.map((z) => ({
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [z.ring] },
+        properties: { id: z.id, selected: Boolean(z.selected), color },
+      })),
+    });
+  }
+
+  /** Zone en cours de tracé : sommets posés, ligne, et remplissage dès trois points. */
+  setZoneDraft(points) {
+    const source = this.map.getSource('zone-trace');
+    if (!source) return;
+    const features = points.map((p) => ({
+      type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: {},
+    }));
+    if (points.length >= 2) {
+      const line = points.length >= 3 ? [...points, points[0]] : points;
+      features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: line }, properties: {} });
+    }
+    if (points.length >= 3) {
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [[...points, points[0]]] },
+        properties: {},
+      });
+    }
+    source.setData({ type: 'FeatureCollection', features });
+  }
+
+  /**
+   * Mode zone : le clic sert au tracé (et à la reprise d'un contour) au lieu de sonder.
+   *
+   * `tracing` distingue le tracé en cours de la simple sélection : c'est lui qui neutralise
+   * le zoom au double-clic, sans quoi refermer un contour ferait sauter la carte d'un
+   * niveau au moment précis où l'on vise.
+   */
+  setZoneMode(active, tracing) {
+    this.zoneMode = Boolean(active);
+    this.tracing = Boolean(tracing);
+    if (this.tracing) this.map.doubleClickZoom.disable();
+    else { this.map.doubleClickZoom.enable(); this.setZoneDraft([]); }
+    this.map.getCanvas().style.cursor = this.zoneMode ? 'crosshair' : '';
+  }
+
+  /**
+   * Zone sous le doigt, ou null. La boîte de tolérance vaut mieux qu'un point exact : sur
+   * un écran tactile, viser l'intérieur d'un contour de quelques pixels est illusoire.
+   */
+  #zoneAt(point) {
+    try {
+      const box = [[point.x - 6, point.y - 6], [point.x + 6, point.y + 6]];
+      return this.map.queryRenderedFeatures(box, { layers: ['zones-fond'] })[0]?.properties?.id ?? null;
+    } catch {
+      return null; // couche pas encore ajoutée : rien à sélectionner
+    }
   }
 
   /**

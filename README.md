@@ -42,6 +42,12 @@ mise à jour d'uniforme.
 - **hachurage des zones non sondées**, et provenance annoncée sous le bateau ;
 - **mode Étalonnage** : comparer la lecture du sondeur au modèle pour lever l'inconnue
   de calage, avec verdict sur la dispersion des écarts ;
+- **relevés qui corrigent la carte** : chaque sonde saisie aplanit un disque à sa valeur
+  autour d'elle, puis se fond vers le levé de 2009 ; deux relevés voisins fusionnent au
+  lieu de s'empiler, et le rayon se règle point par point ;
+- **zones émergées** ▲ : tracer le contour d'un îlot que le levé de 2009 a comblé et le
+  porter à sa hauteur hors d'eau — il découvre ou se noie ensuite avec la cote ;
+- **clic droit** : poser un point à l'endroit montré, sans signal GPS (essais au bureau) ;
 - paramètres complets, export/import de profil.
 
 ## Ce que vaut le modèle

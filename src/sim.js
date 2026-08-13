@@ -22,10 +22,10 @@ export class SimPoints extends EventTarget {
     return this.records.length;
   }
 
-  add({ lon, lat, bedZ, depth_m = null, cote_m = null }) {
+  add({ lon, lat, bedZ, depth_m = null, cote_m = null, radius_m = null }) {
     const entry = {
       id: crypto.randomUUID(), at: new Date().toISOString(),
-      lon, lat, bedZ, depth_m, cote_m,
+      lon, lat, bedZ, depth_m, cote_m, radius_m,
     };
     this.records.push(entry);
     this.#persist();
