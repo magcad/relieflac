@@ -198,10 +198,17 @@ a { color: var(--accent); }
    rapport, et 328 px de colonne, soit 40 % de la hauteur d'un iPhone, occupés en
    permanence. L'édition est partie sous « Outils », dernier bouton du rail. */
 
+/* `--stack` : hauteur des barres flottantes ouvertes, publiée par `stackBottomBars`. Sans
+   elle, la barre de saisie « Relever » se posait sur le bouton Outils — donc sur le seul
+   moyen de quitter le mode qu'on venait d'ouvrir. */
 .rail {
-  position: absolute; right: .5rem; bottom: calc(var(--dock) + .6rem); z-index: 5;
+  position: absolute; right: .5rem; z-index: 5;
+  bottom: calc(var(--dock) + .6rem + var(--stack, 0px));
   display: flex; flex-direction: column; align-items: center; gap: .4rem;
 }
+/* Repli quand un panneau haut ne laisse plus la place : le pincement remplace le zoom,
+   rien ne remplace le bouton Outils. */
+.rail.is-compact .rail__group { display: none; }
 .rail__btn {
   display: grid; place-items: center; width: 44px; height: 44px; flex: none;
   background: var(--glass); border: 1px solid var(--line); border-radius: var(--r-md);
@@ -302,7 +309,8 @@ a { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { .alarm { animation: none; } }
 
 .toast {
-  position: absolute; left: 50%; bottom: calc(var(--dock) + 1.2rem); z-index: 8;
+  position: absolute; left: 50%; z-index: 8;
+  bottom: calc(var(--dock) + 1.2rem + var(--stack, 0px));
   transform: translateX(-50%); max-width: 90vw;
   padding: .55rem .9rem; border-radius: var(--r-sm);
   background: var(--glass-2); border: 1px solid var(--line); font-size: .85rem;
@@ -797,6 +805,9 @@ legend { padding: 0 .4rem; color: var(--muted); font-size: .78rem; text-transfor
 .loading__mark { width: 84px; height: 84px; }
 .loading p { margin: 0; }
 
+/* Échelle et mentions de source : posées juste au-dessus du dock, et non dedans, où
+   l'échelle chevauchait le chiffre de profondeur. La marge droite dégage le rail de
+   caméra, qui occupe ce coin au repos. */
 .maplibregl-ctrl-attrib { font-size: .65rem; }
-.maplibregl-ctrl-bottom-left { margin-bottom: calc(var(--dock) - .6rem); }
-.maplibregl-ctrl-bottom-right { margin-bottom: calc(var(--dock) - .6rem); }
+.maplibregl-ctrl-bottom-left { margin-bottom: calc(var(--dock) + .2rem); }
+.maplibregl-ctrl-bottom-right { margin-bottom: calc(var(--dock) + .2rem); margin-right: 3.7rem; }

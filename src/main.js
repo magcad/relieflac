@@ -1084,6 +1084,34 @@ function stackBottomBars() {
       : '';
     offset += element.offsetHeight + 8;
   }
+  liftRail(offset);
+}
+
+/**
+ * Remonte le rail de caméra au-dessus des barres ouvertes.
+ *
+ * Le rail est ancré sur le dock, et les panneaux de correction visent le même ancrage :
+ * ouvrir « Relever » posait la barre de saisie par-dessus le bouton Outils, donc par-dessus
+ * le seul moyen de ressortir du mode. La hauteur de la pile est déjà mesurée juste au-dessus,
+ * il suffit de la publier — le rail la lit dans `--stack`.
+ *
+ * Quand la place manque en haut, on replie d'abord la capsule de zoom plutôt que de laisser
+ * le rail glisser sous le bandeau de cap : c'est le contrôle le plus remplaçable, le
+ * pincement fait la même chose, alors que le bouton Outils, lui, n'a pas de substitut.
+ */
+function liftRail(stack) {
+  const rail = document.querySelector('.rail');
+  const view = $('vue-carte');
+  if (!rail || !view) return;
+
+  const strip = document.querySelector('.navstrip')?.offsetHeight ?? 0;
+  const dock = document.querySelector('.dock')?.offsetHeight ?? 0;
+  const room = () => view.clientHeight - strip - dock - rail.offsetHeight - 18;
+
+  rail.classList.remove('is-compact');
+  if (stack > room()) rail.classList.add('is-compact');
+  const lift = Math.max(0, Math.min(stack, room()));
+  document.documentElement.style.setProperty('--stack', `${lift}px`);
 }
 
 // ------------------------------------------- point désigné à la main (sans GPS)
@@ -2201,6 +2229,11 @@ function wireMap() {
   app.lakeMap.addEventListener('zoneclose', closeZoneDraft);
 
   $('btn-cote').addEventListener('click', () => { location.hash = '#/parametres'; });
+
+  // Rotation de l'écran : la hauteur disponible change, donc la remontée du rail et son
+  // repli. Sans cela, un panneau ouvert avant la bascule laisse le rail au mauvais endroit.
+  window.addEventListener('resize', stackBottomBars);
+
   refreshCameraUi();
   refreshBasemapUi();
 }
