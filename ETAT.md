@@ -6,8 +6,14 @@
 **Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 44 gestes, tous passants
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
-Ce document sert à reprendre le travail sans relire tout l'historique.
-La spécification complète est dans [SPECIFICATION.md](SPECIFICATION.md).
+Ce document sert à reprendre le travail sans relire tout l'historique, **y compris depuis
+une autre machine et un autre compte GitHub** : le § 4 part d'un dépôt fraîchement cloné et
+dit ce qui dépend de l'identité du propriétaire — publication, workflows, jeton de
+synchronisation — et ce qui n'en dépend pas, c'est-à-dire presque tout.
+
+La spécification complète est dans [SPECIFICATION.md](SPECIFICATION.md) : le « pourquoi »
+de chaque décision y est, avec les chiffres. Ce document-ci ne garde que l'état et les
+pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au besoin.
 
 ---
 
@@ -277,12 +283,77 @@ WebODM, fusionner via `import_soundings.py`. Non commencé — dépend de la bas
 
 ## 4. Reprendre le travail
 
-### Outillage
+### Reprise à froid, sur une autre machine
 
-Déjà installé sur la machine : Python 3.12, Node 24, gh 2.97, plus
-`numpy scipy shapely pyproj Pillow pypdf pdfplumber`.
+Le dépôt se suffit à lui-même : la grille bathymétrique (`data/bed.png`, `bed.json`,
+`coverage.png`), le levé, le contour et la cote sont **versionnés**. Un clone et un serveur
+statique suffisent à voir l'application marcher — rien à reconstruire, rien à générer.
 
-`gh` est authentifié en HTTPS. Le compte GitHub est **`magcad`**.
+```bash
+git clone https://github.com/magcad/relieflac.git
+cd relieflac
+python tools/serve.py 8123
+```
+
+Puis ouvrir <http://localhost:8123>. Il faut **du réseau** : les fonds de carte viennent du
+WMTS de l'IGN et ne sont pas embarqués.
+
+Prérequis réels, par usage :
+
+| Pour | Il faut |
+|---|---|
+| Faire tourner l'application et les vérifications | Python 3 (pour `tools/serve.py`) et un navigateur récent |
+| Reconstruire le modèle bathymétrique | Python 3.12 + `numpy scipy shapely pyproj Pillow` |
+| Lire les PDF de source (levé 2011, rapports) | en plus : `pypdf pdfplumber` |
+| Remettre à jour MapLibre dans `vendor/` | Node (`npm install`, puis `tools/vendor_maplibre.py`) |
+| Piloter le dépôt en ligne d'action | `gh`, authentifié — sinon `git` seul suffit |
+
+Ce qui **n'est pas** dans le dépôt et se retélécharge : `data/rge_alti.npy` (4,9 Mo,
+`tools/fetch_rge_alti.py`), `.cache/` (archives sources, 14 Mo pour le seul fichier OFB),
+`node_modules/`. Aucun n'est nécessaire pour faire tourner l'application.
+
+Il n'y a **aucune étape de construction** : ce sont des modules ES natifs, le code lu est
+le code exécuté.
+
+### Comptes et droits — ce qui change si ce n'est pas `magcad`
+
+Le compte GitHub d'origine est **`magcad`**, propriétaire de `magcad/relieflac` (public,
+branche `main`, publié par GitHub Pages sous `https://magcad.github.io/relieflac/`).
+Rien dans l'application ne dépend d'une identité : tout est public en lecture. Ce qui
+change avec un autre compte tient en trois points.
+
+**1. Publier le site.** Pousser sur `main` déclenche le déploiement Pages. Sans droit
+d'écriture sur `magcad/relieflac`, il faut un **fork** ou un dépôt neuf, puis activer Pages
+dessus (source : branche `main`, dossier racine). Le fichier `.nojekyll` à la racine est
+indispensable — sans lui, Jekyll réécrit le site et renvoie un 404.
+
+**2. Les deux workflows** (`.github/workflows/`) tournent avec le `GITHUB_TOKEN` fourni
+automatiquement par Actions : rien à configurer, ils suivent le fork.
+
+| Workflow | Déclenchement | Ce qu'il fait |
+|---|---|---|
+| `level.yml` | horaire (`7 * * * *`) + manuel | relève la cote EDF côté serveur — l'API n'a **aucun** en-tête CORS, donc inappelable depuis la page — et commite `data/level.json` |
+| `build-bathy.yml` | manuel | reconstruit la grille et commite `data/` |
+
+Conséquence pratique : `main` reçoit des commits tout seul, toutes les heures. **Toujours
+`git pull --rebase` avant de pousser**, et lire la sortie de `push` (voir § 6).
+
+**3. La synchronisation des relevés.** Les sondes ✎ saisies dans l'application sont
+publiées dans `data/corrections/vassiviere.json` par l'API GitHub, depuis le navigateur.
+Modèle « le propriétaire écrit, tout le monde lit » : le jeton d'écriture ne peut pas être
+partagé, puisque le code est lisible par tous.
+
+- **Sans jeton** — le cas de tout visiteur — l'application lit les relevés publiés et
+  fonctionne normalement. Les sondes saisies restent locales, et l'écran de synchronisation
+  affiche « lecture seule ».
+- **Avec jeton**, l'appareil peut publier. Créer un *fine-grained personal access token*
+  limité au seul dépôt, permission **Contents : read and write**, puis le coller dans
+  Paramètres → Synchronisation. Il est rangé sous `relieflac.token.v1` dans le stockage
+  local du navigateur, n'est **jamais** exporté avec le profil, et n'apparaît nulle part
+  dans le dépôt.
+- Pour viser **un autre dépôt** (fork, autre plan d'eau), changer les valeurs par défaut
+  `syncRepo`, `syncPath` et `syncWaterbody` dans [`src/settings.js`](src/settings.js). Le
+  format de fichier est générique (`schema`, `waterbody`, `datum`) et resservira tel quel.
 
 ### Servir l'application en local
 
@@ -321,7 +392,7 @@ python tools/preview_grid.py            # contrôle visuel → data/preview.png
 
 ### Vérifications
 
-Ouvrir `/test/`. 122 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 124 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
 simulation**, **forme de la correction (plateau, fondu, indépendance à l'ordre) et zones
@@ -344,6 +415,43 @@ carte d'import, le reste du code ne voit pas la différence — et le banc provo
 chargé depuis `index.html` lui-même : rien à tenir à jour de ce côté. Couvre le point posé
 sans GPS, les quatre chemins de suppression, le tracé et la reprise d'une zone, et la
 survie d'une suppression à la synchronisation.
+
+Ce banc tourne sur la **même origine** que l'application, donc sur ses vraies données : il
+met de côté toutes les clés `relieflac.*` du stockage local — jeton compris, sans quoi une
+sonde d'essai partirait vers le dépôt comme une vraie — et les restitue à la fin, même en
+cas d'échec ou de page quittée en route. Le rapport le confirme en dernière ligne.
+
+### Déployer
+
+Pousser sur `main` **est** le déploiement : GitHub Pages reconstruit le site dans la
+minute. Trois gestes, dans cet ordre, et aucun n'est facultatif :
+
+```bash
+git pull --rebase          # le workflow horaire a commité entre-temps
+git push origin main       # LIRE la sortie : un rejet est silencieux si on la masque
+gh run list --limit 1      # attendre « completed success »
+```
+
+Avant de pousser, **monter les deux numéros de version** — `VERSION` dans
+[`src/version.js`](src/version.js) et `CACHE` dans [`sw.js`](sw.js). C'est le seul moyen de
+savoir, depuis le téléphone, si la version installée est bien la nouvelle : le numéro
+s'affiche dans Paramètres, et le bouton « Recharger la dernière version » purge les caches.
+Sans cette montée, un iPhone peut resservir l'ancienne version indéfiniment.
+
+Contrôles après déploiement, qui prennent trente secondes :
+
+```bash
+curl -s https://magcad.github.io/relieflac/src/version.js | tail -1
+```
+
+puis ouvrir <https://magcad.github.io/relieflac/test/> et
+<https://magcad.github.io/relieflac/test/interaction.html> — les deux doivent afficher le
+même compte qu'en local.
+
+**Piège du préfixe** : le site est servi à la **racine** en local et sous **`/relieflac/`**
+sur Pages. Toute adresse absolue (`/src/...`) marche ici et casse là-bas. C'est ce qui a
+mis le banc d'essai hors service à sa première mise en ligne ; il utilise désormais une
+base relative (`<base href="../">`), y compris pour les clés de sa carte d'import.
 
 ---
 
