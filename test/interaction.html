@@ -4,10 +4,12 @@
 <meta charset="utf-8">
 <title>ReliefLac — enchaînements de l'interface</title>
 <!-- L'application charge ses données par des adresses relatives (`config/palette.json`,
-     `data/bed.png`) : sans cette base, elles seraient cherchées dans `test/`. -->
-<base href="/">
-<link rel="stylesheet" href="/vendor/maplibre-gl.css">
-<link rel="stylesheet" href="/app.css">
+     `data/bed.png`) : sans cette base, elles seraient cherchées dans `test/`. Relative et
+     non absolue, car le site est servi à la racine en local mais sous `/relieflac/` sur
+     GitHub Pages — une base absolue marchait ici et cassait tout là-bas. -->
+<base href="../">
+<link rel="stylesheet" href="./vendor/maplibre-gl.css">
+<link rel="stylesheet" href="./app.css">
 <style>
   /* Le rapport se pose par-dessus l'application, qui tourne réellement en dessous. */
   #rapport {
@@ -36,8 +38,11 @@ une page masquée. Les gestes (clic droit, toucher d'une pastille, tracé d'un c
 provoqués sur cette carte factice, et l'on vérifie ce qui en résulte à l'écran.</p>
 <p id="etat">Démarrage…</p></div>
 
+<!-- Les clés d'une carte d'import se résolvent contre la base du document ; `src/main.js`,
+     lui, demande `./map.js` depuis `src/`. Les deux tombent donc sur la même adresse, quel
+     que soit le préfixe sous lequel le site est servi. -->
 <script type="importmap">
-{ "imports": { "/src/map.js": "/test/stub-map.js" } }
+{ "imports": { "./src/map.js": "./test/stub-map.js" } }
 </script>
 
 <script>
@@ -54,6 +59,6 @@ Object.defineProperty(document, 'visibilityState', { get: () => 'visible' });
 Object.defineProperty(navigator, 'serviceWorker', { get: () => undefined });
 </script>
 
-<script type="module" src="/test/interaction.js"></script>
+<script type="module" src="./test/interaction.js"></script>
 </body>
 </html>

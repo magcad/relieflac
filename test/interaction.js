@@ -23,6 +23,34 @@ function press(id) {
   $(id).click();
 }
 
+// ------------------------------------------------- emprunt du stockage de l'appareil
+//
+// Le banc tourne sur la MÊME origine que l'application : ses sondes, ses zones, ses
+// réglages et son jeton d'écriture sont là, à portée. Deux dangers, tous deux réels sur le
+// site publié : effacer des relevés que l'utilisateur a pris sur l'eau, et — pire —
+// déclencher un envoi vers le dépôt, puisqu'une sonde ajoutée ici serait poussée comme une
+// vraie dès lors qu'un jeton traîne. On met donc tout de côté avant de commencer, jeton
+// compris (sans jeton, la synchronisation reste en lecture seule), et on remet l'appareil
+// exactement dans l'état où on l'a trouvé — y compris si le banc échoue en route.
+
+const KEPT = new Map();
+
+function borrowStorage() {
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (key?.startsWith('relieflac.')) KEPT.set(key, localStorage.getItem(key));
+  }
+  for (const key of KEPT.keys()) localStorage.removeItem(key);
+}
+
+function returnStorage() {
+  for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+    const key = localStorage.key(i);
+    if (key?.startsWith('relieflac.')) localStorage.removeItem(key);
+  }
+  for (const [key, value] of KEPT) localStorage.setItem(key, value);
+}
+
 const stored = (key) => {
   try { return JSON.parse(localStorage.getItem(key)) ?? []; } catch { return []; }
 };
@@ -43,7 +71,7 @@ async function until(condition, timeout = 5000) {
 async function boot() {
   // Le balisage vient de l'application elle-même : dupliquer les écrans ici, ce serait
   // vérifier une copie qui divergerait au premier bouton ajouté.
-  const html = await fetch('/index.html', { cache: 'no-cache' }).then((r) => r.text());
+  const html = await fetch('./index.html', { cache: 'no-cache' }).then((r) => r.text());
   const page = new DOMParser().parseFromString(html, 'text/html');
   const report = $('rapport');
   for (const node of [...page.body.children]) {
@@ -51,13 +79,11 @@ async function boot() {
     document.body.insertBefore(document.adoptNode(node), report);
   }
 
-  // Ni sonde, ni zone, ni témoin d'une session précédente : le banc part d'un état connu.
-  // Les suppressions mémorisées sont effacées aussi, sans quoi les relevés partagés que
-  // l'essai supprime resteraient enterrés d'une exécution à la suivante.
-  for (const key of ['relieflac.probes.v1', 'relieflac.zones.v1', 'relieflac.sim.v1',
-    'relieflac.probes.deleted.v1']) {
-    localStorage.removeItem(key);
-  }
+  // Le banc part d'un appareil vierge — et rendra le vrai stockage intact à la fin.
+  borrowStorage();
+  check('le stockage de l\'appareil est mis de côté, jeton compris',
+    localStorage.getItem('relieflac.token.v1') === null,
+    `${KEPT.size} clé(s) en dépôt`);
   // Aucun leurre sur `confirm` : l'application ne doit plus en dépendre du tout. On le
   // piège au contraire pour le prouver — ce navigateur, comme un Chrome où la case
   // « empêcher les boîtes de dialogue » a été cochée, le fait renvoyer `false`, ce qui
@@ -68,8 +94,10 @@ async function boot() {
   });
   window.__dialogs = () => dialogs;
 
-  const { LakeMap } = await import('/src/map.js');
-  await import('/src/main.js');
+  // Adresses relatives à CE module (et non à la base du document) : c'est ainsi que se
+  // résout un import dynamique. La carte d'import de la page les renvoie sur le leurre.
+  const { LakeMap } = await import('../src/map.js');
+  await import('../src/main.js');
   const started = await until(() => $('chargement').hidden, 15000);
   check('l\'application démarre entièrement', started,
     started ? '' : $('chargement').textContent.trim());
@@ -261,7 +289,23 @@ function render() {
   box.append(list);
 }
 
-run().catch((err) => {
-  results.push({ name: `interrompu : ${err.message}`, ok: false, detail: String(err.stack).split('\n')[1] ?? '' });
-  render();
-});
+// Le stockage revient à l'appareil quoi qu'il arrive : échec du banc, ou page quittée en
+// plein essai. Sans ce filet, une exécution interrompue laisserait l'application amputée
+// de ses relevés et de son jeton.
+window.addEventListener('beforeunload', returnStorage);
+
+run()
+  .catch((err) => {
+    results.push({
+      name: `interrompu : ${err.message}`,
+      ok: false,
+      detail: String(err.stack).split('\n')[1]?.trim() ?? '',
+    });
+    render();
+  })
+  .finally(() => {
+    returnStorage();
+    const note = document.createElement('p');
+    note.textContent = `Stockage de l'application rendu intact — ${KEPT.size} clé(s) restaurée(s).`;
+    $('rapport').append(note);
+  });
