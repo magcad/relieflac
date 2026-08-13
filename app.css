@@ -453,6 +453,25 @@ button.is-arming {
 .zone__title { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #e2c08d; }
 .zone__hint { margin: .35rem 0 .5rem; font-size: .74rem; color: var(--muted); }
 .zone__fields { display: flex; gap: .5rem; flex-wrap: wrap; }
+.zone__fields[hidden], .zone__list[hidden] { display: none; }
+
+/* Zones déjà posées, listées dans le panneau : la seule reprise qui ne dépende pas d'un
+   toucher réussi sur un contour de quelques pixels. */
+.zone__list {
+  margin: 0 0 .5rem; padding: 0; list-style: none;
+  max-height: 9rem; overflow-y: auto;
+}
+.zone__list li {
+  display: flex; align-items: center; gap: .4rem;
+  padding: .35rem .5rem; margin-bottom: .25rem; border-radius: 8px;
+  background: #0f1720; border: 1px solid var(--line); font-size: .75rem;
+}
+.zone__list li span { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+.zone__list li button {
+  flex: none; min-width: 30px; height: 28px; border-radius: 8px; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+}
+.zone__list .zone__del { color: #ffb4b4; border-color: #6b2b2b; }
 .zone__field { flex: 1; min-width: 8.5rem; display: flex; align-items: center; gap: .4rem; font-size: .72rem; color: var(--muted); }
 .zone__field span { flex: 1; }
 .zone__field input {

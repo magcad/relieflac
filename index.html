@@ -103,8 +103,11 @@
       <span class="zone__title" id="zone-title">Zone émergée</span>
       <button class="sim__close" id="btn-zone-exit" type="button" aria-label="Quitter le tracé de zone">✕</button>
     </div>
-    <p class="zone__hint" id="zone-hint">Touchez la carte pour poser les sommets du contour.</p>
-    <div class="zone__fields">
+    <p class="zone__hint" id="zone-hint">Touchez un contour sur la carte, ou tracez-en un nouveau.</p>
+    <!-- Les zones déjà tracées, listées dans le panneau lui-même : les reprendre ne doit
+         jamais dépendre de la précision d'un toucher sur la carte. -->
+    <ol class="zone__list" id="zone-list"></ol>
+    <div class="zone__fields" id="zone-fields">
       <label class="zone__field">
         <span>Hauteur hors d'eau (m)</span>
         <input type="number" id="zone-height" min="-5" max="15" step="0.1" value="0.5">
@@ -116,8 +119,10 @@
     </div>
     <p class="zone__meta" id="zone-meta"></p>
     <div class="zone__btns">
+      <button class="sim__reset" id="btn-zone-new" type="button">✚ Nouvelle zone</button>
       <button class="sim__reset" id="btn-zone-undo" type="button">↶ Sommet</button>
       <button class="sim__reset" id="btn-zone-close" type="button">✓ Fermer la zone</button>
+      <button class="sim__reset" id="btn-zone-cancel" type="button">✕ Annuler le tracé</button>
       <button class="sim__reset sim__reset--danger" id="btn-zone-del" type="button" hidden>Supprimer</button>
     </div>
   </div>

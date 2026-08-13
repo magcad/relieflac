@@ -334,6 +334,22 @@ locale à l'appareil et ne part pas dans `data/corrections/<lac>.json`, qui ne t
 des points mesurés. L'export GeoJSON permet de la verser au modèle par la chaîne de
 préparation quand elle aura été confirmée sur le terrain.
 
+Le panneau des zones a **trois états**, et non deux — les confondre a produit un défaut
+signalé sur l'eau : le mode démarrait en tracé, si bien que le premier toucher posait un
+sommet, et qu'ensuite chaque clic en posait un autre, y compris sur un contour existant.
+La zone ne pouvait plus être reprise, donc plus être supprimée, et rien à l'écran ne
+l'expliquait.
+
+| État | Ce que fait un clic sur la carte | Commandes |
+|---|---|---|
+| **Liste** (à l'ouverture) | reprend le contour touché | liste des zones (✎ / ✕) · ✚ Nouvelle zone |
+| **Tracé** | pose un sommet | ↶ Sommet · ✓ Fermer · ✕ Annuler le tracé |
+| **Réglage** | lâche la zone reprise | hauteur · fondu · Supprimer · ✓ Terminer |
+
+La liste figure dans le panneau lui-même, et pas seulement dans les Paramètres : reprendre
+ou supprimer une zone ne doit jamais dépendre d'un toucher réussi sur un contour de
+quelques pixels, sur un téléphone qui bouge.
+
 Code : [`src/zones.js`](src/zones.js), tracé câblé dans `src/main.js` (`wireZones`).
 
 ### 4.3 Format de livraison de la grille

@@ -203,7 +203,13 @@ async function run() {
   // ------------------------------------------------------------- zones émergées
   group('Zone émergée : tracé, sélection, suppression');
   $('btn-zone').click();
-  check('le mode zone s\'arme', map.zoneMode === true && map.tracing === true);
+  check('le panneau s\'ouvre sur la liste, sans commencer à tracer',
+    map.zoneMode === true && map.tracing === false
+    && $('zone-list').hidden === false && $('btn-zone-new').hidden === false);
+
+  $('btn-zone-new').click();
+  check('« Nouvelle zone » démarre le tracé',
+    map.tracing === true && $('btn-zone-undo').hidden === false);
   const ring = [[1.8710, 45.7930], [1.8716, 45.7930], [1.8716, 45.7935], [1.8710, 45.7935]];
   for (const [lng, lat] of ring) fire('zonevertex', { lngLat: { lng, lat }, zoneId: null });
   check('les sommets s\'accumulent', map.zoneDraft.length === 4, `${map.zoneDraft.length}`);
@@ -215,11 +221,61 @@ async function run() {
   check('son contour est affiché', map.zones.length === 1 && map.zones[0].selected === true);
   const zoneId = zones()[0]?.id;
 
+  // Sortir du mode puis y revenir pour reprendre une zone posée plus tôt : c'est le geste
+  // courant, et le chemin vers sa suppression depuis la carte.
+  $('btn-zone-exit').click();
+  $('btn-zone').click();
+  fire('zonevertex', { lngLat: { lng: 1.8713, lat: 45.7932 }, zoneId });
+  check('un contour posé plus tôt se reprend au toucher',
+    $('btn-zone-del').hidden === false, `zone ${zoneId ? 'présente' : 'absente'}`);
+
+  // Le défaut signalé par l'utilisateur : un sommet posé par mégarde avant de viser le
+  // contour rendait la zone injoignable, donc impossible à supprimer. Le tracé ne
+  // commençant plus tout seul, un clic hors tracé ne peut plus poser de sommet.
+  $('btn-zone-exit').click();
+  $('btn-zone').click();
+  fire('zonevertex', { lngLat: { lng: 1.8700, lat: 45.7920 }, zoneId: null });
+  check('hors tracé, un clic sur la carte ne pose aucun sommet',
+    map.zoneDraft.length === 0, `${map.zoneDraft.length} sommet(s)`);
+  fire('zonevertex', { lngLat: { lng: 1.8713, lat: 45.7932 }, zoneId });
+  check('le contour reste joignable ensuite',
+    $('btn-zone-del').hidden === false, `${map.zoneDraft.length} sommet(s) en cours`);
+
+  // Un tracé abandonné en route ne doit rien laisser derrière lui.
+  $('btn-zone-new').click();
+  fire('zonevertex', { lngLat: { lng: 1.8700, lat: 45.7920 }, zoneId: null });
+  $('btn-zone-cancel').click();
+  check('annuler un tracé le retire de la carte',
+    map.zoneDraft.length === 0 && map.tracing === false && $('zone-list').hidden === false);
+
+  // La liste du panneau : la reprise qui ne dépend d'aucun visé.
+  check('la zone figure dans la liste du panneau',
+    $('zone-list').children.length === 1,
+    `${$('zone-list').children.length} ligne(s) · « ${$('zone-list').textContent.trim().slice(0, 30)} »`);
+  $('btn-zone-exit').click();
+  location.hash = '#/parametres';
+  await sleep(60);
+  check('et dans celle des Paramètres',
+    $('zone-records').children.length === 1,
+    `${$('zone-records').children.length} ligne(s)`);
+  location.hash = '#/';
+  await sleep(60);
+
+  // Suppression par la liste du panneau, sans passer par la carte du tout.
+  $('btn-zone').click();
+  $('zone-list').children[0].querySelector('.zone__del').click();
+  check('la croix de la liste supprime la zone', zones().length === 0, `${zones().length}`);
+
+  // Puis la même chose par le gros bouton, sur une zone tracée à neuf.
+  $('btn-zone-new').click();
+  for (const [lng, lat] of ring) fire('zonevertex', { lngLat: { lng, lat }, zoneId: null });
+  fire('zoneclose');
+  check('une seconde zone se trace après une suppression', zones().length === 1);
   press('btn-zone-del');
   check('la zone est supprimée du stockage', zones().length === 0, `${zones().length}`);
   check('son contour disparaît de la carte', map.zones.length === 0);
-  check('le panneau repasse en tracé', $('btn-zone-del').hidden === true && map.tracing === true,
-    `zone ${zoneId ? 'créée' : 'absente'}`);
+  check('le panneau repasse à la liste', $('btn-zone-del').hidden === true
+    && $('zone-list').hidden === false && map.tracing === false);
   $('btn-zone-exit').click();
   check('quitter le mode zone rend le clic à la sonde ponctuelle', map.zoneMode === false);
 

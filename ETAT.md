@@ -3,7 +3,7 @@
 **Dernière mise à jour** : 13 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
 **Vérifications** : <https://magcad.github.io/relieflac/test/> — 124 contrôles, tous passants
-**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 34 gestes, tous passants
+**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 44 gestes, tous passants
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
 Ce document sert à reprendre le travail sans relire tout l'historique.
@@ -106,6 +106,17 @@ et due à **deux** causes indépendantes qui donnaient le même symptôme :
    qui s'arme** — un premier appui le passe en rouge « Confirmer ? », un second exécute, et
    il se désarme seul au bout de 4 s (`wireArmed` dans `src/main.js`, sept boutons
    concernés). Plus aucune boîte de dialogue dans l'application.
+
+**Zones : reprendre et supprimer** (13/08/2026) — signalé par l'utilisateur, « le tracé des
+zones ne semble pas pouvoir être supprimé ». Le mode zone démarrait **en tracé** : le
+premier toucher posait un sommet, et dès lors chaque clic en posait un autre, y compris sur
+un contour existant. La zone ne pouvait plus être reprise, donc plus être supprimée, et
+rien à l'écran ne l'expliquait — un seul sommet posé par mégarde suffisait à enfermer
+l'utilisateur. Le panneau a désormais **trois états** (liste, tracé, réglage), il s'ouvre
+sur la liste, et le tracé ne commence qu'au bouton « ✚ Nouvelle zone ». La liste des zones
+figure dans le panneau lui-même, avec ✎ et ✕ par ligne : reprendre ou supprimer ne dépend
+plus d'un toucher réussi sur un contour de quelques pixels. Doctrine au § 4.2 quater de la
+spécification.
 
 **Banc d'essai des enchaînements** (13/08/2026) : `test/interaction.html`. Il démarre la
 **vraie** application avec une carte factice ([`test/stub-map.js`](test/stub-map.js))
@@ -326,7 +337,7 @@ bilinéairement : les comparer revient à comparer deux choses différentes.
 Après toute modification de `config/palette.json` ou de la grille, relancer
 `python tools/dump_reference.py`, sinon les tests comparent à une référence périmée.
 
-Ouvrir aussi `/test/interaction.html`. 34 enchaînements : l'application entière démarre
+Ouvrir aussi `/test/interaction.html`. 44 enchaînements : l'application entière démarre
 avec [`test/stub-map.js`](test/stub-map.js) à la place de MapLibre — substitué par une
 carte d'import, le reste du code ne voit pas la différence — et le banc provoque les mêmes
 événements que la vraie carte (`pinpoint`, `probeselect`, `zonevertex`…). Le balisage est

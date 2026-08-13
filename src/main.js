@@ -32,8 +32,10 @@ const app = {
   // Point désigné à la main sur la carte, en attente de sa profondeur — le seul moyen de
   // poser une sonde sans signal GPS, donc de manipuler l'application sur un ordinateur.
   pin: null,
-  // Tracé de zone émergée : sommets posés, et zone sélectionnée pour retouche.
-  zoneMode: false, zoneDraft: [], editingZoneId: null,
+  // Zones émergées. Trois états, et non deux : le panneau ouvert (`zoneMode`), le tracé en
+  // cours (`zoneTracing`), la zone reprise pour réglage (`editingZoneId`). Les confondre
+  // rendait un contour injoignable dès qu'un sommet avait été posé par mégarde.
+  zoneMode: false, zoneTracing: false, zoneDraft: [], editingZoneId: null,
   heading: null,
   lastBigDepth: null,
   wakeLock: null, wakeState: 'lost', wakePending: false, wakeWarned: false,
@@ -1806,7 +1808,9 @@ const MIN_ZONE_VERTICES = 3;
 function wireZones() {
   $('btn-zone').addEventListener('click', () => (app.zoneMode ? exitZoneMode() : enterZoneMode()));
   $('btn-zone-exit').addEventListener('click', exitZoneMode);
+  $('btn-zone-new').addEventListener('click', startZoneDraft);
   $('btn-zone-undo').addEventListener('click', undoZoneVertex);
+  $('btn-zone-cancel').addEventListener('click', cancelZoneDraft);
   $('btn-zone-close').addEventListener('click', () => {
     if (app.editingZoneId) endZoneEdit(); else closeZoneDraft();
   });
@@ -1843,27 +1847,56 @@ function wireZones() {
   });
 }
 
+/**
+ * Ouvre le panneau des zones — **sans** commencer à tracer.
+ *
+ * C'est la correction du défaut signalé : le mode démarrait en tracé, si bien que le
+ * premier toucher sur la carte posait un sommet. Passé ce sommet, chaque clic suivant en
+ * posait un autre, y compris sur un contour existant : la zone ne pouvait plus être
+ * reprise, donc plus être supprimée, et rien à l'écran n'expliquait pourquoi. Reprendre et
+ * tracer sont deux intentions ; elles ont maintenant deux états et deux boutons.
+ */
 function enterZoneMode() {
   app.zoneMode = true;
+  app.zoneTracing = false;
   app.zoneDraft = [];
   app.editingZoneId = null;
   if (app.editingProbeId) endProbeEdit();
   clearPin();
-  refreshCaptureUi(); // en tracé, la barre de saisie encombre pour rien
+  refreshCaptureUi(); // en mode zone, la barre de saisie encombre pour rien
   $('zone-height').value = app.settings.get('zoneHeight_m');
   $('zone-feather').value = app.settings.get('zoneFeather_m');
   refreshZonePanel();
-  toast('Posez les sommets du contour ; clic droit ou ✓ pour fermer', 4000);
+  toast(app.zones.count
+    ? 'Touchez un contour pour le reprendre, ou tracez-en un nouveau'
+    : 'Aucune zone : « ✚ Nouvelle zone » pour en tracer une', 4000);
 }
 
 function exitZoneMode() {
   app.zoneMode = false;
+  app.zoneTracing = false;
   app.zoneDraft = [];
   app.editingZoneId = null;
   disarmAll();
   refreshZonePanel();
   refreshZonesOnMap();
   refreshCaptureUi();
+}
+
+function startZoneDraft() {
+  app.zoneTracing = true;
+  app.zoneDraft = [];
+  app.editingZoneId = null;
+  app.lakeMap.setZoneDraft([]);
+  refreshZonePanel();
+  toast('Posez les sommets ; clic droit, double-clic ou ✓ pour fermer', 4000);
+}
+
+function cancelZoneDraft() {
+  app.zoneTracing = false;
+  app.zoneDraft = [];
+  app.lakeMap.setZoneDraft([]);
+  refreshZonePanel();
 }
 
 function addZoneVertex(lngLat) {
@@ -1898,6 +1931,7 @@ function closeZoneDraft() {
     feather_m: Math.round(clampNumber($('zone-feather'), 0, 60)),
   });
 
+  app.zoneTracing = false;
   app.zoneDraft = [];
   app.lakeMap.setZoneDraft([]);
   selectZone(entry.id);
@@ -1907,6 +1941,7 @@ function closeZoneDraft() {
 function selectZone(id) {
   if (!app.zones.get(id)) return;
   app.zoneMode = true;
+  app.zoneTracing = false;
   app.zoneDraft = [];
   app.editingZoneId = app.editingZoneId === id ? null : id;
   const zone = app.editingZoneId ? app.zones.get(id) : null;
@@ -1934,10 +1969,15 @@ function deleteSelectedZone() {
   toast('Zone supprimée');
 }
 
-/** Unique endroit où l'état du panneau de zone est rendu — tracé en cours ou zone choisie. */
+/**
+ * Unique endroit où l'état du panneau de zone est rendu. Trois états s'y succèdent :
+ * la **liste** des zones posées, le **tracé** d'un nouveau contour, et le **réglage** de la
+ * zone reprise. Un seul est visible à la fois, et chacun ne montre que ses propres commandes.
+ */
 function refreshZonePanel() {
   const zone = app.editingZoneId ? app.zones.get(app.editingZoneId) : null;
-  const tracing = app.zoneMode && !zone;
+  const tracing = app.zoneMode && app.zoneTracing && !zone;
+  const listing = app.zoneMode && !tracing && !zone;
 
   $('zone').hidden = !app.zoneMode;
   $('btn-zone').classList.toggle('is-on', app.zoneMode);
@@ -1945,8 +1985,13 @@ function refreshZonePanel() {
   app.lakeMap.setZoneMode(app.zoneMode, tracing);
   if (!app.zoneMode) return;
 
-  $('zone-title').textContent = zone ? 'Zone sélectionnée' : 'Nouvelle zone émergée';
-  $('btn-zone-undo').hidden = Boolean(zone);
+  $('zone-title').textContent = zone ? 'Zone sélectionnée' : listing ? 'Zones émergées' : 'Nouvelle zone';
+  $('zone-list').hidden = !listing;
+  $('zone-fields').hidden = listing;
+  $('btn-zone-new').hidden = !listing;
+  $('btn-zone-undo').hidden = !tracing;
+  $('btn-zone-cancel').hidden = !tracing;
+  $('btn-zone-close').hidden = listing;
   $('btn-zone-del').hidden = !zone;
   $('btn-zone-close').textContent = zone ? '✓ Terminer' : '✓ Fermer la zone';
   $('btn-zone-close').disabled = !zone && dedupeRing(app.zoneDraft).length < MIN_ZONE_VERTICES;
@@ -1964,16 +2009,56 @@ function refreshZonePanel() {
     $('zone-meta').textContent = `${formatArea(ringArea(zone.ring))} · sol à `
       + `${zone.bedZ.toFixed(2)} m NGF · ${state} · tracée à la cote `
       + `${Number.isFinite(zone.cote_m) ? zone.cote_m.toFixed(2) : '—'}`;
-  } else {
+  } else if (tracing) {
     const count = app.zoneDraft.length;
     $('zone-hint').textContent = count === 0
       ? 'Touchez la carte pour poser les sommets du contour.'
-      : `Clic droit, double-clic ou ✓ pour refermer le contour.`;
+      : 'Clic droit, double-clic ou ✓ pour refermer le contour.';
     $('zone-meta').textContent = count < MIN_ZONE_VERTICES
       ? `${count} sommet${count > 1 ? 's' : ''} — il en faut ${MIN_ZONE_VERTICES}`
       : `${count} sommets · ${formatArea(ringArea(app.zoneDraft))}`;
+  } else {
+    $('zone-hint').textContent = app.zones.count
+      ? 'Touchez un contour sur la carte, ou reprenez-le dans la liste.'
+      : 'Aucune zone tracée pour l\'instant.';
+    $('zone-meta').textContent = '';
+    fillZoneList($('zone-list'));
   }
   stackBottomBars();
+}
+
+/**
+ * Liste des zones posées, dans le panneau de la carte.
+ *
+ * Elle existe pour qu'une zone ne dépende jamais d'un toucher réussi sur son contour : sur
+ * un téléphone qui bouge, viser l'intérieur d'un polygone de quelques pixels est illusoire,
+ * et c'est précisément ce qui a rendu la suppression impossible.
+ */
+function fillZoneList(list) {
+  const level = currentLevel().value;
+  list.replaceChildren(...app.zones.records.slice().reverse().map((z) => {
+    const item = document.createElement('li');
+    const depth = Number.isFinite(level) ? level - z.bedZ : NaN;
+    const label = document.createElement('span');
+    label.textContent = `${formatArea(ringArea(z.ring))} · `
+      + (!Number.isFinite(depth) ? '—' : depth <= 0 ? `émergée de ${(-depth).toFixed(1)} m` : `sous ${depth.toFixed(1)} m d'eau`);
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.textContent = '✎';
+    edit.title = 'Régler cette zone';
+    edit.addEventListener('click', () => selectZone(z.id));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'zone__del';
+    remove.textContent = '✕';
+    remove.title = 'Supprimer cette zone';
+    remove.addEventListener('click', () => {
+      app.zones.remove(z.id);
+      toast('Zone supprimée');
+    });
+    item.append(label, edit, remove);
+    return item;
+  }));
 }
 
 /** Contours enregistrés, dans la couleur de terre du préréglage actif. */
@@ -2084,14 +2169,13 @@ function wireMap() {
   // déjà un témoin, il pose une vraie sonde — c'est le seul geste qui les distingue.
   app.lakeMap.addEventListener('pinpoint', (event) => placePin(event.detail));
 
-  // Clic en mode zone. Trois intentions se disputent le même geste, départagées par ce
-  // qui est déjà commencé : tant qu'aucun sommet n'est posé, toucher un contour existant
-  // le reprend ; une zone reprise se lâche en touchant ailleurs ; sinon on pose un sommet.
+  // Clic en mode zone, sans ambiguïté possible : pendant un tracé, tout clic pose un
+  // sommet ; hors tracé, il reprend le contour touché, ou lâche celui qui l'était.
   app.lakeMap.addEventListener('zonevertex', (event) => {
     const { lngLat, zoneId } = event.detail;
-    if (zoneId && app.zoneDraft.length === 0) { selectZone(zoneId); return; }
-    if (app.editingZoneId) { endZoneEdit(); return; }
-    addZoneVertex(lngLat);
+    if (app.zoneTracing) { addZoneVertex(lngLat); return; }
+    if (zoneId) { selectZone(zoneId); return; }
+    if (app.editingZoneId) endZoneEdit();
   });
   app.lakeMap.addEventListener('zoneclose', closeZoneDraft);
 
