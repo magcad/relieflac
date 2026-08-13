@@ -85,7 +85,7 @@ déformer la carte.
    | levé 2009 seul | 0,00 | 0,12 | 0,31 | 0,57 | 0,92 | 1,32 | 1,78 | 2,27 | 2,78 | 3,30 |
 
    La dernière ligne est la référence : le fondu y revient exactement.
-3. **Zones émergées** ▲ (§ 4.2 quater). Contour fermé tracé au clic, dont l'intérieur est
+3. **Zones émergées** (§ 4.2 quater). Contour fermé tracé au clic, dont l'intérieur est
    porté à `cote + hauteur hors d'eau` — l'altitude du sol, invariante, donc la zone découvre
    ou se noie toute seule quand la cote change. Une sonde corrige un caillou ; c'est cet
    outil-là qui corrige l'**étendue** d'un îlot que le levé a comblé. Local à l'appareil et
@@ -124,18 +124,57 @@ figure dans le panneau lui-même, avec ✎ et ✕ par ligne : reprendre ou suppr
 plus d'un toucher réussi sur un contour de quelques pixels. Doctrine au § 4.2 quater de la
 spécification.
 
+**Refonte de l'interface** (14/08/2026) — l'habillage était dimensionné pour les gestes
+rares (régler, corriger, étalonner) alors que barrer occupe 90 % du temps sur l'eau.
+Mesuré sur un 375 × 812 : **29,4 % de la surface** occupée en permanence, dont une barre
+d'actions de 56 px qui doublait le ruban de cap et une colonne de six FAB de 328 px mêlant
+la caméra et l'édition. **20,3 % après.** Trois surfaces au lieu de cinq :
+
+- **un bandeau haut** de 46 px — ruban de cap, cote à gauche en pastille compacte, état du
+  GPS à droite. La cote ne montre son complément (`saisie`, l'âge d'un relevé périmé) que
+  lorsqu'il change la lecture ; l'état complet est repris dans la feuille ;
+- **un dock bas** de 76 px — la profondeur, sa provenance, puis sous quille et vitesse. La
+  tuile « Cap » a disparu, le ruban la donnait déjà, et la place est passée dans le corps
+  des deux valeurs restantes, jusque-là en 0,75 rem donc illisibles à bout de bras ;
+- **un rail droit** qui ne porte plus que la caméra, et une **feuille « Outils »** à tuiles
+  **libellées** pour tout le reste — ▲ et ◎ n'étaient interprétables par personne, et leur
+  rendu changeait d'un appareil à l'autre.
+
+Le **plein soleil sort renforcé** : le verre des surfaces posées sur la carte étant devenu
+deux jetons (`--glass`, `--blur`), le mode se réduit à six variables surchargées au lieu
+d'énumérer chaque composant — un composant ajouté demain le suivra tout seul. Les seize
+emojis d'icône deviennent un sprite SVG au trait en `currentColor`, et le logo troque ses
+bandes horizontales — un code-barres à 16 px — contre des isobathes concentriques
+surmontées du chevron du bateau. Aucun identifiant du balisage n'a bougé : le banc d'essai
+est passé sans retouche, ce qui est précisément ce qu'on lui demande.
+
+**Le rail de caméra masquait la sortie** (14/08/2026) — signalé par l'utilisateur, capture
+à l'appui : ouvrir « Relever » posait la barre de saisie par-dessus le bouton Outils, donc
+par-dessus le seul moyen de ressortir du mode qu'on venait d'ouvrir. Le rail et les trois
+panneaux de correction visaient le même ancrage, le dock. `stackBottomBars` mesurait déjà
+la hauteur de la pile pour empiler les barres entre elles : elle la publie maintenant dans
+`--stack`, que le rail ajoute à son ancrage. Quand la place manque au-dessus — petit écran
+et panneau haut — le rail replie d'abord sa capsule de zoom plutôt que de glisser sous le
+bandeau de cap : le pincement fait la même chose, alors que le bouton Outils n'a aucun
+substitut. Vérifié à 520 px de haut : rail replié à 201 px, remonté de 179, sommet à 205 px.
+
 **Banc d'essai des enchaînements** (13/08/2026) : `test/interaction.html`. Il démarre la
 **vraie** application avec une carte factice ([`test/stub-map.js`](test/stub-map.js))
 substituée à MapLibre par une carte d'import, et provoque les mêmes événements que la vraie
 carte. C'est ce banc qui a reproduit les deux défauts ci-dessus, qu'aucune vérification de
 module ne pouvait voir : elles étaient dans le câblage, entre un bouton et un état.
 
-L'application est utilisable sur l'eau. Son **rendu cartographique** n'a jamais été vu
-fonctionner par l'assistant : l'environnement de test a une page masquée, où
+L'application est utilisable sur l'eau. Son **rendu cartographique** n'a toujours pas été
+vu fonctionner par l'assistant : l'environnement de test a une page masquée, où
 `requestAnimationFrame` est suspendu et MapLibre ne s'initialise pas (revérifié le
-13/08/2026 : 0 image en 2 s). Les enchaînements de l'interface, eux, sont désormais
-vérifiables — reste à valider par l'utilisateur ce qui se voit à l'écran : dessin des
-contours de zone, repère de visée, empilement des barres du bas.
+13/08/2026 : 0 image en 2 s). Les enchaînements de l'interface, eux, sont vérifiables sans
+lui, et les positions le sont par mesure du DOM — c'est ainsi qu'a été contrôlé le
+recouvrement du bouton Outils, dans les six états de la pile du bas.
+
+La conséquence pratique tient en une phrase : **ce qui se voit à l'écran ne se valide
+qu'auprès de l'utilisateur.** Une capture d'écran de sa part a suffi à désigner le défaut
+du rail là où aucune vérification automatique ne l'aurait montré. Refonte de l'interface et
+rail confirmés par lui le 14/08/2026, sur l'eau et sur iPhone.
 
 ---
 
@@ -338,7 +377,7 @@ automatiquement par Actions : rien à configurer, ils suivent le fork.
 Conséquence pratique : `main` reçoit des commits tout seul, toutes les heures. **Toujours
 `git pull --rebase` avant de pousser**, et lire la sortie de `push` (voir § 6).
 
-**3. La synchronisation des relevés.** Les sondes ✎ saisies dans l'application sont
+**3. La synchronisation des relevés.** Les sondes saisies dans l'application sont
 publiées dans `data/corrections/vassiviere.json` par l'API GitHub, depuis le navigateur.
 Modèle « le propriétaire écrit, tout le monde lit » : le jeton d'écriture ne peut pas être
 partagé, puisque le code est lisible par tous.
@@ -538,6 +577,19 @@ base relative (`<base href="../">`), y compris pour les clés de sa carte d'impo
   par construction — c'est ce qu'on veut entre deux appareils. Mais sans mémoire des
   suppressions, elle ramène à chaque ouverture ce qu'on vient d'effacer. Toute fusion par
   union appelle des pierres tombales, sinon la suppression n'est qu'un délai.
+- **Deux surfaces flottantes, un seul ancrage.** Le rail de caméra et les trois panneaux de
+  correction se calaient tous sur le bas du dock. Chacun était juste ; ensemble, la barre
+  de saisie recouvrait le bouton Outils — c'est-à-dire le seul moyen de quitter le mode
+  qu'on venait d'ouvrir. Le défaut ne se voit sur aucun écran isolé, seulement dans la
+  combinaison, et il enferme l'utilisateur au lieu de le gêner. Règle depuis : dès que deux
+  éléments flottants partagent un bord d'écran, **une seule mesure** commande leur pile
+  (ici `stackBottomBars` → `--stack`), et l'on prévoit ce qui cède quand la place manque —
+  un contrôle qui a un substitut (le zoom, remplacé par le pincement) cède avant un
+  contrôle qui n'en a pas.
+- **Une transition sur `bottom`.** Elle n'est pas accélérée, saccade sur téléphone, et fige
+  à sa valeur de départ dans une page masquée — donc la mesure de position depuis le banc
+  d'essai lisait l'ancien emplacement et donnait un correctif pour mort. Sur un geste qui
+  doit être franc, pas d'animation.
 - **Collision de noms dans `build_grid.py`.** `coverage` désignait déjà le taux de
   cellules valides.
 

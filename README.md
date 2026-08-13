@@ -13,7 +13,7 @@ sous le bateau — recalculée en continu à partir de la cote du lac pilotée p
 |---|---|
 | Reprendre le travail | [ETAT.md](ETAT.md) |
 | Spécification complète | [SPECIFICATION.md](SPECIFICATION.md) |
-| Vérifications | [/test/](https://magcad.github.io/relieflac/test/) — 42 contrôles |
+| Vérifications | [/test/](https://magcad.github.io/relieflac/test/) — 124 contrôles · [/test/interaction.html](https://magcad.github.io/relieflac/test/interaction.html) — 44 enchaînements |
 
 ---
 
@@ -39,6 +39,12 @@ mise à jour d'uniforme.
   sécurité à « tirant d'eau + marge » ;
 - profondeur sous le bateau, hauteur sous quille, alarme haut-fond ;
 - bascule Plan IGN / photo aérienne, sonde ponctuelle par appui sur la carte ;
+- **interface taillée pour barrer** : un bandeau de cap de 46 px qui porte aussi la cote
+  et l'état du GPS, un dock de 76 px pour la profondeur et le sous-quille, un rail de
+  caméra, et tout le reste sous une feuille « Outils » à tuiles libellées — 20 % de
+  l'écran occupé en permanence au lieu de 29 % ;
+- **mode plein soleil** : contraste maximal de l'habillage, sans toucher aux couleurs des
+  fonds, parce qu'aucune API du web ne commande la luminosité de la dalle ;
 - **hachurage des zones non sondées**, et provenance annoncée sous le bateau ;
 - **mode Étalonnage** : comparer la lecture du sondeur au modèle pour lever l'inconnue
   de calage, avec verdict sur la dispersion des écarts ;
@@ -117,6 +123,7 @@ vendor/                     MapLibre GL JS 6.3, vendorisé en .js
 config/                     model.json (calage, grille) · palette.json (couleurs)
 tools/                      chaîne de préparation et outils de diagnostic
 data/                       grille, couverture, sondes, cote — versionnés
-test/                       42 vérifications, dont le shader rendu hors MapLibre
+test/                       124 vérifications (dont le shader rendu hors MapLibre)
+                            et 44 enchaînements de l'interface
 .github/workflows/          relevé horaire de la cote, reconstruction du modèle
 ```

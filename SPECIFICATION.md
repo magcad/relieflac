@@ -524,7 +524,11 @@ contours reste de 2 à 3 px pour un rapport de zoom de 5.
     dans le corps des deux valeurs restantes.
 - **Rail de caméra**, bord droit : zoom ± en capsule d'un seul tenant · plein soleil ·
   verrouillage nord ou cap en haut · recentrage / suivi auto · accès à la feuille
-  « Outils ». Rien d'autre : ce rail ne porte que des gestes de navigation.
+  « Outils ». Rien d'autre : ce rail ne porte que des gestes de navigation. Il **remonte
+  au-dessus des barres ouvertes** — une seule mesure, celle de la pile du bas, commande à
+  la fois l'empilement des panneaux entre eux et la position du rail. Quand la place
+  manque au-dessus, il replie sa capsule de zoom avant de glisser sous le bandeau de cap :
+  le pincement remplace le zoom, rien ne remplace le bouton « Outils ».
 - **Feuille « Outils »** : tout ce qui ne se touche pas en barrant — relever une sonde,
   tracer une zone émergée, mode étiage, bascule du fond de carte, Étalonnage, Paramètres,
   À propos. Tuiles **libellées**, et non des glyphes : ▲ et ◎ n'étaient interprétables par
@@ -798,7 +802,7 @@ L'endpoint est public et non authentifié, mais **non documenté** comme API ouv
 ## 14. Décisions arrêtées (10/08/2026)
 
 1. **Palette par défaut** : validée telle que définie au § 6.2.
-2. **Fond de carte** : **bascule** entre IGN Plan v2 et ortho-photo, bouton dédié sur l'écran de navigation, choix mémorisé.
+2. **Fond de carte** : **bascule** entre IGN Plan v2 et ortho-photo, tuile dédiée dans la feuille « Outils » de l'écran de navigation, choix mémorisé et annoncé sur la tuile.
 3. **Unités** : **mètres + km/h** par défaut, **basculable en mètres + nœuds** dans les Paramètres.
 4. **Calage** : par **étalonnage au sondeur de bord** (§ 15), et non par demande à EDF. La demande EDF reste un recours secondaire.
 5. **Dépôt GitHub** : **`magcad`**, public (requis pour GitHub Pages en offre gratuite).
