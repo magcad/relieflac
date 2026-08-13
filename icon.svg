@@ -1,14 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ReliefLac">
-  <rect width="512" height="512" rx="112" fill="#0f1417"/>
-  <!-- Bandes de profondeur, du peu profond au très profond -->
-  <path d="M56 336h400v40H56z" fill="#1f6fb2"/>
-  <path d="M56 296h400v40H56z" fill="#4b9fd5"/>
-  <path d="M56 256h400v40H56z" fill="#9fcbe8"/>
-  <path d="M56 216h400v40H56z" fill="#e8f3fb"/>
-  <path d="M56 376h400v40H56z" fill="#ff8a3d"/>
-  <path d="M56 416h400v40H56z" fill="#ff1f1f"/>
-  <!-- Îlot émergé -->
-  <path d="M150 216c28-46 62-70 106-70s78 24 106 70z" fill="#c8a165"/>
-  <!-- Bateau -->
-  <path d="M256 74l44 118-44-24-44 24z" fill="#ff2d55" stroke="#fff" stroke-width="10" stroke-linejoin="round"/>
+  <!--
+    Courbes de niveau bathymétriques emboîtées, plus claires vers le haut-fond, et le
+    chevron du bateau posé dessus. La version précédente empilait des bandes horizontales :
+    à 16 px sur un écran d'accueil, elle se lisait comme un code-barres et ne disait rien
+    d'un lac. Ici c'est la silhouette d'isobathes concentriques qui porte la marque, et
+    elle tient à toutes les tailles.
+
+    Le même dessin est repris comme `<symbol id="i-mark">` dans index.html (écran de
+    chargement) : une seule géométrie à faire évoluer.
+  -->
+  <defs>
+    <path id="iso" d="M0-160C84-160 156-108 168-40 180 28 140 100 68 136-4 172-88 156-132 100-176 44-164-48-104-108-76-136-40-160 0-160Z"/>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#080c10"/>
+  <g transform="translate(256 256)">
+    <use href="#iso" fill="#1f6fb2" transform="scale(1.18)"/>
+    <use href="#iso" fill="#4b9fd5" transform="scale(.86)"/>
+    <use href="#iso" fill="#9fcbe8" transform="scale(.56)"/>
+    <use href="#iso" fill="#ff8a3d" transform="scale(.27)"/>
+    <path d="M0-84 40 24 0 2-40 24Z" fill="#fff"/>
+  </g>
 </svg>

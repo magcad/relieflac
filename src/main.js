@@ -94,6 +94,8 @@ async function boot() {
     wireMap();
     wireBigDepth();
     wireSync();
+    wireTools();
+    wireQuickNav();
     route();
 
     refreshLevelUi();
@@ -464,7 +466,7 @@ function wireSync() {
   refreshSyncUi();
 }
 
-// Les relevés partagés sont les sondes ✎ « Relever ». Conversion vers le format de
+// Les relevés partagés sont les sondes « Relever ». Conversion vers le format de
 // fichier (générique, réutilisable) et retour.
 function probesToRecords() {
   return (app.probes?.records ?? []).map((p) => ({
@@ -626,26 +628,41 @@ function updateAlarm(depth) {
 
 // -------------------------------------------------------------------- cote
 
+/**
+ * Cote du lac : une pastille compacte dans le bandeau, le détail dans la feuille.
+ *
+ * La cote bouge de quelques centimètres par heure — elle n'a pas à occuper deux lignes en
+ * permanence au-dessus de la carte. Ne reste affiché en navigation que le chiffre, plus un
+ * complément court quand il change la lecture : saisie manuelle, ou relevé périmé. Le
+ * libellé complet (état de navigation et âge) est repris dans la feuille « Outils », qui
+ * s'ouvre au même geste que l'ancien chip.
+ */
 function refreshLevelUi() {
   const state = currentLevel();
   const chip = $('btn-cote');
   const value = $('cote-value');
   const meta = $('cote-meta');
 
-  chip.classList.remove('chip--forbidden', 'chip--delicate', 'chip--stale');
+  chip.classList.remove('level--forbidden', 'level--delicate', 'level--stale');
 
   if (state.value == null) {
     value.textContent = '—';
-    meta.textContent = state.label;
-    chip.classList.add('chip--stale');
+    meta.textContent = '';
+    chip.title = `Cote du lac : ${state.label}`;
+    $('sheet-level').textContent = `Cote du lac — ${state.label}`;
+    chip.classList.add('level--stale');
   } else {
     value.textContent = state.value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    meta.textContent = state.source === LevelSource.MANUAL
-      ? 'saisie manuelle'
-      : `${state.condition.label} · ${formatAge(state.ageMs)}`;
-    if (state.condition.key === 'forbidden') chip.classList.add('chip--forbidden');
-    else if (state.condition.key === 'delicate') chip.classList.add('chip--delicate');
-    if (state.source === LevelSource.STALE) chip.classList.add('chip--stale');
+    const manual = state.source === LevelSource.MANUAL;
+    const detail = manual ? 'saisie manuelle' : `${state.condition.label} · ${formatAge(state.ageMs)}`;
+    // Le complément ne paraît que lorsqu'il porte un avertissement : une cote fraîche et
+    // automatique se passe de commentaire, et l'espace du bandeau est compté.
+    meta.textContent = manual ? 'saisie' : state.source === LevelSource.STALE ? formatAge(state.ageMs) : '';
+    chip.title = `Cote du lac : ${detail} — toucher pour les réglages`;
+    $('sheet-level').textContent = `Cote du lac ${value.textContent} m NGF — ${detail}`;
+    if (state.condition.key === 'forbidden') chip.classList.add('level--forbidden');
+    else if (state.condition.key === 'delicate') chip.classList.add('level--delicate');
+    if (state.source === LevelSource.STALE) chip.classList.add('level--stale');
   }
 
   refreshDepthStyle();
@@ -1024,7 +1041,7 @@ function wireProbes() {
   app.probes.addEventListener('change', () => {
     refreshProbesUi();
     refreshProbesOnMap();
-    applyModelCorrections(); // une sonde ✎ corrige la carte en direct
+    applyModelCorrections(); // une sonde relevée corrige la carte en direct
     if (!app.suppressPush) scheduleSyncPush(); // et se partage
   });
 }
@@ -1032,7 +1049,7 @@ function wireProbes() {
 /**
  * Barre de saisie : visible seulement si demandée, et jamais pendant la simulation ou le
  * tracé — sauf si un point a été désigné et attend sa profondeur, auquel cas elle s'impose.
- * Sans cette exception, un clic droit posé depuis le mode 🌊 laisserait sur la carte un
+ * Sans cette exception, un clic droit posé depuis le mode « Étiage » laisserait sur la carte un
  * point qu'aucune commande visible ne permettrait plus de renseigner.
  */
 function refreshCaptureUi() {
@@ -1053,9 +1070,9 @@ function refreshCaptureUi() {
  *
  * Elles visent toutes le même ancrage — juste au-dessus de la barre de profondeur — et se
  * recouvraient dès que deux d'entre elles s'ouvraient ensemble, ce qui arrive dans le cas
- * le plus courant : descendre la cote au mode 🌊 pour voir ce qui découvre, puis en faire
+ * le plus courant : descendre la cote au mode « Étiage » pour voir ce qui découvre, puis en faire
  * le tour. On mesure la hauteur réelle de chacune plutôt que de deviner une marge, que la
- * ligne de sélection du mode 🌊 démentirait dès qu'elle paraît.
+ * ligne de sélection du mode « Étiage » démentirait dès qu'elle paraît.
  */
 function stackBottomBars() {
   let offset = 0;
@@ -1063,7 +1080,7 @@ function stackBottomBars() {
     const element = $(id);
     if (element.hidden) continue;
     element.style.bottom = offset
-      ? `calc(6.3rem + var(--safe-bottom) + ${offset}px)`
+      ? `calc(var(--dock) + .5rem + ${offset}px)`
       : '';
     offset += element.offsetHeight + 8;
   }
@@ -1494,7 +1511,9 @@ function wireCompass() {
   // iOS : l'accès à la boussole exige un geste. On l'accroche au voyant et au bouton de cap.
   const ask = () => ensureCompass();
   $('compass-gps').addEventListener('click', ask);
-  $('compass').addEventListener('click', ask);
+  // Sur le ruban lui-même, et non sur tout le bandeau : celui-ci porte désormais la cote,
+  // dont le toucher mène aux réglages et n'a rien à voir avec la boussole.
+  $('compass-tap').addEventListener('click', ask);
 
   // Recadrer le ruban quand la largeur change (rotation de l'écran).
   window.addEventListener('resize', () => updateCompass(app.heading, app.compass?.source));
@@ -1536,7 +1555,8 @@ function buildCompassRibbon() {
 function updateHeading(heading, source) {
   app.heading = heading;
   updateCompass(heading, source);
-  $('cap-value').textContent = Number.isFinite(heading) ? `${Math.round(heading)}°` : '—';
+  // Le cap ne s'écrit plus qu'à un seul endroit : le ruban et sa pastille de degrés. La
+  // tuile qui le répétait dans le dock ne faisait que rétrécir les deux valeurs voisines.
   scheduleMapHeading();
 }
 
@@ -1622,8 +1642,8 @@ function wireSim() {
     applyModelCorrections(); // les points de simulation corrigent la carte localement
     refreshSimOnMap();
     refreshSimReadout();
-    // Volontairement pas de synchro : le mode 🌊 est un bac à sable local ; seules les
-    // sondes ✎ « Relever » sont partagées.
+    // Volontairement pas de synchro : le mode « Étiage » est un bac à sable local ; seules
+    // les sondes « Relever » sont partagées.
   });
 }
 
@@ -1633,8 +1653,8 @@ function wireSim() {
  * en navigation soit bien la « 2009 corrigée ».
  *
  * Trois sources se cumulent, toutes porteuses d'une altitude de fond invariante `bedZ` :
- * les sondes ✎ « Relever » (mesures réelles, partagées), les points 🌊 de simulation
- * (locaux, pour tester un étiage) et les zones ▲ émergées (contours tracés à la main).
+ * les sondes « Relever » (mesures réelles, partagées), les points d'étiage simulé
+ * (locaux) et les zones émergées (contours tracés à la main).
  * Chacune porte son propre rayon d'influence — largeur du fondu au-delà du bord pour une
  * zone — ou hérite du réglage général quand elle n'en a pas.
  */
@@ -2118,6 +2138,7 @@ function wireMap() {
   $('btn-fond').addEventListener('click', () => {
     const next = app.settings.get('basemap') === 'plan' ? 'ortho' : 'plan';
     app.settings.set('basemap', next);
+    refreshBasemapUi();
     toast(next === 'plan' ? 'Plan IGN' : 'Photo aérienne');
   });
 
@@ -2181,6 +2202,75 @@ function wireMap() {
 
   $('btn-cote').addEventListener('click', () => { location.hash = '#/parametres'; });
   refreshCameraUi();
+  refreshBasemapUi();
+}
+
+/** La tuile de fond de carte annonce lequel est actif : elle bascule entre deux états. */
+function refreshBasemapUi() {
+  const plan = app.settings.get('basemap') === 'plan';
+  $('fond-label').textContent = plan ? 'Plan IGN' : 'Photo aérienne';
+}
+
+// ------------------------------------------------------------- feuille d'outils
+
+/**
+ * Feuille « Outils » : tout ce qui ne se touche pas en barrant.
+ *
+ * Les cinq icônes de l'ancienne barre du haut et les deux FAB d'édition partageaient
+ * l'écran avec la carte en permanence pour des gestes qui ne servent pas une fois par
+ * heure. Ils sont ici, derrière un bouton, avec un libellé — ce qui règle du même coup la
+ * lisibilité des glyphes ▲ et ◎, que personne ne savait interpréter.
+ *
+ * La feuille se referme sur tout ce qui agit : ouvrir un mode de correction, c'est vouloir
+ * la carte, pas rester devant un menu.
+ */
+function wireTools() {
+  const sheet = $('sheet');
+  const open = (on) => {
+    sheet.hidden = !on;
+    $('btn-menu').setAttribute('aria-expanded', String(on));
+  };
+
+  $('btn-menu').addEventListener('click', () => open(sheet.hidden));
+  $('sheet-scrim').addEventListener('click', () => open(false));
+  // Écoute posée sur le conteneur : elle se déclenche après les gestionnaires propres à
+  // chaque tuile, quel que soit l'ordre dans lequel les modules ont été câblés.
+  sheet.querySelector('.sheet__panel').addEventListener('click', (event) => {
+    if (event.target.closest('.tile, .sheet__link')) open(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !sheet.hidden) open(false);
+  });
+}
+
+/**
+ * Navigation rapide des Paramètres : neuf sections, dont trois seulement servent sur l'eau.
+ *
+ * Des boutons et non des ancres — une ancre écrirait dans `location.hash`, que le routeur
+ * lit comme un changement d'écran et qui renverrait à la carte.
+ */
+function wireQuickNav() {
+  const nav = document.querySelector('.quicknav');
+  if (!nav) return;
+  const buttons = [...nav.querySelectorAll('[data-goto]')];
+
+  nav.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-goto]');
+    if (!button) return;
+    $(button.dataset.goto)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // La puce de la section visible s'allume : sans cela, la barre indiquerait où aller mais
+  // jamais où l'on est, ce qui est précisément ce qu'on cherche dans une page si longue.
+  // La marge basse ne retient que le haut de la fenêtre, sinon quatre sections seraient
+  // « visibles » à la fois sur un grand écran.
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      buttons.forEach((b) => b.classList.toggle('is-on', b.dataset.goto === entry.target.id));
+    });
+  }, { rootMargin: '-45% 0px -50% 0px' });
+  buttons.forEach((b) => { const section = $(b.dataset.goto); if (section) observer.observe(section); });
 }
 
 /**
@@ -2198,7 +2288,7 @@ function refreshCameraUi() {
   $('btn-suivi').setAttribute('aria-pressed', String(follow));
   $('btn-cap').classList.toggle('is-on', trackUp);
   $('btn-cap').setAttribute('aria-pressed', String(trackUp));
-  $('btn-cap').textContent = trackUp ? '⇧' : '↑';
+  $('ico-cap').setAttribute('href', trackUp ? '#i-heading' : '#i-north');
   $('btn-cap').title = trackUp ? 'Cap en haut' : 'Nord en haut';
   app.lakeMap.setFollow(follow);
   app.lakeMap.setTrackUp(trackUp);

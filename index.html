@@ -6,22 +6,162 @@
 <title>ReliefLac — lac de Vassivière</title>
 <meta name="description" content="Profondeur d'eau réelle sur le lac de Vassivière, recalculée depuis la cote EDF du jour.">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#0f1417">
+<meta name="theme-color" content="#080c10">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="stylesheet" href="vendor/maplibre-gl.css">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 
+<!-- ------------------------------------------------------------ jeu d'icônes
+
+     Les emojis d'origine (☀ ▲ ◎ ✎ 🛰 🎯 ⚙) étaient rendus par la police système : graisses
+     incohérentes d'un appareil à l'autre, et deux d'entre eux illisibles à 44 px. Ces
+     symboles-ci sont tracés au même trait, héritent de `currentColor` — donc suivent le
+     mode plein soleil sans règle supplémentaire — et pèsent moins qu'une icône bitmap. -->
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <defs>
+    <!-- Isobathe de la marque, reprise quatre fois à des échelles décroissantes. Même
+         géométrie que icon.svg et icon-maskable.svg. -->
+    <path id="iso" d="M0-160C84-160 156-108 168-40 180 28 140 100 68 136-4 172-88 156-132 100-176 44-164-48-104-108-76-136-40-160 0-160Z"/>
+  </defs>
+
+  <symbol id="i-sun" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.7" fill="none"/>
+    <g stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+      <path d="M12 2.4v2.3M12 19.3v2.3M2.4 12h2.3M19.3 12h2.3M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/>
+    </g>
+  </symbol>
+
+  <symbol id="i-plus" viewBox="0 0 24 24">
+    <path d="M12 5.5v13M5.5 12h13" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="i-minus" viewBox="0 0 24 24">
+    <path d="M5.5 12h13" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+  </symbol>
+
+  <!-- Suivi du bateau : réticule de recentrage. -->
+  <symbol id="i-locate" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="6.2" stroke="currentColor" stroke-width="1.7" fill="none"/>
+    <circle cx="12" cy="12" r="2.1" fill="currentColor"/>
+    <path d="M12 1.8v3.1M12 19.1v3.1M1.8 12h3.1M19.1 12h3.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+  </symbol>
+
+  <!-- Nord en haut : flèche cardinale. -->
+  <symbol id="i-north" viewBox="0 0 24 24">
+    <path d="M12 20.5V4.2M12 4.2 6.6 9.9M12 4.2l5.4 5.7" stroke="currentColor" stroke-width="1.8"
+          stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </symbol>
+
+  <!-- Cap en haut : l'étrave dans un cercle, la carte tourne autour. -->
+  <symbol id="i-heading" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.6" stroke="currentColor" stroke-width="1.6" fill="none"/>
+    <path d="M12 6.3l4 10.4-4-2.4-4 2.4z" stroke="currentColor" stroke-width="1.6"
+          stroke-linejoin="round" fill="currentColor" fill-opacity=".22"/>
+  </symbol>
+
+  <!-- Outils : la grille de la feuille d'actions. -->
+  <symbol id="i-tools" viewBox="0 0 24 24">
+    <g stroke="currentColor" stroke-width="1.7" fill="none">
+      <rect x="3.6" y="3.6" width="6.6" height="6.6" rx="2"/>
+      <rect x="13.8" y="3.6" width="6.6" height="6.6" rx="2"/>
+      <rect x="3.6" y="13.8" width="6.6" height="6.6" rx="2"/>
+      <rect x="13.8" y="13.8" width="6.6" height="6.6" rx="2"/>
+    </g>
+  </symbol>
+
+  <symbol id="i-probe" viewBox="0 0 24 24">
+    <path d="M4 20l1.2-4.2L15.6 5.4a2 2 0 0 1 2.8 0l.2.2a2 2 0 0 1 0 2.8L8.2 18.8z"
+          stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/>
+    <path d="M14.2 6.8l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  </symbol>
+
+  <!-- Zone émergée : un îlot qui sort de l'eau. -->
+  <symbol id="i-island" viewBox="0 0 24 24">
+    <path d="M2.6 17.4c2.6 0 2.6 1.6 5.2 1.6s2.6-1.6 5.2-1.6 2.6 1.6 5.2 1.6c1.3 0 1.9-.4 2.6-.8"
+          stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+    <path d="M4.4 14.6 10.2 6l4 5.8 2.2-2.8 3.4 5.6z"
+          stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="currentColor" fill-opacity=".18"/>
+  </symbol>
+
+  <!-- Étiage : le plan d'eau qui monte et descend. -->
+  <symbol id="i-tide" viewBox="0 0 24 24">
+    <g stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none">
+      <path d="M2.6 8.6c2-2.2 4-2.2 6 0s4 2.2 6 0 4-2.2 6 0"/>
+      <path d="M2.6 15.4c2-2.2 4-2.2 6 0s4 2.2 6 0 4-2.2 6 0"/>
+    </g>
+  </symbol>
+
+  <symbol id="i-layers" viewBox="0 0 24 24">
+    <g stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none">
+      <path d="M12 3.2 20.6 8 12 12.8 3.4 8z"/>
+      <path d="M3.4 12.4 12 17.2l8.6-4.8"/>
+      <path d="M3.4 16.6 12 21.4l8.6-4.8"/>
+    </g>
+  </symbol>
+
+  <symbol id="i-target" viewBox="0 0 24 24">
+    <g stroke="currentColor" stroke-width="1.6" fill="none">
+      <circle cx="12" cy="12" r="8.4"/>
+      <circle cx="12" cy="12" r="3.8"/>
+    </g>
+    <circle cx="12" cy="12" r="1.4" fill="currentColor"/>
+  </symbol>
+
+  <symbol id="i-sliders" viewBox="0 0 24 24">
+    <g stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none">
+      <path d="M3.4 7h9.2M17.4 7h3.2M3.4 17h3.2M11.4 17h9.2M3.4 12h13.2M21.4 12h-.8"/>
+      <circle cx="15" cy="7" r="2.1"/>
+      <circle cx="9" cy="17" r="2.1"/>
+      <circle cx="19" cy="12" r="2.1"/>
+    </g>
+  </symbol>
+
+  <symbol id="i-info" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.6" stroke="currentColor" stroke-width="1.6" fill="none"/>
+    <path d="M12 11v5.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="12" cy="7.9" r="1.15" fill="currentColor"/>
+  </symbol>
+
+  <symbol id="i-back" viewBox="0 0 24 24">
+    <path d="M15 4.8 7.6 12 15 19.2" stroke="currentColor" stroke-width="1.9"
+          stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </symbol>
+
+  <symbol id="i-close" viewBox="0 0 24 24">
+    <path d="M6.4 6.4l11.2 11.2M17.6 6.4 6.4 17.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+  </symbol>
+
+  <!-- Marque de l'application : courbes de niveau et chevron de cap. -->
+  <symbol id="i-mark" viewBox="0 0 512 512">
+    <g transform="translate(256 256)">
+      <use href="#iso" fill="#1f6fb2" transform="scale(1.18)"/>
+      <use href="#iso" fill="#4b9fd5" transform="scale(.86)"/>
+      <use href="#iso" fill="#9fcbe8" transform="scale(.56)"/>
+      <use href="#iso" fill="#ff8a3d" transform="scale(.27)"/>
+      <path d="M0-84 40 24 0 2-40 24Z" fill="#fff"/>
+    </g>
+  </symbol>
+</svg>
+
 <!-- ------------------------------------------------------------ écran carte -->
 <section id="vue-carte" class="view is-active">
   <div id="map"></div>
 
-  <!-- Boussole de navigation : ruban de cap qui défile sous un repère fixe. -->
-  <div class="compass" id="compass" role="img" aria-label="Cap de navigation">
-    <div class="compass__viewport">
+  <!--
+    Bandeau de navigation : la seule chrome permanente en haut d'écran.
+
+    Il réunit ce qu'on lit sans y penser en barrant — le cap, la cote, l'état du GPS. La
+    barre d'actions qui le doublait a disparu au profit de la feuille « Outils » : les
+    boutons qu'elle portait ne servent pas une fois par heure, et lui coûtaient 56 px de
+    carte à chaque seconde de navigation.
+  -->
+  <div class="navstrip" id="compass" role="img" aria-label="Cap de navigation">
+    <div class="compass__viewport" id="compass-tap">
       <div class="compass__ribbon" id="compass-ribbon"></div>
       <div class="compass__fade compass__fade--l"></div>
       <div class="compass__fade compass__fade--r"></div>
@@ -30,45 +170,57 @@
     <div class="compass__hud">
       <span class="compass__deg" id="compass-deg">•••</span>
     </div>
-    <button class="compass__gps" id="compass-gps" type="button" title="État du signal GPS" aria-label="État du signal GPS">
-      <span class="compass__gps-dot"></span><span class="compass__gps-text" id="compass-gps-text">GPS</span>
+
+    <button class="level" id="btn-cote" type="button"
+            title="Cote du lac — toucher pour les réglages" aria-label="Cote du lac">
+      <span class="level__value" id="cote-value">—</span>
+      <span class="level__unit">m</span>
+      <span class="level__meta" id="cote-meta"></span>
+    </button>
+
+    <button class="gps" id="compass-gps" type="button" title="État du signal GPS" aria-label="État du signal GPS">
+      <span class="gps__dot"></span><span class="gps__text" id="compass-gps-text">GPS</span>
     </button>
   </div>
-
-  <header class="topbar">
-    <button class="chip chip--level" id="btn-cote" type="button">
-      <span class="chip__value" id="cote-value">—</span>
-      <span class="chip__unit">m NGF</span>
-      <span class="chip__meta" id="cote-meta">chargement…</span>
-    </button>
-    <div class="topbar__actions">
-      <button class="icon" id="btn-sim" type="button" title="Simulation d'étiage" aria-label="Mode simulation">🌊</button>
-      <button class="icon" id="btn-fond" type="button" title="Fond de carte" aria-label="Basculer plan / photo">🛰</button>
-      <button class="icon" id="btn-soleil" type="button" title="Plein soleil : contraste maximal"
-              aria-label="Mode plein soleil" aria-pressed="false">☀</button>
-      <a class="icon" href="#/etalonnage" title="Étalonnage" aria-label="Étalonnage">🎯</a>
-      <a class="icon" href="#/parametres" title="Paramètres" aria-label="Paramètres">⚙</a>
-    </div>
-  </header>
 
   <div class="alarm" id="alarme" hidden>
     <strong>HAUT-FOND</strong> <span id="alarme-detail"></span>
   </div>
 
-  <div class="fabs">
-    <button class="fab fab--zoom" id="btn-zoom-plus" type="button" title="Zoomer" aria-label="Zoomer">+</button>
-    <button class="fab fab--zoom" id="btn-zoom-moins" type="button" title="Dézoomer" aria-label="Dézoomer">−</button>
-    <button class="fab" id="btn-suivi" type="button" title="Suivre le bateau" aria-label="Suivre le bateau" aria-pressed="false">◎</button>
-    <button class="fab" id="btn-cap" type="button" title="Nord en haut" aria-label="Orientation" aria-pressed="false">↑</button>
-    <button class="fab" id="btn-saisie" type="button" title="Saisir une sonde" aria-label="Afficher la saisie de profondeur">✎</button>
-    <button class="fab" id="btn-zone" type="button" title="Tracer une zone émergée" aria-label="Tracer une zone émergée" aria-pressed="false">▲</button>
+  <!-- Rail de caméra : uniquement ce qui se touche en barrant. Tout le reste est sous
+       « Outils », d'un geste de plus mais d'un libellé lisible. -->
+  <div class="rail">
+    <div class="rail__group">
+      <button class="rail__btn" id="btn-zoom-plus" type="button" title="Zoomer" aria-label="Zoomer">
+        <svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg>
+      </button>
+      <button class="rail__btn" id="btn-zoom-moins" type="button" title="Dézoomer" aria-label="Dézoomer">
+        <svg class="ico" aria-hidden="true"><use href="#i-minus"/></svg>
+      </button>
+    </div>
+    <button class="rail__btn" id="btn-soleil" type="button" title="Plein soleil : contraste maximal"
+            aria-label="Mode plein soleil" aria-pressed="false">
+      <svg class="ico" aria-hidden="true"><use href="#i-sun"/></svg>
+    </button>
+    <button class="rail__btn" id="btn-cap" type="button" title="Nord en haut" aria-label="Orientation" aria-pressed="false">
+      <svg class="ico" aria-hidden="true"><use href="#i-north" id="ico-cap"/></svg>
+    </button>
+    <button class="rail__btn" id="btn-suivi" type="button" title="Suivre le bateau" aria-label="Suivre le bateau" aria-pressed="false">
+      <svg class="ico" aria-hidden="true"><use href="#i-locate"/></svg>
+    </button>
+    <button class="rail__btn rail__btn--tools" id="btn-menu" type="button"
+            title="Outils et réglages" aria-label="Outils et réglages" aria-expanded="false">
+      <svg class="ico" aria-hidden="true"><use href="#i-tools"/></svg>
+    </button>
   </div>
 
   <!-- Relevés manuels (corrigent la carte) + simulation d'étiage par la cote. -->
   <div class="sim" id="sim" hidden>
     <div class="sim__head">
       <span class="sim__title">Relevés &amp; étiage</span>
-      <button class="sim__close" id="btn-sim-exit" type="button" aria-label="Quitter le mode relevés">✕</button>
+      <button class="sim__close" id="btn-sim-exit" type="button" aria-label="Quitter le mode relevés">
+        <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg>
+      </button>
     </div>
     <div class="sim__level">
       <output class="sim__cote" id="sim-cote">—</output>
@@ -101,7 +253,9 @@
   <div class="zone" id="zone" hidden>
     <div class="sim__head">
       <span class="zone__title" id="zone-title">Zone émergée</span>
-      <button class="sim__close" id="btn-zone-exit" type="button" aria-label="Quitter le tracé de zone">✕</button>
+      <button class="sim__close" id="btn-zone-exit" type="button" aria-label="Quitter le tracé de zone">
+        <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg>
+      </button>
     </div>
     <p class="zone__hint" id="zone-hint">Touchez un contour sur la carte, ou tracez-en un nouveau.</p>
     <!-- Les zones déjà tracées, listées dans le panneau lui-même : les reprendre ne doit
@@ -144,19 +298,76 @@
     <button class="capture__btn capture__btn--ghost" id="btn-cap-cancel" type="button" aria-label="Annuler la correction" hidden>✕</button>
   </form>
 
-  <footer class="bottombar">
-    <div class="depth" id="depth-box" role="button" tabindex="0"
+  <!--
+    Dock d'instruments : une seule rangée, bord à bord.
+
+    La profondeur porte la couleur de sa bande — c'est le même codage que la carte, donc
+    une lecture sans traduction. « Cap » a été retiré : le ruban du haut le donne déjà, et
+    la place gagnée passe dans le corps des deux valeurs qui restent, jusqu'ici en 0,75 rem
+    et de fait illisibles à bout de bras.
+  -->
+  <footer class="dock">
+    <div class="dock__depth" id="depth-box" role="button" tabindex="0"
          title="Toucher pour afficher en grand sous le bateau">
-      <span class="depth__value" id="prof-value">—</span>
-      <span class="depth__unit">m</span>
-      <span class="depth__label" id="prof-label">sous le bateau</span>
+      <span class="dock__num" id="prof-value">—</span>
+      <span class="dock__unit">m</span>
+      <span class="dock__label" id="prof-label">sous le bateau</span>
     </div>
-    <dl class="readouts">
+    <dl class="gauges">
       <div><dt>Sous quille</dt><dd id="quille-value">—</dd></div>
       <div><dt>Vitesse</dt><dd id="vitesse-value">—</dd></div>
-      <div><dt>Cap</dt><dd id="cap-value">—</dd></div>
     </dl>
   </footer>
+
+  <!--
+    Feuille « Outils ». Tout ce qui ne se touche pas en barrant : les trois modes de
+    correction, le fond de carte, et l'accès aux autres écrans. Chaque tuile porte un
+    libellé — c'est ce qui permet de se passer d'emojis dont ▲ et ◎ n'étaient de toute
+    façon lisibles par personne.
+  -->
+  <div class="sheet" id="sheet" hidden>
+    <div class="sheet__scrim" id="sheet-scrim"></div>
+    <div class="sheet__panel" role="dialog" aria-modal="true" aria-label="Outils et réglages">
+      <div class="sheet__grip"></div>
+      <p class="sheet__level" id="sheet-level"></p>
+      <div class="sheet__grid">
+        <button class="tile" id="btn-saisie" type="button">
+          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-probe"/></svg>
+          <span class="tile__label">Relever</span>
+          <span class="tile__sub">une sonde</span>
+        </button>
+        <button class="tile" id="btn-zone" type="button" aria-pressed="false">
+          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-island"/></svg>
+          <span class="tile__label">Zone émergée</span>
+          <span class="tile__sub">tracer un îlot</span>
+        </button>
+        <button class="tile" id="btn-sim" type="button">
+          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-tide"/></svg>
+          <span class="tile__label">Étiage</span>
+          <span class="tile__sub">&amp; relevés</span>
+        </button>
+        <button class="tile" id="btn-fond" type="button">
+          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-layers"/></svg>
+          <span class="tile__label">Fond de carte</span>
+          <span class="tile__sub" id="fond-label">Plan IGN</span>
+        </button>
+        <a class="tile" href="#/etalonnage">
+          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-target"/></svg>
+          <span class="tile__label">Étalonnage</span>
+          <span class="tile__sub">caler le modèle</span>
+        </a>
+        <a class="tile" href="#/parametres">
+          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-sliders"/></svg>
+          <span class="tile__label">Paramètres</span>
+          <span class="tile__sub">couleurs, bateau</span>
+        </a>
+      </div>
+      <a class="sheet__link" href="#/a-propos">
+        <svg class="ico" aria-hidden="true"><use href="#i-info"/></svg>
+        À propos, sources et limites du modèle
+      </a>
+    </div>
+  </div>
 
   <div class="toast" id="toast" hidden></div>
 </section>
@@ -164,12 +375,77 @@
 <!-- ------------------------------------------------------- écran paramètres -->
 <section id="vue-parametres" class="view panel">
   <header class="panel__head">
-    <a class="icon" href="#/" aria-label="Retour à la carte">←</a>
+    <a class="iconbtn" href="#/" aria-label="Retour à la carte">
+      <svg class="ico" aria-hidden="true"><use href="#i-back"/></svg>
+    </a>
     <h1>Paramètres</h1>
   </header>
+
+  <!-- Repère de position dans une page longue : neuf sections, dont trois seulement
+       servent sur l'eau. Ce sont des boutons et non des ancres — une ancre changerait
+       `location.hash`, que le routeur interpréterait comme un changement d'écran. -->
+  <nav class="quicknav" aria-label="Sections des paramètres">
+    <button type="button" data-goto="sec-bateau">Bateau</button>
+    <button type="button" data-goto="sec-lisibilite">Lisibilité</button>
+    <button type="button" data-goto="sec-couleurs">Couleurs</button>
+    <button type="button" data-goto="sec-cote">Cote</button>
+    <button type="button" data-goto="sec-calage">Calage</button>
+    <button type="button" data-goto="sec-sondes">Mes sondes</button>
+    <button type="button" data-goto="sec-zones">Zones</button>
+    <button type="button" data-goto="sec-sync">Partage</button>
+    <button type="button" data-goto="sec-app">Application</button>
+  </nav>
+
   <div class="panel__body">
 
-    <fieldset>
+    <fieldset id="sec-bateau">
+      <legend>Bateau et sécurité</legend>
+      <label class="row">
+        <span>Tirant d'eau (m)</span>
+        <input type="number" id="set-draft" min="0" max="3" step="0.05">
+      </label>
+      <label class="row">
+        <span>Marge de sécurité (m)</span>
+        <input type="number" id="set-margin" min="0" max="5" step="0.1">
+      </label>
+      <p class="hint" id="hint-safety"></p>
+      <label class="row row--switch">
+        <span>Alarme haut-fond</span>
+        <input type="checkbox" id="set-alarm">
+      </label>
+      <label class="row">
+        <span>Seuil d'alarme (m)</span>
+        <input type="number" id="set-alarm-depth" min="0.2" max="10" step="0.1">
+      </label>
+      <label class="row">
+        <span>Unité de vitesse</span>
+        <select id="set-speed-unit">
+          <option value="kmh">km/h</option>
+          <option value="kn">nœuds</option>
+        </select>
+      </label>
+    </fieldset>
+
+    <fieldset id="sec-lisibilite">
+      <legend>Lisibilité à l'écran</legend>
+      <label class="row row--switch">
+        <span>Plein soleil (contraste maximal)</span>
+        <input type="checkbox" id="set-sun">
+      </label>
+      <p class="hint">
+        Supprime les fonds translucides et les gris de l'habillage : en plein soleil, la
+        dalle renvoie plus de lumière qu'elle n'en produit et tout ce qui est estompé
+        disparaît. Les couleurs des fonds ne sont pas modifiées. Se règle aussi d'un
+        toucher sur le soleil du rail de la carte.
+      </p>
+      <p class="hint" id="hint-veille"></p>
+      <p class="hint">
+        La luminosité de la dalle reste pilotée par iOS seul : aucune application web ne
+        peut l'imposer, et l'iPhone la baisse de lui-même quand il chauffe au soleil.
+      </p>
+    </fieldset>
+
+    <fieldset id="sec-couleurs">
       <legend>Couleurs des fonds</legend>
       <label class="row">
         <span>Préréglage</span>
@@ -186,7 +462,7 @@
         <p class="hint">
           La couleur de chaque plage et sa profondeur maximale sont modifiables. Les
           retouches sont mémorisées par préréglage sur cet appareil ; « Réinitialiser »
-          (section Profil) les efface.
+          (section Application) les efface.
         </p>
       </details>
       <label class="row">
@@ -219,54 +495,7 @@
       </p>
     </fieldset>
 
-    <fieldset>
-      <legend>Lisibilité à l'écran</legend>
-      <label class="row row--switch">
-        <span>Plein soleil (contraste maximal)</span>
-        <input type="checkbox" id="set-sun">
-      </label>
-      <p class="hint">
-        Supprime les fonds translucides et les gris de l'habillage : en plein soleil, la
-        dalle renvoie plus de lumière qu'elle n'en produit et tout ce qui est estompé
-        disparaît. Les couleurs des fonds ne sont pas modifiées. Se règle aussi d'un
-        toucher sur ☀ depuis la carte.
-      </p>
-      <p class="hint" id="hint-veille"></p>
-      <p class="hint">
-        La luminosité de la dalle reste pilotée par iOS seul : aucune application web ne
-        peut l'imposer, et l'iPhone la baisse de lui-même quand il chauffe au soleil.
-      </p>
-    </fieldset>
-
-    <fieldset>
-      <legend>Bateau et sécurité</legend>
-      <label class="row">
-        <span>Tirant d'eau (m)</span>
-        <input type="number" id="set-draft" min="0" max="3" step="0.05">
-      </label>
-      <label class="row">
-        <span>Marge de sécurité (m)</span>
-        <input type="number" id="set-margin" min="0" max="5" step="0.1">
-      </label>
-      <p class="hint" id="hint-safety"></p>
-      <label class="row row--switch">
-        <span>Alarme haut-fond</span>
-        <input type="checkbox" id="set-alarm">
-      </label>
-      <label class="row">
-        <span>Seuil d'alarme (m)</span>
-        <input type="number" id="set-alarm-depth" min="0.2" max="10" step="0.1">
-      </label>
-      <label class="row">
-        <span>Unité de vitesse</span>
-        <select id="set-speed-unit">
-          <option value="kmh">km/h</option>
-          <option value="kn">nœuds</option>
-        </select>
-      </label>
-    </fieldset>
-
-    <fieldset>
+    <fieldset id="sec-cote">
       <legend>Cote du lac</legend>
       <p class="hint" id="hint-level"></p>
       <label class="row">
@@ -279,7 +508,7 @@
       </div>
     </fieldset>
 
-    <fieldset>
+    <fieldset id="sec-calage">
       <legend>Calage bathymétrique</legend>
       <p class="hint">
         La cote du lac le 22 avril 2009, jour du levé, n'est pas connue : elle décale
@@ -294,7 +523,7 @@
       <p class="hint" id="hint-z2009"></p>
     </fieldset>
 
-    <fieldset>
+    <fieldset id="sec-sondes">
       <legend>Mes sondes</legend>
       <p class="hint">
         Relevez à la main la profondeur lue au sondeur : elle est calée sur la cote du
@@ -330,16 +559,17 @@
       </div>
     </fieldset>
 
-    <fieldset>
+    <fieldset id="sec-zones">
       <legend>Zones émergées</legend>
       <p class="hint">
         Le bateau sondeur de 2009 ne passait pas sur un haut-fond : un îlot y est un trou
         dans les données, comblé en reliant les fosses voisines. Une sonde corrige un
-        caillou, pas l'étendue de la terre autour. Tracez le contour avec le bouton ▲ de la
-        carte : tout l'intérieur est porté à la hauteur indiquée au-dessus de l'eau, et
-        l'altitude retenue, elle, ne bouge plus — la zone découvre ou se noie toute seule
-        quand la cote change. Ces zones restent sur cet appareil : elles sont une
-        interprétation, pas une mesure, et ne partent pas dans le fichier partagé.
+        caillou, pas l'étendue de la terre autour. Tracez le contour avec « Zone émergée »
+        dans les Outils de la carte : tout l'intérieur est porté à la hauteur indiquée
+        au-dessus de l'eau, et l'altitude retenue, elle, ne bouge plus — la zone découvre
+        ou se noie toute seule quand la cote change. Ces zones restent sur cet appareil :
+        elles sont une interprétation, pas une mesure, et ne partent pas dans le fichier
+        partagé.
       </p>
       <label class="row row--switch">
         <span>Afficher les contours sur la carte</span>
@@ -353,21 +583,11 @@
       </div>
     </fieldset>
 
-    <fieldset>
-      <legend>Profil</legend>
-      <div class="actions">
-        <button type="button" id="btn-export">Exporter</button>
-        <button type="button" id="btn-import">Importer</button>
-        <button type="button" class="danger" id="btn-reset">Réinitialiser</button>
-      </div>
-      <input type="file" id="file-import" accept="application/json" hidden>
-    </fieldset>
-
-    <fieldset>
+    <fieldset id="sec-sync">
       <legend>Synchronisation des relevés</legend>
       <p class="hint">
-        Les sondes que tu saisis avec le bouton ✎ « Relever » corrigent la carte partagée :
-        elles sont enregistrées dans le dépôt et visibles par tous. L'écriture demande
+        Les sondes que tu saisis avec « Relever » corrigent la carte partagée : elles sont
+        enregistrées dans le dépôt et visibles par tous. L'écriture demande
         <strong>ton</strong> jeton GitHub, qui reste sur cet appareil et n'est jamais
         exporté. Sans jeton, l'application lit quand même les relevés publiés.
       </p>
@@ -384,24 +604,35 @@
       </div>
     </fieldset>
 
-    <fieldset>
-      <legend>Version et cache</legend>
+    <!-- Profil et version étaient deux cartes pour cinq boutons : c'est la même chose —
+         l'état de l'installation sur cet appareil. -->
+    <fieldset id="sec-app">
+      <legend>Application</legend>
       <p class="hint">Version installée : <strong id="app-version">—</strong>.
         Si ce numéro ne change pas après une mise à jour, le téléphone sert encore
         l'ancienne version depuis son cache.</p>
       <div class="actions">
         <button type="button" class="primary" id="btn-reload">Recharger la dernière version</button>
       </div>
+      <p class="hint">Profil : réglages, palettes retouchées, sondes et zones de cet appareil.</p>
+      <div class="actions">
+        <button type="button" id="btn-export">Exporter</button>
+        <button type="button" id="btn-import">Importer</button>
+        <button type="button" class="danger" id="btn-reset">Réinitialiser</button>
+      </div>
+      <input type="file" id="file-import" accept="application/json" hidden>
+      <p class="hint"><a href="#/a-propos">À propos, sources et limites</a></p>
     </fieldset>
 
-    <p class="hint"><a href="#/a-propos">À propos, sources et limites</a></p>
   </div>
 </section>
 
 <!-- ------------------------------------------------------- écran étalonnage -->
 <section id="vue-etalonnage" class="view panel">
   <header class="panel__head">
-    <a class="icon" href="#/" aria-label="Retour à la carte">←</a>
+    <a class="iconbtn" href="#/" aria-label="Retour à la carte">
+      <svg class="ico" aria-hidden="true"><use href="#i-back"/></svg>
+    </a>
     <h1>Étalonnage</h1>
   </header>
   <div class="panel__body">
@@ -461,7 +692,9 @@
 <!-- --------------------------------------------------------- écran à propos -->
 <section id="vue-apropos" class="view panel">
   <header class="panel__head">
-    <a class="icon" href="#/" aria-label="Retour à la carte">←</a>
+    <a class="iconbtn" href="#/" aria-label="Retour à la carte">
+      <svg class="ico" aria-hidden="true"><use href="#i-back"/></svg>
+    </a>
     <h1>À propos</h1>
   </header>
   <div class="panel__body prose">
@@ -527,7 +760,10 @@ profondeur = cote_du_jour − z_fond</code></pre>
   </div>
 </section>
 
-<div id="chargement" class="loading"><p>Chargement du modèle bathymétrique…</p></div>
+<div id="chargement" class="loading">
+  <svg class="loading__mark" aria-hidden="true"><use href="#i-mark"/></svg>
+  <p>Chargement du modèle bathymétrique…</p>
+</div>
 
 <script type="module" src="src/main.js"></script>
 </body>

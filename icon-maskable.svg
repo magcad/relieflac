@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ReliefLac">
   <!-- Version masquable : le motif tient dans la zone sûre de 80 %, le fond déborde. -->
-  <rect width="512" height="512" fill="#0f1417"/>
-  <g transform="translate(256 256) scale(0.72) translate(-256 -256)">
-    <path d="M56 336h400v40H56z" fill="#1f6fb2"/>
-    <path d="M56 296h400v40H56z" fill="#4b9fd5"/>
-    <path d="M56 256h400v40H56z" fill="#9fcbe8"/>
-    <path d="M56 216h400v40H56z" fill="#e8f3fb"/>
-    <path d="M56 376h400v40H56z" fill="#ff8a3d"/>
-    <path d="M56 416h400v40H56z" fill="#ff1f1f"/>
-    <path d="M150 216c28-46 62-70 106-70s78 24 106 70z" fill="#c8a165"/>
-    <path d="M256 74l44 118-44-24-44 24z" fill="#ff2d55" stroke="#fff" stroke-width="10" stroke-linejoin="round"/>
+  <defs>
+    <path id="iso" d="M0-160C84-160 156-108 168-40 180 28 140 100 68 136-4 172-88 156-132 100-176 44-164-48-104-108-76-136-40-160 0-160Z"/>
+  </defs>
+  <rect width="512" height="512" fill="#080c10"/>
+  <g transform="translate(256 256)">
+    <use href="#iso" fill="#1f6fb2" transform="scale(.92)"/>
+    <use href="#iso" fill="#4b9fd5" transform="scale(.67)"/>
+    <use href="#iso" fill="#9fcbe8" transform="scale(.44)"/>
+    <use href="#iso" fill="#ff8a3d" transform="scale(.21)"/>
+    <path d="M0-66 31 19 0 2-31 19Z" fill="#fff"/>
   </g>
 </svg>

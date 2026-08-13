@@ -1,20 +1,60 @@
 /* ReliefLac — interface de navigation.
    Conçue pour un téléphone tenu d'une main, en plein soleil, sur un bateau qui bouge :
-   contrastes forts, cibles tactiles larges, chiffres lisibles à bout de bras. */
+   contrastes forts, cibles tactiles larges, chiffres lisibles à bout de bras.
+
+   L'habillage tient en trois surfaces seulement — le bandeau de cap, le rail de caméra, le
+   dock d'instruments — pour que la carte occupe tout le reste. Tout ce qui ne se touche
+   pas en barrant est rangé dans la feuille « Outils ». */
 
 :root {
-  --bg: #0f1417;
-  --panel: #182027;
-  --panel-2: #1f2a33;
-  --line: #2c3841;
-  --text: #eaf1f6;
-  --muted: #93a4b1;
-  --accent: #4db3ff;
-  --ok: #22c55e;
-  --warn: #f59e0b;
-  --danger: #ef4444;
+  color-scheme: dark;
+
+  /* Fonds : un dégradé de gris bleutés, du plus profond au plus proche de l'œil. */
+  --bg: #080c10;
+  --surface: #10161c;
+  --surface-2: #18212a;
+  --surface-3: #212c37;
+  --line: #253039;
+  --line-strong: #33424f;
+
+  --text: #f1f6fa;
+  --muted: #94a7b6;
+  --faint: #6d8393;
+
+  --accent: #35c2ff;
+  --accent-ink: #041f2c;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --danger: #f4514c;
+  --sand: #d9b478;
+
+  /* Verre : le fond translucide des surfaces posées sur la carte. En plein soleil, les
+     deux jetons basculent en noir franc et flou nul — d'où l'absence de règle par
+     composant plus bas. */
+  --glass: #10161ce0;
+  --glass-2: #0b1116e8;
+  --blur: blur(14px) saturate(1.15);
+
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+
+  --shadow: 0 12px 28px -14px #000d, 0 2px 6px #0006;
+  --ring: 0 0 0 1px var(--line);
+
+  --strip-h: 46px;
+  /* Hauteur réelle du dock, mesurée : 2,7 rem de chiffre, son libellé, et les marges.
+     Les panneaux flottants s'y accrochent — la valeur doit coller au rendu, faute de quoi
+     ils mordraient sur la profondeur. */
+  --dock-h: 76px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Hauteur réservée en bas d'écran. Tout ce qui flotte au-dessus du dock s'y accroche :
+     panneaux de correction, rail, toast, échelle de MapLibre. Une seule valeur à changer. */
+  --dock: calc(var(--dock-h) + var(--safe-bottom));
+  --strip: calc(var(--strip-h) + var(--safe-top));
 }
 
 * { box-sizing: border-box; }
@@ -32,6 +72,19 @@ html, body {
 button, select, input { font: inherit; color: inherit; }
 a { color: var(--accent); }
 
+/* Le sprite d'icônes ne se dessine pas : seules ses `<symbol>` sont réutilisées. */
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.ico {
+  width: 22px; height: 22px; flex: none;
+  display: block; color: inherit; pointer-events: none;
+}
+.ico--tile { width: 26px; height: 26px; }
+
+:where(button, a, [role="button"]):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
 /* ------------------------------------------------------------------- vues */
 
 .view { display: none; position: absolute; inset: 0; }
@@ -39,66 +92,183 @@ a { color: var(--accent); }
 
 #map { position: absolute; inset: 0; }
 
-/* --------------------------------------------------------------- bandeaux */
+/* ------------------------------------------------- bandeau de cap et de cote
 
-.topbar {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 5;
-  display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem;
-  padding: calc(.5rem + var(--safe-top) + 46px) .6rem .6rem;
-  background: linear-gradient(#0f1417ee, #0f141700);
+   Une seule bande de 46 px porte les trois informations qu'on lit sans y penser en
+   barrant : le cap au centre, la cote à gauche, l'état du GPS à droite. La barre
+   d'actions qui la doublait auparavant coûtait 56 px de carte en permanence pour des
+   boutons qui ne servent pas une fois par heure — ils sont passés sous « Outils ». */
+
+.navstrip {
+  position: absolute; top: var(--safe-top); left: 0; right: 0; z-index: 6;
+  height: var(--strip-h); overflow: hidden;
+  background: linear-gradient(180deg, #080c10f2, #080c10c2);
+  border-bottom: 1px solid #ffffff14;
+  backdrop-filter: var(--blur);
+  -webkit-user-select: none; user-select: none; touch-action: none;
+}
+.compass__viewport { position: absolute; inset: 0; }
+.compass__ribbon { position: absolute; top: 0; bottom: 0; left: 0; will-change: transform; }
+
+.ctick { position: absolute; top: 6px; width: 1px; height: 6px; background: #4d5f6c; }
+.ctick--mid { height: 10px; background: #7e94a2; }
+.ctick--card { height: 13px; background: var(--text); }
+.ctick b, .ctick i {
+  position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+  font-style: normal; white-space: nowrap; line-height: 1;
+}
+.ctick b { font-size: .8rem; font-weight: 700; color: var(--text); }
+.ctick--north b { color: var(--accent); }
+.ctick i { font-size: .6rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Repère central : liséré accent et pointe vers le bas, sur le cap courant. */
+.compass__pointer {
+  position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; z-index: 2;
+  transform: translateX(-50%); background: linear-gradient(var(--accent), #35c2ff00 80%);
   pointer-events: none;
 }
-.topbar > * { pointer-events: auto; }
-.topbar__actions { display: flex; gap: .4rem; }
-
-.chip {
-  display: grid; grid-template-columns: auto auto; align-items: baseline;
-  gap: 0 .35rem; padding: .45rem .7rem; text-align: left;
-  background: #182027e6; border: 1px solid var(--line); border-radius: 12px;
-  backdrop-filter: blur(6px);
+.compass__pointer::after {
+  content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  border: 6px solid transparent; border-top-color: var(--accent); border-bottom: 0;
 }
-.chip__value { font-size: 1.4rem; font-weight: 650; letter-spacing: -.02em; }
-.chip__unit { font-size: .8rem; color: var(--muted); }
-.chip__meta { grid-column: 1 / -1; font-size: .72rem; color: var(--muted); }
-.chip--forbidden { border-color: var(--danger); }
-.chip--delicate { border-color: var(--warn); }
-.chip--stale .chip__meta { color: var(--warn); }
-
-.icon {
-  display: grid; place-items: center; width: 44px; height: 44px;
-  background: #182027e6; border: 1px solid var(--line); border-radius: 12px;
-  font-size: 1.15rem; text-decoration: none; cursor: pointer;
-  backdrop-filter: blur(6px);
+.compass__hud {
+  position: absolute; left: 50%; bottom: 3px; z-index: 3;
+  transform: translateX(-50%); pointer-events: none;
 }
-.icon.is-on { border-color: var(--accent); color: var(--accent); }
-
-.fabs {
-  position: absolute; right: .6rem; bottom: calc(9.5rem + var(--safe-bottom)); z-index: 5;
-  display: flex; flex-direction: column; gap: .5rem;
+.compass__deg {
+  display: inline-block; padding: .05rem .5rem; border-radius: var(--r-pill);
+  background: #06131bdd; border: 1px solid #35c2ff55;
+  font-size: .8rem; font-weight: 700; letter-spacing: .01em;
+  font-variant-numeric: tabular-nums; color: var(--text);
 }
-.fab {
-  width: 48px; height: 48px; border-radius: 50%;
-  background: #182027e6; border: 1px solid var(--line); color: var(--text);
-  font-size: 1.2rem; cursor: pointer; backdrop-filter: blur(6px);
+.compass__deg.is-idle { color: var(--muted); border-color: var(--line); letter-spacing: .3em; }
+.compass__deg.is-tap {
+  color: var(--accent); border-color: var(--accent); letter-spacing: .01em;
+  animation: tap-pulse 1.6s ease-in-out infinite;
 }
-.fab.is-on { border-color: var(--accent); color: var(--accent); }
-/* « + » et « − » sont des glyphes maigres : il leur faut du corps pour rester visibles
-   d'un coup d'œil, gant au doigt et bateau qui bouge. */
-.fab--zoom { font-size: 1.6rem; font-weight: 600; line-height: 1; }
+@keyframes tap-pulse { 50% { background: #12354a; } }
+@media (prefers-reduced-motion: reduce) { .compass__deg.is-tap { animation: none; } }
 
-.bottombar {
+/* Les dégradés de bord sont calés sur la largeur des deux pastilles qui les surmontent :
+   les graduations s'y éteignent au lieu d'être tranchées net par un fond opaque. */
+.compass__fade { position: absolute; top: 0; bottom: 0; z-index: 1; pointer-events: none; }
+.compass__fade--l { left: 0; width: 124px; background: linear-gradient(90deg, #080c10, #080c1000); }
+.compass__fade--r { right: 0; width: 84px; background: linear-gradient(270deg, #080c10, #080c1000); }
+
+/* Cote du lac. Compacte : c'est une donnée qui bouge de quelques centimètres par heure, et
+   qui n'a donc pas à occuper deux lignes en permanence. L'âge n'apparaît que lorsqu'il
+   compte — relevé périmé ou saisie manuelle ; le détail complet est dans la feuille. */
+.level {
+  position: absolute; left: .45rem; top: 50%; z-index: 4; transform: translateY(-50%);
+  display: flex; align-items: baseline; gap: .18rem;
+  padding: .25rem .55rem; cursor: pointer;
+  background: var(--glass-2); border: 1px solid var(--line); border-radius: var(--r-pill);
+  line-height: 1.1;
+}
+.level__value { font-size: .98rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.level__unit { font-size: .62rem; color: var(--muted); }
+.level__meta { font-size: .6rem; color: var(--warn); font-weight: 600; }
+.level__meta:empty { display: none; }
+.level--forbidden { border-color: var(--danger); }
+.level--forbidden .level__value { color: var(--danger); }
+.level--delicate { border-color: var(--warn); }
+.level--stale { border-color: var(--warn); }
+
+.gps {
+  position: absolute; right: .45rem; top: 50%; z-index: 4; transform: translateY(-50%);
+  display: flex; align-items: center; gap: .3rem; padding: .22rem .48rem;
+  background: var(--glass-2); border: 1px solid var(--line); border-radius: var(--r-pill);
+  color: var(--muted); font-size: .64rem; font-weight: 600; cursor: pointer;
+}
+.gps__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.gps[data-state="active"] { color: var(--ok); border-color: #1c4a2e; }
+.gps[data-state="active"] .gps__dot { background: var(--ok); }
+.gps[data-state="coarse"] { color: var(--warn); border-color: #4a3a17; }
+.gps[data-state="coarse"] .gps__dot { background: var(--warn); }
+.gps[data-state="searching"] .gps__dot { background: var(--warn); animation: blink 1.1s ease-in-out infinite; }
+.gps[data-state="denied"] { color: var(--danger); border-color: #5a2626; }
+.gps[data-state="denied"] .gps__dot { background: var(--danger); }
+@keyframes blink { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .gps__dot { animation: none; } }
+
+/* --------------------------------------------------------- rail de caméra
+
+   Ce rail ne porte que les gestes de navigation : cadrer, s'orienter, voir. Les six FAB
+   d'origine mêlaient la caméra et l'édition (sonde, zone) — deux fréquences d'usage sans
+   rapport, et 328 px de colonne, soit 40 % de la hauteur d'un iPhone, occupés en
+   permanence. L'édition est partie sous « Outils », dernier bouton du rail. */
+
+.rail {
+  position: absolute; right: .5rem; bottom: calc(var(--dock) + .6rem); z-index: 5;
+  display: flex; flex-direction: column; align-items: center; gap: .4rem;
+}
+.rail__btn {
+  display: grid; place-items: center; width: 44px; height: 44px; flex: none;
+  background: var(--glass); border: 1px solid var(--line); border-radius: var(--r-md);
+  color: var(--text); cursor: pointer; backdrop-filter: var(--blur);
+  box-shadow: var(--shadow);
+}
+.rail__btn.is-on { border-color: var(--accent); color: var(--accent); }
+.rail__btn--tools {
+  width: 50px; height: 50px; border-radius: var(--r-lg);
+  border-color: var(--line-strong); background: var(--glass-2);
+}
+.rail__btn--tools[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+
+/* Zoom : une capsule d'un seul tenant plutôt que deux pastilles. Deux touches qui vont
+   toujours ensemble se lisent mieux réunies, et la colonne y gagne une hauteur de gouttière. */
+.rail__group {
+  display: flex; flex-direction: column; overflow: hidden;
+  border-radius: var(--r-md); box-shadow: var(--shadow);
+}
+.rail__group .rail__btn {
+  border-radius: 0; box-shadow: none; border-width: 1px 1px 0;
+}
+.rail__group .rail__btn:last-child { border-bottom-width: 1px; }
+
+/* ----------------------------------------------------- dock d'instruments
+
+   Une seule rangée bord à bord. La profondeur reprend la couleur de sa bande — même
+   codage que la carte, donc lue sans traduction. « Cap » a disparu : le ruban du haut le
+   donne déjà, et la place récupérée est passée dans le corps des deux valeurs restantes,
+   jusqu'ici en 0,75 rem et de fait illisibles à bout de bras sur un bateau qui bouge. */
+
+.dock {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
-  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
-  padding: .7rem .9rem calc(.7rem + var(--safe-bottom));
-  background: linear-gradient(#0f141700, #0f1417f2 35%);
+  display: flex; align-items: center; justify-content: space-between; gap: .8rem;
+  min-height: var(--dock);
+  padding: .4rem .9rem calc(.4rem + var(--safe-bottom));
+  background: linear-gradient(#080c1000, #080c10e6 42%, #080c10f7);
 }
-.depth { display: flex; align-items: baseline; gap: .3rem; flex-wrap: wrap; cursor: pointer; }
-.depth[hidden] { display: none; }
-.depth:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
-.depth__value { font-size: 3rem; font-weight: 700; letter-spacing: -.03em; line-height: 1; }
-.depth__unit { font-size: 1.1rem; color: var(--muted); }
-.depth__label { width: 100%; font-size: .72rem; color: var(--muted); }
-.depth__label.is-warning { color: var(--warn); font-weight: 600; }
+.dock__depth {
+  display: grid; grid-template-columns: auto auto; align-items: baseline;
+  gap: 0 .28rem; cursor: pointer; min-width: 0;
+}
+.dock__depth[hidden] { display: none; }
+.dock__depth:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-sm); }
+.dock__num {
+  font-size: 2.7rem; font-weight: 750; letter-spacing: -.035em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.dock__unit { font-size: 1rem; color: var(--muted); font-weight: 600; }
+.dock__label {
+  grid-column: 1 / -1; font-size: .68rem; color: var(--muted);
+  letter-spacing: .01em; margin-top: .1rem;
+}
+.dock__label.is-warning { color: var(--warn); font-weight: 700; }
+
+/* Deux jauges, cadrées à droite, en chiffres tabulaires : la comparaison d'un coup d'œil
+   d'une seconde à l'autre est ce qui compte, pas la valeur absolue. */
+.gauges { display: flex; gap: .9rem; margin: 0; flex: none; }
+.gauges > div { display: grid; justify-items: end; gap: .05rem; }
+.gauges dt {
+  color: var(--faint); font-size: .58rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .07em;
+}
+.gauges dd {
+  margin: 0; font-variant-numeric: tabular-nums;
+  font-size: 1.05rem; font-weight: 650; letter-spacing: -.01em;
+}
 
 /* Grand affichage de la profondeur, ancré sous le bateau (calque HTML sur la carte).
    Placé sous l'étrave : ne masque pas l'eau vers laquelle on avance. */
@@ -121,25 +291,76 @@ a { color: var(--accent); }
 }
 .depth-under.is-warning .depth-under__label { color: var(--warn); opacity: 1; font-weight: 600; }
 
-.readouts { display: grid; gap: .15rem; margin: 0; text-align: right; }
-.readouts div { display: flex; gap: .5rem; justify-content: flex-end; }
-.readouts dt { color: var(--muted); font-size: .75rem; }
-.readouts dd { margin: 0; font-variant-numeric: tabular-nums; font-size: .85rem; }
-
 .alarm {
-  position: absolute; top: calc(5.2rem + var(--safe-top) + 46px); left: .6rem; right: .6rem; z-index: 6;
-  padding: .6rem .8rem; border-radius: 12px; text-align: center;
-  background: var(--danger); color: #fff; font-size: .95rem;
+  position: absolute; top: calc(var(--strip) + .5rem); left: .6rem; right: .6rem; z-index: 7;
+  padding: .6rem .8rem; border-radius: var(--r-md); text-align: center;
+  background: var(--danger); color: #fff; font-size: .95rem; font-weight: 600;
+  box-shadow: var(--shadow);
   animation: pulse 1s ease-in-out infinite;
 }
 @keyframes pulse { 50% { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { .alarm { animation: none; } }
 
 .toast {
-  position: absolute; left: 50%; bottom: calc(10rem + var(--safe-bottom)); z-index: 7;
+  position: absolute; left: 50%; bottom: calc(var(--dock) + 1.2rem); z-index: 8;
   transform: translateX(-50%); max-width: 90vw;
-  padding: .55rem .9rem; border-radius: 10px;
-  background: #0f1417f2; border: 1px solid var(--line); font-size: .85rem;
+  padding: .55rem .9rem; border-radius: var(--r-sm);
+  background: var(--glass-2); border: 1px solid var(--line); font-size: .85rem;
+  backdrop-filter: var(--blur); box-shadow: var(--shadow);
+}
+
+/* --------------------------------------------------------- feuille d'outils
+
+   Tout ce qui ne se touche pas en barrant. Chaque tuile porte un libellé : c'est ce qui
+   permet de se passer des emojis d'origine (▲ pour une zone émergée, ◎ pour le suivi),
+   dont le sens n'était devinable par personne et dont le rendu changeait d'un appareil à
+   l'autre. Un geste de plus, mais une hésitation de moins. */
+
+.sheet { position: absolute; inset: 0; z-index: 10; }
+.sheet[hidden] { display: none; }
+.sheet__scrim { position: absolute; inset: 0; background: #04070ab8; }
+.sheet__panel {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  max-width: 32rem; margin: 0 auto;
+  padding: .5rem .8rem calc(1rem + var(--safe-bottom));
+  background: var(--glass-2); backdrop-filter: var(--blur);
+  border: 1px solid var(--line); border-bottom: 0;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  box-shadow: 0 -18px 40px -20px #000e;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sheet__panel { animation: sheet-in .18s ease-out; }
+}
+@keyframes sheet-in { from { transform: translateY(14px); opacity: 0; } }
+
+.sheet__grip {
+  width: 40px; height: 4px; margin: .1rem auto .6rem;
+  background: var(--line-strong); border-radius: var(--r-pill);
+}
+.sheet__level {
+  margin: 0 0 .7rem; text-align: center;
+  font-size: .74rem; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.sheet__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+@media (max-width: 340px) { .sheet__grid { grid-template-columns: repeat(2, 1fr); } }
+
+.tile {
+  display: grid; justify-items: center; align-content: start; gap: .18rem;
+  padding: .75rem .35rem .65rem; cursor: pointer; text-decoration: none;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md);
+  color: var(--text); text-align: center;
+}
+.tile__label { font-size: .78rem; font-weight: 600; line-height: 1.15; }
+.tile__sub { font-size: .64rem; color: var(--muted); line-height: 1.15; }
+.tile .ico { margin-bottom: .18rem; color: var(--accent); }
+.tile.is-on { border-color: var(--accent); background: #0d2a3a; }
+.tile.is-on .tile__label { color: var(--accent); }
+
+.sheet__link {
+  display: flex; align-items: center; justify-content: center; gap: .45rem;
+  margin-top: .6rem; padding: .6rem; border-radius: var(--r-md);
+  border: 1px solid var(--line); color: var(--muted);
+  font-size: .78rem; text-decoration: none;
 }
 
 /* ------------------------------------------------------------ plein soleil
@@ -147,55 +368,65 @@ a { color: var(--accent); }
    Aucune API du web ne commande la luminosité de la dalle. En plein soleil, celle-ci
    renvoie plus de lumière ambiante qu'elle n'en émet : le peu de contraste qui reste part
    entièrement dans les fonds translucides, les flous et les gris. Ce mode les supprime —
-   noir franc, blanc franc, bordures épaisses — sur le seul habillage. Les couleurs des
-   fonds portent la lecture des profondeurs : on n'y touche pas. */
+   noir franc, blanc franc, bordures épaisses. Les couleurs des fonds portent la lecture
+   des profondeurs : on n'y touche pas.
+
+   Depuis la refonte, l'essentiel tient dans la surcharge de six jetons : `--glass` et
+   `--blur` étant lus par toutes les surfaces posées sur la carte, il n'y a plus à
+   énumérer les composants un à un. Ne restent que les corrections de structure — épaisseur
+   de bordure et graisse de texte — qu'un jeton ne peut pas porter. */
 
 body.is-sun {
-  --panel: #000;
-  --panel-2: #000;
+  --surface: #000;
+  --surface-2: #000;
+  --surface-3: #000;
+  --glass: #000;
+  --glass-2: #000;
+  --blur: none;
   --line: #fff;
+  --line-strong: #fff;
   --muted: #fff;
+  --faint: #fff;
   --text: #fff;
+  --shadow: none;
 }
-body.is-sun .chip,
-body.is-sun .icon,
-body.is-sun .fab,
+body.is-sun .level,
+body.is-sun .gps,
+body.is-sun .rail__btn,
+body.is-sun .tile,
 body.is-sun .toast,
-body.is-sun .alarm {
-  background: #000;
-  border-width: 2px;
-  backdrop-filter: none; /* le flou mélange l'habillage à la carte : illisible au soleil */
-}
-body.is-sun .topbar { background: linear-gradient(#000, #0000); }
-body.is-sun .bottombar { background: linear-gradient(#0000, #000 35%); }
-body.is-sun .compass { background: #000; border-bottom: 2px solid #fff; backdrop-filter: none; }
+body.is-sun .alarm,
+body.is-sun .sheet__panel { border-width: 2px; }
+body.is-sun .navstrip { background: #000; border-bottom: 2px solid #fff; }
+body.is-sun .dock { background: linear-gradient(#0000, #000 38%); }
 body.is-sun .compass__fade { display: none; } /* dégradé de bord : mange les graduations */
+body.is-sun .sheet__scrim { background: #000d; }
 
 /* Les gris de hiérarchie disparaissent : au soleil, ils ne se distinguent plus du fond. */
-body.is-sun .chip__unit,
-body.is-sun .chip__meta,
-body.is-sun .depth__unit,
-body.is-sun .depth__label,
-body.is-sun .readouts dt,
-body.is-sun .readouts dd { color: #fff; }
-body.is-sun .depth__label,
-body.is-sun .readouts dt { font-weight: 600; }
-body.is-sun .readouts dd { font-size: .95rem; font-weight: 700; }
+body.is-sun .level__unit,
+body.is-sun .dock__unit,
+body.is-sun .dock__label,
+body.is-sun .gauges dt,
+body.is-sun .tile__sub { color: #fff; }
+body.is-sun .dock__label,
+body.is-sun .gauges dt { font-weight: 700; }
+body.is-sun .gauges dd { font-size: 1.12rem; font-weight: 800; }
 body.is-sun .depth-under__unit,
 body.is-sun .depth-under__label { opacity: 1; }
 /* Le grand chiffre est posé sur la carte, sans fond : c'est le halo qui le détache. */
 body.is-sun .depth-under { text-shadow: 0 2px 3px #000, 0 0 6px #000, 0 0 18px #000; }
 /* L'état actif garde le fond noir : le plan IGN est presque blanc, et une pastille
    blanche s'y noierait. C'est le noir qui tranche sur la carte, l'accent qui signale. */
-body.is-sun .fab.is-on,
-body.is-sun .icon.is-on { border-width: 3px; }
+body.is-sun .rail__btn.is-on,
+body.is-sun .tile.is-on { border-width: 3px; }
+body.is-sun .tile.is-on { background: #000; }
 
 /* Les couleurs d'alerte survivent au passage en contraste maximal : elles portent un sens
    (cote périmée, profondeur sous le seuil) que le blanc effacerait. */
-body.is-sun .chip--stale .chip__meta,
-body.is-sun .depth__label.is-warning { color: var(--warn); }
-body.is-sun .chip--forbidden,
-body.is-sun .chip--delicate { border-width: 3px; }
+body.is-sun .level__meta,
+body.is-sun .dock__label.is-warning { color: var(--warn); }
+body.is-sun .level--forbidden,
+body.is-sun .level--delicate { border-width: 3px; }
 
 .boat { width: 34px; height: 34px; }
 .boat svg { width: 100%; height: 100%; filter: drop-shadow(0 1px 3px #000a); }
@@ -203,8 +434,8 @@ body.is-sun .chip--delicate { border-width: 3px; }
 /* --------------------------------------------------------------- capture sonde */
 
 .capture {
-  position: absolute; left: .6rem; right: .6rem; z-index: 5;
-  bottom: calc(6.3rem + var(--safe-bottom));
+  position: absolute; left: .6rem; right: .6rem; z-index: 6;
+  bottom: calc(var(--dock) + .5rem);
   display: flex; gap: .5rem; align-items: stretch;
 }
 /* Sans cette règle, `display:flex` l'emporte sur l'attribut `hidden` et la barre reste
@@ -212,19 +443,19 @@ body.is-sun .chip--delicate { border-width: 3px; }
 .capture[hidden] { display: none; }
 .capture__input {
   flex: 1; min-width: 0; padding: .55rem .7rem;
-  background: #182027e6; border: 1px solid var(--line); border-radius: 12px;
-  backdrop-filter: blur(6px); font-size: 1rem;
+  background: var(--glass); border: 1px solid var(--line); border-radius: var(--r-md);
+  backdrop-filter: var(--blur); font-size: 1rem;
 }
 .capture__input::placeholder { color: var(--muted); }
 .capture__btn {
-  flex: none; padding: .55rem 1rem; border-radius: 12px; cursor: pointer;
+  flex: none; padding: .55rem 1rem; border-radius: var(--r-md); cursor: pointer;
   background: var(--accent); border: 1px solid var(--accent);
-  color: #06202f; font-weight: 650; font-size: 1rem;
+  color: var(--accent-ink); font-weight: 650; font-size: 1rem;
 }
 .capture__btn--danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .capture__btn--ghost {
-  padding: .55rem .8rem; background: #182027e6; border: 1px solid var(--line);
-  color: var(--text); backdrop-filter: blur(6px);
+  padding: .55rem .8rem; background: var(--glass); border: 1px solid var(--line);
+  color: var(--text); backdrop-filter: var(--blur);
 }
 .capture.is-editing .capture__input { border-color: var(--accent); }
 
@@ -234,13 +465,13 @@ body.is-sun .chip--delicate { border-width: 3px; }
    négative, pour qu'on voie sans lire qu'on enregistre une hauteur et non une profondeur. */
 .sign-btn {
   flex: none; width: 2.6rem; padding: .5rem 0; text-align: center;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--r-sm);
   color: var(--text); font-size: 1.05rem; line-height: 1; cursor: pointer;
 }
 .sign-btn.is-negative {
-  background: var(--accent); border-color: var(--accent); color: #06202f; font-weight: 700;
+  background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700;
 }
-.capture .sign-btn { border-radius: 12px; } /* aligné sur les autres touches de la barre */
+.capture .sign-btn { border-radius: var(--r-md); } /* aligné sur les autres touches de la barre */
 
 /* Bouton armé : il attend un second appui pour exécuter une action destructrice, et se
    désarme seul au bout de quelques secondes (voir `wireArmed` dans src/main.js). Il
@@ -262,7 +493,7 @@ button.is-arming {
    2009 (blanc pâle) et des repères d'étalonnage (vert / ambre). */
 .probe-mark {
   display: grid; place-items: center; min-width: 26px; height: 21px; padding: 0 6px;
-  background: #22d3ee; border: 1.5px solid #06303a; border-radius: 999px;
+  background: #22d3ee; border: 1.5px solid #06303a; border-radius: var(--r-pill);
   color: #062028; font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums;
   box-shadow: 0 1px 3px #0009; cursor: pointer;
 }
@@ -279,7 +510,7 @@ button.is-arming {
 /* Point témoin de simulation : goutte ambre immergée, îlot clair une fois émergé. */
 .sim-mark {
   display: grid; place-items: center; min-width: 26px; height: 21px; padding: 0 6px;
-  background: #f59e0b; border: 1.5px solid #3a2606; border-radius: 999px;
+  background: #f59e0b; border: 1.5px solid #3a2606; border-radius: var(--r-pill);
   color: #201400; font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums;
   box-shadow: 0 1px 3px #0009; cursor: pointer;
 }
@@ -315,99 +546,28 @@ button.is-arming {
 .capture__radius[hidden] { display: none; }
 .capture__radius input, .sim__sel-radius input {
   width: 3.1rem; padding: .3rem .35rem; text-align: right;
-  background: #182027e6; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--glass); border: 1px solid var(--line); border-radius: var(--r-sm);
   color: var(--text); font-size: .82rem; font-variant-numeric: tabular-nums;
 }
-
-/* --------------------------------------------------------------- boussole */
-
-.compass {
-  position: absolute; top: var(--safe-top); left: 0; right: 0; z-index: 6;
-  height: 46px; overflow: hidden;
-  background: linear-gradient(180deg, #0f1417f7, #0f1417d0);
-  border-bottom: 1px solid #ffffff18;
-  backdrop-filter: blur(12px);
-  -webkit-user-select: none; user-select: none; touch-action: none;
-}
-.compass__viewport { position: absolute; inset: 0; }
-.compass__ribbon { position: absolute; top: 0; bottom: 0; left: 0; will-change: transform; }
-
-.ctick { position: absolute; top: 6px; width: 1px; height: 6px; background: #5b6f7c; }
-.ctick--mid { height: 10px; background: #8aa0ad; }
-.ctick--card { height: 13px; background: var(--text); }
-.ctick b, .ctick i {
-  position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
-  font-style: normal; white-space: nowrap; line-height: 1;
-}
-.ctick b { font-size: .8rem; font-weight: 700; color: var(--text); }
-.ctick--north b { color: var(--accent); }
-.ctick i { font-size: .6rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-
-/* Repère central : liséré accent et pointe vers le bas, sur le cap courant. */
-.compass__pointer {
-  position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; z-index: 2;
-  transform: translateX(-50%); background: linear-gradient(var(--accent), #4db3ff00 80%);
-  pointer-events: none;
-}
-.compass__pointer::after {
-  content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-  border: 6px solid transparent; border-top-color: var(--accent); border-bottom: 0;
-}
-.compass__hud {
-  position: absolute; left: 50%; bottom: 3px; z-index: 3;
-  transform: translateX(-50%); pointer-events: none;
-}
-.compass__deg {
-  display: inline-block; padding: .05rem .5rem; border-radius: 999px;
-  background: #0b1a24e0; border: 1px solid #4db3ff55;
-  font-size: .82rem; font-weight: 700; letter-spacing: .01em;
-  font-variant-numeric: tabular-nums; color: var(--text);
-}
-.compass__deg.is-idle { color: var(--muted); border-color: var(--line); letter-spacing: .3em; }
-.compass__deg.is-tap {
-  color: var(--accent); border-color: var(--accent); letter-spacing: .01em;
-  animation: tap-pulse 1.6s ease-in-out infinite;
-}
-@keyframes tap-pulse { 50% { background: #17364a; } }
-@media (prefers-reduced-motion: reduce) { .compass__deg.is-tap { animation: none; } }
-
-.compass__fade { position: absolute; top: 0; bottom: 0; width: 34px; z-index: 1; pointer-events: none; }
-.compass__fade--l { left: 0; background: linear-gradient(90deg, #0f1417, #0f141700); }
-.compass__fade--r { right: 0; background: linear-gradient(270deg, #0f1417, #0f141700); }
-
-.compass__gps {
-  position: absolute; right: .5rem; top: 50%; z-index: 3; transform: translateY(-50%);
-  display: flex; align-items: center; gap: .3rem; padding: .2rem .45rem;
-  background: #0b1a24cc; border: 1px solid var(--line); border-radius: 999px;
-  color: var(--muted); font-size: .66rem; font-weight: 600; cursor: pointer;
-}
-.compass__gps-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
-.compass__gps[data-state="active"] { color: var(--ok); border-color: #1c4a2e; }
-.compass__gps[data-state="active"] .compass__gps-dot { background: var(--ok); }
-.compass__gps[data-state="coarse"] { color: var(--warn); border-color: #4a3a17; }
-.compass__gps[data-state="coarse"] .compass__gps-dot { background: var(--warn); }
-.compass__gps[data-state="searching"] .compass__gps-dot { background: var(--warn); animation: blink 1.1s ease-in-out infinite; }
-.compass__gps[data-state="denied"] { color: var(--danger); border-color: #5a2626; }
-.compass__gps[data-state="denied"] .compass__gps-dot { background: var(--danger); }
-@keyframes blink { 50% { opacity: .25; } }
-@media (prefers-reduced-motion: reduce) { .compass__gps-dot { animation: none; } }
 
 /* ------------------------------------------------------------- simulation */
 
 .sim {
   position: absolute; left: .6rem; right: .6rem; z-index: 6;
-  bottom: calc(6.3rem + var(--safe-bottom)); max-width: 26rem; margin: 0 auto;
-  padding: .7rem .8rem .8rem; border-radius: 16px;
-  background: #131c24f2; border: 1px solid #f59e0b55;
-  box-shadow: 0 8px 30px #0009; backdrop-filter: blur(10px);
+  bottom: calc(var(--dock) + .5rem); max-width: 26rem; margin: 0 auto;
+  padding: .7rem .8rem .8rem; border-radius: var(--r-lg);
+  background: var(--glass-2); border: 1px solid #f59e0b55;
+  box-shadow: var(--shadow); backdrop-filter: var(--blur);
 }
 .sim[hidden] { display: none; }
 .sim__head { display: flex; align-items: center; justify-content: space-between; }
 .sim__title { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #f5c46b; }
 .sim__close {
-  width: 30px; height: 30px; border-radius: 8px; cursor: pointer;
+  display: grid; place-items: center; width: 30px; height: 30px;
+  border-radius: var(--r-sm); cursor: pointer;
   background: none; border: 1px solid var(--line); color: var(--muted);
 }
+.sim__close .ico { width: 18px; height: 18px; }
 .sim__level { display: flex; align-items: baseline; gap: .35rem; margin: .3rem 0 .1rem; flex-wrap: wrap; }
 .sim__cote { font-size: 2rem; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .sim__unit { font-size: .85rem; color: var(--muted); }
@@ -419,22 +579,22 @@ button.is-arming {
 .sim__sel {
   display: flex; align-items: center; justify-content: space-between; gap: .5rem;
   flex-wrap: wrap; /* le rayon passe à la ligne plutôt que d'écraser les boutons */
-  margin-top: .5rem; padding: .45rem .55rem; border-radius: 10px;
-  background: #0f1720; border: 1px solid var(--line); font-size: .78rem;
+  margin-top: .5rem; padding: .45rem .55rem; border-radius: var(--r-sm);
+  background: var(--surface); border: 1px solid var(--line); font-size: .78rem;
 }
 .sim__sel-label { flex: 1; min-width: 9rem; }
 .sim__sel[hidden] { display: none; }
 .sim__sel-btns { display: flex; gap: .3rem; flex: none; }
 .sim__sel-btns button {
-  min-width: 32px; height: 30px; padding: 0 .5rem; border-radius: 8px; cursor: pointer;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--text); font-size: 1rem;
+  min-width: 32px; height: 30px; padding: 0 .5rem; border-radius: var(--r-sm); cursor: pointer;
+  background: var(--surface-3); border: 1px solid var(--line); color: var(--text); font-size: 1rem;
 }
 .sim__sel-del { color: #ffb4b4 !important; border-color: #6b2b2b !important; font-size: .78rem !important; }
 .sim__foot { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .55rem; }
 .sim__hint { flex: 1; min-width: 8rem; font-size: .72rem; color: var(--muted); }
 .sim__reset {
-  padding: .35rem .6rem; border-radius: 8px; cursor: pointer; font-size: .74rem;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  padding: .35rem .6rem; border-radius: var(--r-sm); cursor: pointer; font-size: .74rem;
+  background: var(--surface-3); border: 1px solid var(--line); color: var(--text);
 }
 .sim__reset--danger { color: #ffb4b4; border-color: #6b2b2b; }
 
@@ -444,13 +604,13 @@ button.is-arming {
    sur la carte — mais en beige de terre plutôt qu'en ambre d'eau. */
 .zone {
   position: absolute; left: .6rem; right: .6rem; z-index: 6;
-  bottom: calc(6.3rem + var(--safe-bottom)); max-width: 26rem; margin: 0 auto;
-  padding: .7rem .8rem .8rem; border-radius: 16px;
-  background: #131c24f2; border: 1px solid #c8a16577;
-  box-shadow: 0 8px 30px #0009; backdrop-filter: blur(10px);
+  bottom: calc(var(--dock) + .5rem); max-width: 26rem; margin: 0 auto;
+  padding: .7rem .8rem .8rem; border-radius: var(--r-lg);
+  background: var(--glass-2); border: 1px solid #c8a16577;
+  box-shadow: var(--shadow); backdrop-filter: var(--blur);
 }
 .zone[hidden] { display: none; }
-.zone__title { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #e2c08d; }
+.zone__title { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--sand); }
 .zone__hint { margin: .35rem 0 .5rem; font-size: .74rem; color: var(--muted); }
 .zone__fields { display: flex; gap: .5rem; flex-wrap: wrap; }
 .zone__fields[hidden], .zone__list[hidden] { display: none; }
@@ -463,20 +623,20 @@ button.is-arming {
 }
 .zone__list li {
   display: flex; align-items: center; gap: .4rem;
-  padding: .35rem .5rem; margin-bottom: .25rem; border-radius: 8px;
-  background: #0f1720; border: 1px solid var(--line); font-size: .75rem;
+  padding: .35rem .5rem; margin-bottom: .25rem; border-radius: var(--r-sm);
+  background: var(--surface); border: 1px solid var(--line); font-size: .75rem;
 }
 .zone__list li span { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
 .zone__list li button {
-  flex: none; min-width: 30px; height: 28px; border-radius: 8px; cursor: pointer;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  flex: none; min-width: 30px; height: 28px; border-radius: var(--r-sm); cursor: pointer;
+  background: var(--surface-3); border: 1px solid var(--line); color: var(--text);
 }
 .zone__list .zone__del { color: #ffb4b4; border-color: #6b2b2b; }
 .zone__field { flex: 1; min-width: 8.5rem; display: flex; align-items: center; gap: .4rem; font-size: .72rem; color: var(--muted); }
 .zone__field span { flex: 1; }
 .zone__field input {
   width: 4.2rem; padding: .35rem .4rem; text-align: right;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--r-sm);
   color: var(--text); font-size: .9rem; font-variant-numeric: tabular-nums;
 }
 .zone__meta { margin: .5rem 0 0; font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -499,40 +659,67 @@ button.is-arming {
 }
 .editor__row input[type="color"] {
   width: 40px; height: 30px; padding: 0; flex: none; cursor: pointer;
-  background: none; border: 1px solid var(--line); border-radius: 8px;
+  background: none; border: 1px solid var(--line); border-radius: var(--r-sm);
 }
 .editor__row input[type="number"] {
   width: 5.5rem; padding: .4rem .5rem; text-align: right;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--r-sm);
 }
 .editor__label { flex: 1; color: var(--muted); font-size: .82rem; }
 .editor__unit { color: var(--muted); font-size: .78rem; }
 .editor__del {
   margin-left: auto; width: 28px; height: 28px; flex: none; cursor: pointer;
-  background: none; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 1rem;
+  background: none; border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--muted); font-size: 1rem;
 }
 
 /* ----------------------------------------------------------------- panneaux */
 
 .panel { background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .panel__head {
-  position: sticky; top: 0; z-index: 2;
+  position: sticky; top: 0; z-index: 3;
   display: flex; align-items: center; gap: .7rem;
   padding: calc(.6rem + var(--safe-top)) .8rem .6rem;
-  background: #0f1417f2; border-bottom: 1px solid var(--line);
-  backdrop-filter: blur(6px);
+  background: var(--glass-2); border-bottom: 1px solid var(--line);
+  backdrop-filter: var(--blur);
 }
-.panel__head h1 { font-size: 1.1rem; margin: 0; }
+.panel__head h1 { font-size: 1.05rem; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+
+.iconbtn {
+  display: grid; place-items: center; width: 40px; height: 40px; flex: none;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md);
+  color: var(--text); text-decoration: none; cursor: pointer;
+}
+
+/* Repère de position dans une page de neuf sections. Collant sous l'en-tête : on sait
+   toujours où l'on est et ce qui reste, sans avoir à faire défiler pour le découvrir. */
+.quicknav {
+  /* Collée juste sous l'en-tête, dont la hauteur mesurée est de 60 px. */
+  position: sticky; top: calc(3.75rem + var(--safe-top)); z-index: 2;
+  display: flex; gap: .35rem; overflow-x: auto; scrollbar-width: none;
+  padding: .5rem .8rem; background: var(--glass-2); backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--line);
+}
+.quicknav::-webkit-scrollbar { display: none; }
+.quicknav button {
+  flex: none; padding: .3rem .65rem; border-radius: var(--r-pill); cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--muted); font-size: .74rem; white-space: nowrap;
+}
+.quicknav button.is-on { border-color: var(--accent); color: var(--accent); }
+
 .panel__body {
   max-width: 40rem; margin: 0 auto;
   padding: 1rem .9rem calc(3rem + var(--safe-bottom));
 }
 
 fieldset {
-  border: 1px solid var(--line); border-radius: 12px;
-  padding: .9rem; margin: 0 0 1.1rem; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: .9rem; margin: 0 0 1.1rem; background: var(--surface);
+  /* En-tête (60 px) + navigation rapide (46 px) : une section visée par les puces se pose
+     sous elles, et non dessous. */
+  scroll-margin-top: calc(7.2rem + var(--safe-top));
 }
-legend { padding: 0 .4rem; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+legend { padding: 0 .4rem; color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; }
 
 .row {
   display: flex; align-items: center; justify-content: space-between; gap: 1rem;
@@ -542,12 +729,12 @@ legend { padding: 0 .4rem; color: var(--muted); font-size: .8rem; text-transform
 .row > span { flex: 1; }
 .row input[type="number"], .row select {
   width: 8.5rem; padding: .5rem .6rem; text-align: right;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--r-sm);
 }
 .row input[type="range"] { width: 55%; accent-color: var(--accent); }
 .row input[type="password"], .row input[type="text"] {
   width: 12rem; padding: .5rem .6rem; font-family: ui-monospace, monospace;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--r-sm);
 }
 .row--switch input { width: 3rem; height: 1.7rem; accent-color: var(--accent); }
 
@@ -555,10 +742,10 @@ legend { padding: 0 .4rem; color: var(--muted); font-size: .8rem; text-transform
 
 .actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .8rem; }
 .actions button, .primary, .big {
-  padding: .6rem .9rem; border-radius: 10px; cursor: pointer;
-  background: var(--panel-2); border: 1px solid var(--line);
+  padding: .6rem .9rem; border-radius: var(--r-sm); cursor: pointer;
+  background: var(--surface-3); border: 1px solid var(--line);
 }
-.primary { background: var(--accent); border-color: var(--accent); color: #06202f; font-weight: 600; }
+.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 650; }
 .primary:disabled { opacity: .45; cursor: not-allowed; }
 .danger { border-color: #6b2b2b; color: #ffb4b4; }
 .big { width: 100%; margin-top: .8rem; padding: 1rem; font-size: 1.1rem; }
@@ -572,7 +759,7 @@ legend { padding: 0 .4rem; color: var(--muted); font-size: .8rem; text-transform
 
 .stats { display: grid; gap: .35rem; }
 .stats .big-number { font-size: 2rem; font-weight: 700; letter-spacing: -.02em; }
-.stats .verdict { padding: .5rem .7rem; border-radius: 8px; font-size: .85rem; }
+.stats .verdict { padding: .5rem .7rem; border-radius: var(--r-sm); font-size: .85rem; }
 .verdict--ok { background: #14361f; color: #a7f3c0; }
 .verdict--wait { background: #2c2a17; color: #f5deb0; }
 .verdict--spread { background: #3a1d1d; color: #ffc2c2; }
@@ -580,11 +767,11 @@ legend { padding: 0 .4rem; color: var(--muted); font-size: .8rem; text-transform
 .records { list-style: none; padding: 0; margin: 0; display: grid; gap: .4rem; }
 .records li {
   display: flex; align-items: center; justify-content: space-between; gap: .6rem;
-  padding: .5rem .6rem; background: var(--panel-2); border: 1px solid var(--line);
-  border-radius: 8px; font-size: .82rem;
+  padding: .5rem .6rem; background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--r-sm); font-size: .82rem;
 }
 .records .residual { font-variant-numeric: tabular-nums; font-weight: 600; }
-.records .tag { font-size: .7rem; padding: .1rem .4rem; border-radius: 999px; }
+.records .tag { font-size: .7rem; padding: .1rem .4rem; border-radius: var(--r-pill); }
 .tag--on { background: #14361f; color: #a7f3c0; }
 .tag--off { background: #3a2f14; color: #f5deb0; }
 .records button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 1.1rem; }
@@ -593,20 +780,23 @@ legend { padding: 0 .4rem; color: var(--muted); font-size: .8rem; text-transform
 .prose ul { padding-left: 1.15rem; }
 .prose li { margin: .3rem 0; }
 .prose pre {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm);
   padding: .7rem .8rem; overflow-x: auto; font-size: .8rem;
 }
 .warn {
-  border-left: 3px solid var(--warn); background: var(--panel);
-  padding: .8rem .9rem; border-radius: 0 8px 8px 0; margin: 0 0 1rem;
+  border-left: 3px solid var(--warn); background: var(--surface);
+  padding: .8rem .9rem; border-radius: 0 var(--r-sm) var(--r-sm) 0; margin: 0 0 1rem;
 }
 
 .loading {
   position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
+  align-content: center; gap: 1.1rem;
   background: var(--bg); color: var(--muted); text-align: center; padding: 2rem;
 }
 .loading[hidden] { display: none; }
+.loading__mark { width: 84px; height: 84px; }
+.loading p { margin: 0; }
 
 .maplibregl-ctrl-attrib { font-size: .65rem; }
-.maplibregl-ctrl-bottom-left { margin-bottom: calc(5.5rem + var(--safe-bottom)); }
-.maplibregl-ctrl-bottom-right { margin-bottom: calc(5.5rem + var(--safe-bottom)); }
+.maplibregl-ctrl-bottom-left { margin-bottom: calc(var(--dock) - .6rem); }
+.maplibregl-ctrl-bottom-right { margin-bottom: calc(var(--dock) - .6rem); }

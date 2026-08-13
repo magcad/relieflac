@@ -266,7 +266,7 @@ complètement. Désactivable par `grid.shoal_bias.enabled`.
 
 ### 4.2 ter Corrections manuelles — forme d'un relevé sur la carte
 
-Les relevés saisis dans l'application (sondes ✎, témoins 🌊, zones ▲) sont reportés sur la
+Les relevés saisis dans l'application (sondes relevées, témoins d'étiage, zones émergées) sont reportés sur la
 grille du levé à chaque changement, pour produire la « carte 2009 corrigée » affichée en
 navigation. La question n'est pas *si* la carte doit bouger — c'est la seule façon de
 rattraper le défaut du § 3.1 bis — mais **sur quelle forme**.
@@ -327,7 +327,7 @@ z_sol = cote_du_jour + hauteur_au-dessus_de_l'eau
 ```
 
 La zone se recolorie donc d'elle-même quand la cote bouge — émergée en étiage, submergée à
-la retenue normale — et le curseur du mode 🌊 montre le passage de l'une à l'autre.
+la retenue normale — et le curseur du mode « Étiage » montre le passage de l'une à l'autre.
 
 Statut de la donnée : une zone est une **interprétation**, pas une mesure. Elle reste donc
 locale à l'appareil et ne part pas dans `data/corrections/<lac>.json`, qui ne transporte que
@@ -507,14 +507,33 @@ contours reste de 2 à 3 px pour un rapport de zoom de 5.
 
 - Carte plein écran centrée sur la position GPS, overlay de profondeur colorée.
 - **Marqueur bateau** : triangle orienté selon le cap (`GeolocationCoordinates.heading`, avec repli sur le cap calculé entre deux positions), cercle de précision GPS.
-- **Bandeau supérieur** :
-  - cote actuelle du lac (ex. `647,08 m NGF`) + âge de la donnée (`il y a 42 min`) ;
-  - pastille de couleur selon le seuil EDF (vert / orange / rouge navigation interdite) ;
-  - indicateur « donnée périmée » si > 6 h.
-- **Bandeau inférieur** :
-  - **profondeur sous le bateau** en très gros caractères, colorée selon la palette ;
-  - vitesse (nœuds ou km/h, au choix) et cap.
-- **Boutons** : recentrage / suivi auto · verrouillage nord ou cap en haut · plein écran · accès Paramètres.
+- **Bandeau supérieur** (46 px, unique) — la seule chrome permanente en haut d'écran. Il
+  réunit ce qui se lit sans y penser en barrant :
+  - **ruban de cap** défilant sous un repère fixe, avec la valeur en degrés au centre ;
+  - **cote du lac** à gauche, en pastille compacte (ex. `646,82 m`). Sa bordure porte le
+    seuil EDF (vert / orange / rouge navigation interdite) ; un complément court n'apparaît
+    que lorsqu'il change la lecture — `saisie` pour une cote manuelle, l'âge pour une
+    donnée périmée. L'état complet (condition de navigation et âge) est repris en clair
+    dans la feuille « Outils », qu'ouvre le même geste ;
+  - **état du GPS** à droite (pastille de couleur, clignotante en recherche).
+- **Bandeau inférieur** (76 px, unique) :
+  - **profondeur sous le bateau** en très gros caractères, colorée selon la palette, avec
+    sa provenance en dessous (`sous le bateau`, `interpolé — sonde à 90 m`) ;
+  - **sous quille** et **vitesse** (nœuds ou km/h, au choix), en chiffres tabulaires. Le
+    cap n'y figure pas : le ruban du haut le donne déjà, et la place ainsi rendue passe
+    dans le corps des deux valeurs restantes.
+- **Rail de caméra**, bord droit : zoom ± en capsule d'un seul tenant · plein soleil ·
+  verrouillage nord ou cap en haut · recentrage / suivi auto · accès à la feuille
+  « Outils ». Rien d'autre : ce rail ne porte que des gestes de navigation.
+- **Feuille « Outils »** : tout ce qui ne se touche pas en barrant — relever une sonde,
+  tracer une zone émergée, mode étiage, bascule du fond de carte, Étalonnage, Paramètres,
+  À propos. Tuiles **libellées**, et non des glyphes : ▲ et ◎ n'étaient interprétables par
+  personne, et leur rendu variait d'un appareil à l'autre. La feuille se referme dès qu'une
+  tuile agit — ouvrir un mode de correction, c'est vouloir la carte, pas rester au menu.
+
+Cette répartition ramène la chrome permanente de **29 % à 20 % de la surface** d'un écran
+de 375 × 812 : la barre d'actions du haut, qui doublait le ruban de cap, coûtait 56 px de
+carte à chaque seconde de navigation pour des boutons qui ne servent pas une fois par heure.
 - **Appui long sur la carte** : affiche la profondeur au point touché (« sonde ponctuelle »).
 - **Clic droit sur la carte** : pose un point à l'endroit montré et ouvre la saisie de
   profondeur, **sans attendre le GPS**. C'est ce qui rend l'application manipulable sur un

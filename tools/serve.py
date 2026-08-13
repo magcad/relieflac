@@ -15,6 +15,7 @@ développement : en production, GitHub Pages fait le travail.
 
 from __future__ import annotations
 
+import os
 import sys
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -47,7 +48,9 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main() -> int:
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8123
+    # Argument d'abord, puis `PORT` : le second permet à un lanceur d'attribuer un port
+    # libre quand 8123 est déjà pris par une autre session de développement.
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT") or 8123)
     handler = partial(Handler, directory=str(ROOT))
     print(f"ReliefLac sur http://localhost:{port}/  (Ctrl+C pour arrêter)")
     ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()

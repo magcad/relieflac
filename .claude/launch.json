@@ -4,8 +4,11 @@
     {
       "name": "relieflac",
       "runtimeExecutable": "C:\\Users\\as\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
-      "runtimeArgs": ["tools/serve.py", "8123"],
-      "port": 8123
+      "runtimeArgs": [
+        "tools/serve.py"
+      ],
+      "port": 8123,
+      "autoPort": true
     }
   ]
 }
