@@ -288,7 +288,27 @@ async function run() {
   $('btn-sim-del').click();
   check('le témoin est supprimé', sims().length === 0, `${sims().length}`);
   check('sa pastille disparaît', map.simPoints.length === 0);
+
+  // La simulation pilote la cote par `manualLevel`, qui est PERSISTANT. Tant qu'on en
+  // sort par le bouton, tout va bien ; fermée en route, elle laissait une cote inventée
+  // derrière elle, prise ensuite pour la cote du lac — et une cote fausse fausse toutes
+  // les profondeurs. On vérifie donc les deux chemins de sortie, dont celui qui n'en est
+  // pas un.
+  const settings = () => { try { return JSON.parse(localStorage.getItem('relieflac.settings.v1')) ?? {}; } catch { return {}; } };
+  $('sim-slider').value = '644.95';
+  $('sim-slider').dispatchEvent(new Event('input'));
+  check('la simulation pilote bien la cote affichée',
+    Math.abs(Number(settings().manualLevel) - 644.95) < 0.005
+    && settings().manualFromSim === true,
+    `cote ${settings().manualLevel}, marqueur ${settings().manualFromSim}`);
+  check('la cote saisie se voit sur le bandeau',
+    $('btn-cote').classList.contains('level--manual'),
+    $('btn-cote').className);
+
   $('btn-sim-exit').click();
+  check('sortir de la simulation rend la cote du lac',
+    settings().manualLevel === null && settings().manualFromSim === false,
+    `cote ${settings().manualLevel}`);
 
   // ------------------------------------------------- bascule de fond bathymétrique
   //

@@ -173,6 +173,10 @@ a { color: var(--accent); }
 .level--forbidden .level__value { color: var(--danger); }
 .level--delicate { border-color: var(--warn); }
 .level--stale { border-color: var(--warn); }
+/* Cote saisie à la main : elle ne vient pas d'EDF et fausse toutes les profondeurs si on
+   l'oublie. Elle doit se voir d'un coup d'œil, pas se déduire d'une mention en petit. */
+.level--manual { border-color: var(--warn); border-style: dashed; }
+.level--manual .level__value { color: var(--warn); }
 
 .gps {
   position: absolute; right: .45rem; top: 50%; z-index: 4; transform: translateY(-50%);

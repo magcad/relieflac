@@ -100,6 +100,13 @@ export function defaultsFrom(palette, model) {
     zoom: null,
     calibrationOffset_m: 0,
     manualLevel: null,
+    // La simulation d'étiage pilote la cote par `manualLevel`, qui est persistant. Fermer
+    // l'application en cours de simulation laissait donc une cote inventée en place, prise
+    // pour la vraie à la réouverture — sur un outil de navigation, une cote fausse fausse
+    // TOUTES les profondeurs. Ces deux clés permettent de le détecter au démarrage et de
+    // rendre la cote qui était en vigueur avant la simulation.
+    manualFromSim: false,
+    manualBeforeSim: null,
     // Sondes saisies à la main : immersion du transducteur sous la flottaison, et
     // affichage des points mesurés en surcouche.
     transducer_m: 0.3,

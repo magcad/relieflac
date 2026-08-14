@@ -53,6 +53,18 @@ async function boot() {
     app.palette = palette;
     app.model = model;
     app.settings = new Settings(defaultsFrom(palette, model));
+    // Une simulation d'étiage interrompue — application fermée, onglet tué, batterie à
+    // plat — laissait sa cote inventée dans les réglages, où elle passait ensuite pour la
+    // cote du lac. On la retire avant que quoi que ce soit ne la lise, et l'on rend celle
+    // qui était en vigueur avant.
+    if (app.settings.get('manualFromSim')) {
+      app.simLevelDropped = app.settings.get('manualLevel');
+      app.settings.update({
+        manualLevel: app.settings.get('manualBeforeSim') ?? null,
+        manualFromSim: false,
+        manualBeforeSim: null,
+      });
+    }
     // Retouches de couleurs mémorisées : appliquées sur la palette en mémoire, dont tout
     // le rendu (table, légende, shader) dérive ensuite.
     applyAllPaletteOverrides();
@@ -131,6 +143,11 @@ async function boot() {
     // La cote bouge de quelques centimètres par heure : un rafraîchissement toutes les
     // dix minutes suffit largement, et le fichier est servi depuis le cache si inchangé.
     setInterval(() => app.level.refresh().then(refreshLevelUi), 10 * 60e3);
+
+    if (Number.isFinite(app.simLevelDropped)) {
+      toast(`Cote de simulation ${app.simLevelDropped.toFixed(2)} m abandonnée — `
+        + 'retour à la cote du lac', 8000);
+    }
 
     loadSoundingsLazily();
     registerServiceWorker();
@@ -669,7 +686,7 @@ function refreshLevelUi() {
   const value = $('cote-value');
   const meta = $('cote-meta');
 
-  chip.classList.remove('level--forbidden', 'level--delicate', 'level--stale');
+  chip.classList.remove('level--forbidden', 'level--delicate', 'level--stale', 'level--manual');
 
   if (state.value == null) {
     value.textContent = '—';
@@ -689,6 +706,10 @@ function refreshLevelUi() {
     if (state.condition.key === 'forbidden') chip.classList.add('level--forbidden');
     else if (state.condition.key === 'delicate') chip.classList.add('level--delicate');
     if (state.source === LevelSource.STALE) chip.classList.add('level--stale');
+    // Une cote saisie à la main n'est pas la cote du lac : tant qu'elle est en place, toutes
+    // les profondeurs affichées sont fausses d'autant. Le liseré pointillé le dit sans avoir
+    // à lire la mention « saisie ».
+    if (manual) chip.classList.add('level--manual');
   }
 
   refreshDepthStyle();
@@ -1866,6 +1887,13 @@ function enterSim() {
   // à restaurer en sortie pour ne pas détourner durablement l'affichage.
   app.simEnteredWithManual = app.settings.get('manualLevel');
   app.simBaseLevel = round2(currentLevel().value ?? app.model.lake.normal_level_m_ngf);
+  // Déposé AVANT le premier mouvement du curseur : si l'application est fermée en cours de
+  // simulation, c'est ce marqueur qui permettra au démarrage suivant de ne pas prendre une
+  // cote de simulation pour la cote du lac.
+  app.settings.update({
+    manualFromSim: true,
+    manualBeforeSim: app.simEnteredWithManual ?? null,
+  });
   $('btn-sim').classList.add('is-on');
   $('sim').hidden = false;
   refreshCaptureUi(); // en simulation on pose des témoins, pas des sondes
@@ -1885,7 +1913,11 @@ function exitSim() {
   $('sim').hidden = true;
   refreshCaptureUi();
   $('sim-sel').hidden = true;
-  app.settings.set('manualLevel', app.simEnteredWithManual ?? null);
+  app.settings.update({
+    manualLevel: app.simEnteredWithManual ?? null,
+    manualFromSim: false,
+    manualBeforeSim: null,
+  });
   app.simEnteredWithManual = undefined;
   refreshSimOnMap();
 }

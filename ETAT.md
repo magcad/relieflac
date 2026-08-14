@@ -781,7 +781,7 @@ bilinéairement : les comparer revient à comparer deux choses différentes.
 Après toute modification de `config/palette.json` ou de la grille, relancer
 `python tools/dump_reference.py`, sinon les tests comparent à une référence périmée.
 
-Ouvrir aussi `/test/interaction.html`. 50 enchaînements : l'application entière démarre
+Ouvrir aussi `/test/interaction.html`. 53 enchaînements : l'application entière démarre
 avec [`test/stub-map.js`](test/stub-map.js) à la place de MapLibre — substitué par une
 carte d'import, le reste du code ne voit pas la différence — et le banc provoque les mêmes
 événements que la vraie carte (`pinpoint`, `probeselect`, `zonevertex`…). Le balisage est
@@ -861,6 +861,32 @@ base relative (`<base href="../">`), y compris pour les clés de sa carte d'impo
 ---
 
 ## 6. Pièges déjà rencontrés
+
+**Une simulation d'étiage pouvait laisser une fausse cote derrière elle** (trouvé le
+14/08/2026 par l'utilisateur, qui voyait 644,95 m sur son téléphone quand EDF donnait
+646,65). Le curseur de simulation pilote la cote par `manualLevel`, qui est **persistant** :
+`exitSim` la restaure, mais l'application fermée en cours de simulation ne passe jamais par
+là. Au démarrage suivant, la cote inventée était reprise pour la cote du lac — et une cote
+fausse fausse **toutes** les profondeurs, d'un bout à l'autre de la carte, sans rien qui le
+signale hormis une mention « saisie » en petit.
+
+Trois corrections, aucune facultative :
+
+- `enterSim` dépose un marqueur persistant (`manualFromSim`) **avant** le premier mouvement
+  du curseur, avec la cote qui était en vigueur (`manualBeforeSim`) ;
+- au démarrage, une cote portant ce marqueur est **abandonnée** avant que quoi que ce soit
+  ne la lise, la précédente est rendue, et un message le dit ;
+- une cote saisie à la main porte désormais un **liseré pointillé orange** sur le bandeau,
+  au lieu de se déduire d'une mention discrète.
+
+Leçon : *un état de simulation qui persiste n'est plus une simulation.* Tout réglage qu'un
+mode temporaire écrit dans le stockage doit savoir dire qu'il est temporaire — sans quoi
+c'est le redémarrage, et non l'utilisateur, qui décide de ce qui est vrai.
+
+À noter, et c'est ce qui rend le piège coûteux : **une mesure de terrain prise pendant ce
+temps-là est contaminée**. Le recalage de 2,72 m du lot L6 bis a été mesuré en comparant le
+trait de côte de la carte à celui du terrain ; si la cote affichée était fausse au moment de
+la comparaison, l'écart mesuré l'est aussi, d'autant. La mesure est à refaire cote vérifiée.
 
 À ne pas refaire.
 
