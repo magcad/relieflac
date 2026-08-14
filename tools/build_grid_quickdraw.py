@@ -163,7 +163,7 @@ def main() -> int:
 
     z_ac = float(config["reference_levels"][source_cfg["reference_level_key"]]["value_m_ngf"])
     print(f"grille : {width} × {height} px · {ground_res} m au sol · "
-          f"z_ac = {z_ac} m NGF")
+          f"z_ac mesuré = {z_ac} m NGF")
 
     paths = [DATA_DIR / name for name in source_cfg["mosaics"]]
     missing = [p for p in paths if not p.exists()]
@@ -200,8 +200,28 @@ def main() -> int:
           f"({100 * framed.sum() / max(mask.sum(), 1):.1f} % du lac) · "
           f"{(mask & ~framed).sum() * cell_ha:.0f} ha sans donnée")
 
-    low = z_ac - dmax   # fond le plus bas que la bande autorise
-    high = z_ac - dmin  # fond le plus haut : la valeur prudente
+    # --- recalage de terrain : le plan d'eau auquel se rapportent les profondeurs
+    #
+    # Mesuré sur l'eau, pas déduit : le barreur compare le trait de côte de cette carte à
+    # celui qu'il a sous les yeux. La grandeur corrigée est le PLAN D'EAU de la communauté,
+    # pas la bathymétrie — d'où un décalage rigoureusement uniforme, qui entre exactement
+    # là où `z_ac` entre, c'est-à-dire AVANT la détente et avant la fusion du MNT.
+    #
+    # Le MNT ne le suit pas, et c'est voulu : ses altitudes sont absolues, mesurées par
+    # avion, et n'ont rien à voir avec la référence des sondeurs de la communauté. Un îlot
+    # reste où il est ; seul le fond issu des bandes se déplace.
+    #
+    # Ce que ce décalage laisse ouvert est écrit dans config/model.json : il produit à
+    # l'écran exactement le même résultat qu'une cote de lac fausse d'autant, et rien dans
+    # le dépôt ne permet aujourd'hui de trancher entre les deux.
+    offset = float(cfg.get("datum_offset_m", 0.0))
+    datum = z_ac + offset
+    if offset:
+        print(f"recalage de terrain : {offset:+.2f} m — plan d'eau de référence "
+              f"{z_ac:.2f} → {datum:.2f} m NGF")
+
+    low = datum - dmax   # fond le plus bas que la bande autorise
+    high = datum - dmin  # fond le plus haut : la valeur prudente
     span = (high - low)[framed]
     print(f"  largeur d'encadrement : médiane {np.median(span):.1f} m, "
           f"maximum {span.max():.1f} m")
@@ -231,24 +251,6 @@ def main() -> int:
         if terrain_stats.get("available"):
             print(f"  {terrain_stats['cells_filled']:,} cellules comblées, "
                   f"{terrain_stats['cells_raised']:,} relevées")
-
-    # --- recalage de terrain : la carte entière descend d'un bloc
-    #
-    # Mesuré sur l'eau, pas déduit : c'est ce que voit le barreur qui compare le trait de
-    # côte de cette carte à celui qu'il a sous les yeux. La grandeur corrigée est le PLAN
-    # D'EAU auquel se rapportent les profondeurs de la communauté, pas la bathymétrie —
-    # d'où un décalage rigoureusement uniforme, appliqué APRÈS la fusion du terrain pour
-    # que le trait de côte se déplace lui aussi. Sans quoi la correction serait sans effet
-    # sur l'émergé : à la cote du jour, 29,0 des 29,3 ha émergés viennent du MNT.
-    #
-    # Ce que ce décalage laisse ouvert est écrit dans config/model.json : il produit à
-    # l'écran exactement le même résultat qu'une cote de lac trop basse de la même valeur,
-    # et rien dans le dépôt ne permet aujourd'hui de trancher entre les deux.
-    offset = float(cfg.get("datum_offset_m", 0.0))
-    if offset:
-        print(f"recalage de terrain : {offset:+.2f} m sur toute la carte "
-              f"(plan d'eau de référence {z_ac:.2f} → {z_ac + offset:.2f} m NGF)")
-        values = values + offset
 
     values = np.where(mask, values, np.nan)
     valid = np.isfinite(values)
@@ -365,13 +367,14 @@ def main() -> int:
                 "lake_share_framed": round(float(framed.sum() / max(mask.sum(), 1)), 4),
                 "envelope_median_m": round(float(np.median(span)), 2),
                 "envelope_max_m": round(float(span.max()), 2),
-                "note_datum": "datum_offset_m descend la carte ENTIÈRE, terrain compris, "
-                              "après la fusion du MNT. Ce n'est pas une correction de "
-                              "bathymétrie mais du plan d'eau auquel se rapportent les "
-                              "profondeurs de la communauté : d'où un décalage uniforme. "
-                              "Mesuré sur l'eau le 14/08/2026. Il produit à l'écran le même "
-                              "résultat qu'une cote de lac trop basse d'autant — voir le "
-                              "$comment_datum de config/model.json.",
+                "note_datum": "datum_offset_m corrige le PLAN D'EAU auquel se rapportent "
+                              "les profondeurs de la communauté, pas la bathymétrie : il "
+                              "entre là où z_ac entre, donc avant la détente et avant la "
+                              "fusion du MNT, dont les altitudes sont absolues et ne le "
+                              "suivent pas. Mesuré sur l'eau le 14/08/2026 sur le trait de "
+                              "côte. Il produit à l'écran le même résultat qu'une cote de "
+                              "lac fausse d'autant, en sens inverse — voir le $comment_datum "
+                              "de config/model.json.",
                 "note": "Aucune sonde du levé de 2009 n'entre dans cette grille, ni "
                         "triangulation, ni contrainte de bord, ni généralisation vers le "
                         "haut-fond. Chaque cellule reste à l'intérieur de la bande de "

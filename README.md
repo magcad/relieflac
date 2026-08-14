@@ -100,12 +100,13 @@ sans triangulation, sans contrainte de rive. Celle-ci décrit 94 % du lac et lai
 bascule est instantanée, et les relevés que vous saisissez s'appliquent à celui qui est
 affiché. Telles que construites, elles s'accordent à moins de 2 m sur 80 % du lac.
 
-La carte communautaire porte depuis le 14/08/2026 un **recalage de terrain de −2,72 m**,
-mesuré sur l'eau sur le trait de côte (`quickdraw_only.datum_offset_m`). Il n'est pas
-confirmé au sondeur et va dans le sens imprudent — cette carte annonce alors ~3 m d'eau de
-plus que le levé. Descendre le fond ou remonter la cote du lac d'autant donnent le même
-dessin à l'écran, et trois mesures penchent pour la cote : voir `data/mesuresEtalonnage/Garmin/ANALYSE.md`
-§ 12.5. Le fond du levé reste le plus prudent des deux.
+La carte communautaire porte depuis le 14/08/2026 un **recalage de terrain de +2,72 m**,
+mesuré sur l'eau sur le trait de côte (`quickdraw_only.datum_offset_m`). Il place son plan
+d'eau de référence à **650,40 m NGF**, soit la cote de retenue normale à 40 cm près — ce qui
+est cohérent avec la façon dont on lit un traceur : des profondeurs rapportées au niveau
+normal, dont on retranche la baisse du jour. Il n'est pas confirmé au sondeur, et remonter
+le fond ou baisser la cote du lac d'autant donnent le même dessin à l'écran :
+voir `data/mesuresEtalonnage/Garmin/ANALYSE.md` § 12.5.
 
 Le correctif complet existe : un levé multifaisceaux à couverture totale a été réalisé en
 2011 par ENSTA Bretagne, Gand, la HCU Hamburg et le CIDCO pour EDF. Il reste à l'obtenir —

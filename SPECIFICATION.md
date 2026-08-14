@@ -447,20 +447,23 @@ recommencer. Quel que soit le nombre de passes, la sortie reste dans l'encadreme
 au seul choix de la bande la moins profonde de chaque cellule de 5 m. Un caillou plus étroit
 que la résolution du traceur peut lui échapper là où `shoal_bias` l'aurait retenu.
 
-**Recalage de terrain** (`quickdraw_only.datum_offset_m`, −2,72 m au 14/08/2026). Décalage
-uniforme de la carte entière, terrain compris, appliqué après la fusion du MNT — la grandeur
-corrigée est le plan d'eau auquel se rapportent les profondeurs de la communauté, pas la
-bathymétrie. Il est appliqué au terrain parce que, sans cela, il serait sans effet sur ce
-qu'il vise : 29,0 des 29,3 ha émergés à la cote du jour venaient du MNT et non des bandes.
-Le canal vert de `coverage_quickdraw.png` passe à zéro sur les cellules que le MNT a
-écrasées, l'altitude n'en sortant plus d'une bande.
+**Recalage de terrain** (`quickdraw_only.datum_offset_m`, +2,72 m au 14/08/2026). La
+grandeur corrigée est le **plan d'eau auquel se rapportent les profondeurs de la
+communauté**, pas la bathymétrie : le décalage entre donc là où `z_ac` entre en jeu, avant
+la détente et avant la fusion du MNT, dont les altitudes sont absolues et ne le suivent pas
+— un îlot reste où il est. Plan d'eau de référence porté de 647,68 à **650,40 m NGF**, la
+cote de retenue normale à 40 cm près, ce qui donne au chiffre une explication physique et
+non un ajustement libre. Le canal vert de `coverage_quickdraw.png` vaut zéro sur les
+cellules que le MNT a écrasées, l'altitude n'en sortant plus d'une bande.
 
-Ce paramètre **ne tranche pas** entre une erreur de bathymétrie et une erreur de cote : les
-deux donnent le même dessin. Trois mesures penchent pour la cote — l'accord avec les sondes
-de 2009 tombe de 80 % à 22 %, le volume à la cote affichée passe de 77,6 à 101,0 hm³, et
-`Z_2009` est borné à 648,8 m par le plan d'eau du LiDAR. Contre-épreuve : saisir la cote à
-la main, +2,72 m, et voir si les **deux** cartes tombent juste. Tant que ce n'est pas fait,
-le recalage va dans le sens imprudent et l'application le dit en encadré.
+Ce paramètre **ne tranche pas** entre une erreur de datum et une erreur de cote : remonter
+le fond de 2,72 m et baisser la cote du lac de 2,72 m donnent le même dessin. Pour : 650,40
+tombe sur la retenue normale, et la mesure de `z_ac` (§ 3 d'`ANALYSE.md`) a été faite contre
+le modèle de 2009, donc hérite de l'incertitude de `Z_2009`. Contre : au large, entre 10 et
+20 m de fond, les deux cartes se confondaient à 0,00 m près sur 267 ha avant recalage.
+Contre-épreuve : saisir la cote à la main, −2,72 m, et voir si les **deux** cartes tombent
+juste. Si le recalage se confirme, la borne basse du § 4.2 quinquies est calée 2,7 m trop
+bas et les 295 ha abaissés du fond du levé sont à reprendre.
 
 **Licence.** La donnée appartient à Garmin et à ses contributeurs, sous CGU interdisant la
 redistribution, sans licence ouverte. La grille dérivée est publiée en connaissance de

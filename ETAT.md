@@ -29,7 +29,7 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L5** | Intégrer les mosaïques Quickdraw à `build_grid.py`, reconstruire, déployer | ✅ terminé le 14/08/2026 — voir § 3.5 |
 | **L5 bis** | Corriger le décalage de 16 m de la mosaïque et ajouter la borne basse (trait de côte, ports) | ✅ terminé le 14/08/2026, après retour de terrain — voir § 1 |
 | **L6** | Deuxième fond, **carte communautaire seule**, au choix dans l'application | ✅ terminé le 14/08/2026 — voir § 1 |
-| **L6 bis** | Recalage de terrain de −2,72 m sur la carte communautaire, mesuré sur l'eau | ✅ appliqué le 14/08/2026, **non confirmé au sondeur** — voir § 1 |
+| **L6 bis** | Recalage de terrain de +2,72 m sur la carte communautaire, mesuré sur l'eau | ✅ appliqué le 14/08/2026, **non confirmé au sondeur** — voir § 1 |
 
 Mode **« Sonde »** (saisie manuelle) livré le 11/08/2026 : le sondeur du bord est un
 **Eagle** monochrome sans enregistrement ni GPS — on relève la profondeur à la main. Un
@@ -321,51 +321,48 @@ n'ayant ni contrainte de bord ni généralisation vers le haut-fond. Seul recul 
 la plus profonde, lue 21 m au lieu de 28, la bande la plus profonde de la palette s'arrêtant
 à 30 m.
 
-**Recalage de terrain du 14/08/2026 : −2,72 m sur toute la carte.** Mesuré sur l'eau par
-l'utilisateur, qui a comparé le trait de côte de cette carte à celui qu'il avait sous les
-yeux. `quickdraw_only.datum_offset_m` dans `config/model.json` ; plan d'eau de référence
-effectif **644,96 m NGF**. Il ne touche **que** cette carte, jamais le fond du levé.
+**Recalage de terrain du 14/08/2026 : +2,72 m sur le fond issu des bandes.** Mesuré sur
+l'eau par l'utilisateur, qui a comparé le trait de côte de cette carte à celui qu'il avait
+sous les yeux. `quickdraw_only.datum_offset_m` dans `config/model.json`.
 
-Deux points d'implémentation qui ne s'improvisent pas. D'abord, le décalage s'applique
-**après** la fusion du MNT, donc au terrain aussi : sans cela il n'aurait presque aucun
-effet sur ce que l'utilisateur regarde, puisque **29,0 des 29,3 ha émergés à la cote du jour
-venaient du MNT et non des bandes** — 0,3 ha seulement sortaient d'une bande. Ensuite, le
-canal vert de `coverage_quickdraw.png` passe à zéro là où le MNT a écrasé la bande :
-l'altitude n'en sort plus, l'annoncer serait faux, et c'est ce qui permet à `/test/` de
-vérifier l'encadrement sans deviner quelles cellules en relèvent.
+Le chiffre a un sens physique, et c'est ce qui le rend crédible : le plan d'eau de référence
+passe de 647,68 à **650,40 m NGF**, soit la **cote de retenue normale du lac à 40 cm près**.
+C'est exactement ce que l'utilisateur avait décrit en ouvrant le sujet — les plaisanciers qui
+naviguent au traceur lisent la carte Garmin comme des profondeurs rapportées au niveau NGF
+normal, dont ils retranchent la baisse du jour. La mesure de `z_ac` du § 3 d'`ANALYSE.md`,
+elle, a été faite en comparant les isobathes communautaires au modèle de 2009 : elle hérite
+donc de l'incertitude de `Z_2009`, non confirmée.
 
-> **Ce que ce chiffre ne tranche pas.** Descendre le fond de 2,72 m et remonter la cote du
-> lac de 2,72 m donnent à l'écran **exactement le même dessin**, et rien dans le dépôt ne
-> distingue les deux. Trois mesures penchent pour la cote : l'accord avec les 8 118 sondes
-> de 2009 tombe de 80 % à **22 %** des cellules à moins de 2 m, alors qu'au large les deux
-> cartes se confondaient à 0,00 m près ; le volume à la cote affichée passe de 77,6 à
-> **101,0 hm³**, près du volume utile total de la retenue à cote normale ; et `Z_2009` est
-> borné à 648,8 m par le plan d'eau du LiDAR, donc le levé ne peut pas être haut de 2,72 m.
-> Contre-épreuve d'une minute, à faire sur l'eau : saisir la cote à la main, **+2,72 m** par
-> rapport à celle d'EDF, et regarder si les **deux** cartes tombent alors juste. Si oui,
-> l'erreur est sur la cote et le recalage doit être retiré d'ici pour être porté là.
+Le décalage entre **là où `z_ac` entre en jeu**, donc avant la détente et avant la fusion du
+MNT. Les altitudes du MNT sont absolues, mesurées par avion, et n'ont rien à voir avec la
+référence des sondeurs de la communauté : un îlot reste où il est, seul le fond issu des
+bandes se déplace. Ne touche **que** cette carte, jamais le fond du levé.
+
+| à la cote du jour (646,68 m) | levé 2009 | communauté, recalée |
+|---|---|---|
+| émergé | 69,8 ha | **136,7 ha** |
+| surface en eau | 8,67 km² | 7,55 km² |
+| profondeur maximale | 28,5 m | 18,3 m |
+| écart médian, 10-20 m de fond | — | **+3,05 m** (moins d'eau) |
+
+> **Ce que ce chiffre ne tranche pas.** Remonter le fond de 2,72 m et baisser la cote du lac
+> de 2,72 m donnent à l'écran **exactement le même dessin**, et rien dans le dépôt ne
+> distingue les deux. Ce qui plaide **pour** : 650,40 tombe sur la retenue normale, ce qui
+> est une explication et non un ajustement libre. Ce qui plaide **contre** : au large, entre
+> 10 et 20 m de fond, les deux cartes se confondaient **à 0,00 m près sur 267 ha** avant
+> recalage — un décalage de datum aurait dû s'y voir dès le premier jour. Contre-épreuve
+> d'une minute, sur l'eau : saisir la cote à la main, **−2,72 m** par rapport à celle d'EDF,
+> et regarder si les **deux** cartes tombent alors juste. Si oui, l'erreur est sur la cote
+> et le recalage doit être retiré d'ici pour être porté là, où il corrigera les deux cartes.
 >
-> En attendant, le recalage va dans le **sens imprudent** — cette carte annonce ~3 m d'eau
-> de plus que le levé sur la majeure partie du lac. La mise en garde est écrite dans les
-> Paramètres et dans « À propos », en encadré rouge, et elle dit de ne pas naviguer sur
-> cette carte seule dans les petits fonds tant que le recalage n'est pas confirmé au
-> sondeur.
-
-**Ce que cette carte-là ne sait pas faire, et il faut le dire.** Elle n'a aucune sonde à
-quoi se raccrocher : la prudence n'y tient qu'au choix de la bande la moins profonde de
-chaque cellule de 5 m, ce qui dilate un haut-fond d'environ une maille — mais un caillou
-plus étroit que la résolution du traceur peut lui échapper là où `shoal_bias` l'aurait
-retenu. Le contre-poids est qu'elle décrit 94 % du lac au lieu des 62 % couverts par le
-levé, et qu'elle laisse le reste **vide** plutôt que de l'inventer.
-
-Une seule entorse au « rien que la communauté » : le **terrain émergé du MNT RGE ALTI**
-au-dessus de 648,80 m, qui *comble* les trous en plus de relever — les îlots sont
-précisément là où aucun bateau ne passe. Ce n'est pas le levé de 2009 mais une mesure
-aéroportée indépendante ; commutateur `quickdraw_only.terrain_source` pour s'en passer.
-
-Au passage, une phrase fausse de la page « À propos » a été corrigée : elle affirmait encore
-que la couche communautaire « ne sert qu'à relever le fond, jamais à le creuser », ce qui
-n'est plus vrai depuis L5 bis.
+> Le recalage va cette fois dans le sens **prudent** — 2,5 m d'eau de moins que le levé —
+> mais un excès de prudence cache de l'eau navigable, et la fosse principale tombe à 18 m au
+> lieu de 28. La mise en garde est écrite dans les Paramètres et dans « À propos ».
+>
+> **Conséquence à examiner si le recalage se confirme** : la borne basse du lot L5 bis
+> (`quickdraw_source.lower_bound`) est calée sur `z_ac` = 647,68. Si la bonne valeur est
+> 650,40, elle a abaissé la frange du fond du levé d'environ 2,7 m de trop — et les 295 ha
+> abaissés sont à reprendre.
 
 **Banc d'essai des enchaînements** (13/08/2026) : `test/interaction.html`. Il démarre la
 **vraie** application avec une carte factice ([`test/stub-map.js`](test/stub-map.js))
@@ -758,9 +755,9 @@ chargé depuis `index.html` lui-même : rien à tenir à jour de ce côté. Couv
 sans GPS, les quatre chemins de suppression, le tracé et la reprise d'une zone, la survie
 d'une suppression à la synchronisation, et la **bascule d'un fond à l'autre** — prouvée non
 par le libellé affiché mais en posant deux fois la même sonde au même point et en comparant
-l'altitude que le modèle annonce dessous (642,65 m NGF sur le levé, 639,89 sur la carte
-communautaire — le point de contrôle a dû être déplacé, le précédent tombant depuis le
-recalage à 3 cm près sur les deux cartes).
+l'altitude que le modèle annonce dessous (642,65 m NGF sur le levé, 645,33 sur la carte
+communautaire — le point de contrôle a dû être déplacé, le précédent étant tombé, le temps
+d'une version, à 3 cm près sur les deux cartes).
 
 Ce banc tourne sur la **même origine** que l'application, donc sur ses vraies données : il
 met de côté toutes les clés `relieflac.*` du stockage local — jeton compris, sans quoi une

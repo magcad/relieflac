@@ -109,14 +109,14 @@
     "height": 964,
     "coverage_ratio": 0.9522,
     "z_ac_m_ngf": 647.68,
-    "datum_offset_m": -2.72,
-    "effective_z_ac_m_ngf": 644.96,
+    "datum_offset_m": 2.72,
+    "effective_z_ac_m_ngf": 650.4,
     "lake_share_framed": 0.9431,
     "probes": [
       {
         "lon": 1.87132,
         "lat": 45.79328,
-        "z": 628.2
+        "z": 633.64
       },
       {
         "lon": 1.86,
@@ -126,7 +126,7 @@
       {
         "lon": 1.9,
         "lat": 45.79,
-        "z": 639.9
+        "z": 645.34
       },
       {
         "lon": 1.84837,
@@ -136,7 +136,7 @@
       {
         "lon": 1.89965,
         "lat": 45.79602,
-        "z": 647.89
+        "z": 650.61
       },
       {
         "lon": 1.91,
