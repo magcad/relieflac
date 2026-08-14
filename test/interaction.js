@@ -296,8 +296,12 @@ async function run() {
   // le libellé affiché : poser deux fois la même sonde au même point, une fois sur chaque
   // fond, et comparer l'altitude que le modèle annonce dessous.
   group('Bascule de fond bathymétrique');
+  // Point choisi pour que les deux cartes y diffèrent franchement : celui des sondes
+  // précédentes tombe, depuis le recalage de terrain, à 3 cm près sur les deux — un
+  // enchaînement juste y échouerait sans que rien ne soit cassé.
+  const forkPoint = { lng: 1.90, lat: 45.79 };
   const readModel = async () => {
-    fire('pinpoint', lngLat);
+    fire('pinpoint', forkPoint);
     $('cap-input').value = '3.0';
     $('cap-input').dispatchEvent(new Event('input'));
     $('btn-capture').click();

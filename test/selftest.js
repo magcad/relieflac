@@ -178,9 +178,13 @@ export async function run(base = '..') {
 
     // L'invariant de cette carte-ci : chaque cellule reste dans la bande que la communauté
     // lui donne. Le canal vert porte la borne profonde arrondie au-dessus, donc
-    // z >= z_ac - G est vrai sans marge d'arrondi. Au-dessus du plan d'eau du LiDAR, la
-    // valeur vient du MNT et non d'une bande : elle est hors du champ de la règle.
-    const waterPlane = model.reference_levels.rge_alti.value_m_ngf;
+    // z >= z_ac - G est vrai sans marge d'arrondi — à ceci près que le plan d'eau de
+    // référence est le plan d'eau **effectif**, recalage de terrain compris : le décalage
+    // est uniforme, il déplace l'encadrement avec la carte au lieu de l'en faire sortir.
+    // Là où le MNT a écrasé la bande, le canal vert vaut zéro : l'altitude n'en sort plus
+    // et la règle ne s'y applique pas — c'est le fichier qui le dit, non le test qui le
+    // devine.
+    const datum = qd.effective_z_ac_m_ngf;
     let outside = 0;
     let framed = 0;
     let valid = 0;
@@ -188,12 +192,15 @@ export async function run(base = '..') {
       const z = bed.baseAltitudes[i];
       if (!Number.isFinite(z)) continue;
       valid += 1;
-      if (bed.coverage[i] !== 0) continue; // comblé par le MNT, pas par une bande
+      if (bed.coverage[i] !== 0) continue; // aucune bande ici
       framed += 1;
-      if (z < waterPlane && z < qd.z_ac_m_ngf - bed.bound[i] - 0.02) outside += 1;
+      if (bed.bound[i] > 0 && z < datum - bed.bound[i] - 0.02) outside += 1;
     }
     check('aucune cellule sous la bande que la communauté lui donne', outside === 0,
       `${framed} cellules encadrées vérifiées, ${outside} hors bande`);
+    check('le recalage de terrain est bien celui de la configuration',
+      Math.abs((qd.z_ac_m_ngf + qd.datum_offset_m) - datum) < 0.005,
+      `${qd.datum_offset_m} m → plan d'eau de référence ${datum} m NGF`);
     // Presque tout ce que cette carte affiche vient d'une bande : le reste est le terrain
     // du MNT qui comble les îlots. Si la proportion s'effondrait, c'est que la mosaïque
     // n'aurait pas été décodée.

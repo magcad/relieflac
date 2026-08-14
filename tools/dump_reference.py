@@ -86,6 +86,8 @@ def main() -> int:
             "height": qd_meta["height"],
             "coverage_ratio": qd_meta["coverage_ratio"],
             "z_ac_m_ngf": qd_meta["quickdraw_only"]["z_ac_m_ngf"],
+            "datum_offset_m": qd_meta["quickdraw_only"]["datum_offset_m"],
+            "effective_z_ac_m_ngf": qd_meta["quickdraw_only"]["effective_z_ac_m_ngf"],
             "lake_share_framed": qd_meta["quickdraw_only"]["lake_share_framed"],
             "probes": sample(qd_bed, qd_meta),
         }

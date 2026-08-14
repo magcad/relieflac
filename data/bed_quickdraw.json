@@ -42,12 +42,14 @@
     "interval": 0.01
   },
   "z_range_m_ngf": [
-    625.68,
-    655.72
+    622.96,
+    653.0
   ],
   "coverage_ratio": 0.9522,
   "quickdraw_only": {
     "z_ac_m_ngf": 647.68,
+    "datum_offset_m": -2.72,
+    "effective_z_ac_m_ngf": 644.96,
     "solidary_with": "ofb2009",
     "mosaics": [
       "mosaique_0-12m.png",
@@ -64,6 +66,7 @@
     "lake_share_framed": 0.9431,
     "envelope_median_m": 2.0,
     "envelope_max_m": 18.0,
+    "note_datum": "datum_offset_m descend la carte ENTIÈRE, terrain compris, après la fusion du MNT. Ce n'est pas une correction de bathymétrie mais du plan d'eau auquel se rapportent les profondeurs de la communauté : d'où un décalage uniforme. Mesuré sur l'eau le 14/08/2026. Il produit à l'écran le même résultat qu'une cote de lac trop basse d'autant — voir le $comment_datum de config/model.json.",
     "note": "Aucune sonde du levé de 2009 n'entre dans cette grille, ni triangulation, ni contrainte de bord, ni généralisation vers le haut-fond. Chaque cellule reste à l'intérieur de la bande de couleur que la communauté lui donne ; là où la communauté n'est pas passée, la cellule est vide. z_ac est solidaire de Z_2009 (config/model.json, solidarity_note) : le décalage d'étalonnage de l'application s'applique donc aussi à ce fond."
   },
   "terrain_source": {
@@ -77,15 +80,15 @@
   "comparison": {
     "against": "bed.png",
     "cells_compared": 356793,
-    "median_diff_m": -0.32,
-    "mean_diff_m": 0.06,
-    "share_shallower": 0.3926,
-    "median_abs_diff_m": 0.89,
-    "share_within_1m": 0.5408,
-    "share_within_2m": 0.8023,
+    "median_diff_m": -3.04,
+    "mean_diff_m": -2.66,
+    "share_shallower": 0.0678,
+    "median_abs_diff_m": 3.16,
+    "share_within_1m": 0.093,
+    "share_within_2m": 0.2222,
     "volume_647_hm3": [
       84.02,
-      80.14
+      103.76
     ]
   },
   "coverage": {
@@ -93,7 +96,7 @@
     "channels": {
       "R": "0 là où la carte existe — chaque cellule visible porte le passage d'un sondeur, il n'y a pas de zone interpolée ; 255 ailleurs",
       "G": "borne de profondeur de la bande, en mètres arrondis au-dessus",
-      "B": "largeur de l'encadrement en décimètres, plafonnée à 255"
+      "B": "largeur de l'encadrement en décimètres, plafonnée à 255 ; 0 là où le MNT a écrasé la bande, donc là où l'encadrement ne se vérifie plus"
     },
     "note": "Mêmes canaux que coverage.png pour que l'application n'ait qu'un décodeur, mais leur sens suit la source : ici tout est encadré et rien n'est interpolé."
   },

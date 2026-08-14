@@ -652,3 +652,54 @@ qu'un décodeur — mais leur **sens suit la source** :
   non une sonde : l'étiquette sous le bateau affiche « communauté — bande ≤ N m ».
 - **B** = la largeur de l'encadrement en décimètres, seule mesure locale de ce que
   la carte ignore encore.
+
+### 12.5 Recalage de terrain : −2,72 m, et ce qu'il laisse ouvert
+
+Le 14/08/2026, l'utilisateur compare sur l'eau le trait de côte de cette carte à
+celui qu'il a sous les yeux et conclut à un écart de **2,72 m**. Demande :
+descendre la carte communautaire d'autant. `quickdraw_only.datum_offset_m` dans
+`config/model.json` ; plan d'eau de référence effectif **644,96 m NGF** au lieu
+des 647,68 mesurés au § 3. Le fond du levé de 2009 n'est pas touché.
+
+**Le décalage porte sur le terrain aussi, et il le fallait.** Il s'applique
+*après* la fusion du MNT. La raison est une mesure, pas une préférence : à la cote
+du jour, l'émergé de cette carte valait 29,3 ha, dont **29,0 venaient du MNT** et
+0,3 seulement d'une bande. Un décalage appliqué aux seules bandes aurait laissé
+l'émergé à 29,0 ha — c'est-à-dire n'aurait rien changé à ce que l'utilisateur
+regardait. Résultat après recalage : **8,3 ha** émergés à la cote du jour, 5,1 ha
+à la cote 647.
+
+Effet de bord utile : le canal vert de `coverage_quickdraw.png` passe à zéro là où
+le MNT a écrasé la bande, comblée ou relevée. L'altitude affichée n'y sort plus de
+cette bande, l'annoncer serait faux — l'application dit « hors bande » — et
+`/test/` peut vérifier l'encadrement sans deviner quelles cellules en relèvent.
+
+**Ce que ce chiffre ne tranche pas.** Descendre le fond de 2,72 m et remonter la
+cote du lac de 2,72 m produisent à l'écran **exactement le même dessin**. Rien
+dans le dépôt ne permet aujourd'hui de distinguer les deux hypothèses, et trois
+mesures penchent nettement pour la seconde :
+
+| | avant recalage | après |
+|---|---|---|
+| accord avec les 8 118 sondes de 2009, à moins de 2 m | 80 % | **22 %** |
+| écart médian au large (10-20 m de fond) | 0,00 m | **−2,72 m** |
+| volume à la cote affichée | 77,6 hm³ | **101,0 hm³** |
+
+Le second chiffre est le plus parlant : au large, là où ni la contrainte de bord
+ni `shoal_bias` n'interviennent, les deux cartes se confondaient **à 0,00 m près**
+sur 267 ha. Un décalage de la bathymétrie communautaire aurait dû s'y voir depuis
+le début. Le troisième aussi : 101 hm³ à 646,7 m NGF approche le volume utile
+total de la retenue à cote normale. Enfin `Z_2009` est borné à 648,8 m par le plan
+d'eau du LiDAR (§ 3.2 d'`ETAT.md`) : le levé ne peut pas être haut de 2,72 m.
+
+**Contre-épreuve, une minute sur l'eau.** Saisir la cote à la main, +2,72 m par
+rapport à celle d'EDF, et regarder si les **deux** cartes tombent juste. Si oui,
+l'erreur est sur la cote — datum de la station EDF, ou valeur périmée — et le
+recalage doit être retiré d'ici pour être porté sur la source de niveau, où il
+corrigera les deux cartes au lieu d'une. Si seule la communautaire tombe juste,
+alors le recalage est bien à sa place et c'est la mesure du § 3 qu'il faut
+reprendre.
+
+En attendant, le recalage va dans le **sens imprudent** : cette carte annonce ~3 m
+d'eau de plus que le fond du levé sur la majeure partie du lac. C'est écrit en
+encadré rouge dans les Paramètres et dans « À propos ».

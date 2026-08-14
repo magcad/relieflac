@@ -1767,10 +1767,13 @@ function refreshBedSourceUi() {
   const source = BED_SOURCES[app.bed.source];
   const meta = app.bed.meta;
   $('set-bed-source').value = app.bed.source;
+  const datum = meta.quickdraw_only?.datum_offset_m ?? 0;
   $('hint-bed-source').textContent = app.bed.source === 'quickdraw'
     ? `Affiché : ${meta.quickdraw_only?.framed_ha ?? '—'} ha encadrés par la communauté `
       + `(${Math.round((meta.coverage_ratio ?? 0) * 100)} % du lac), largeur d'encadrement `
       + `médiane ${meta.quickdraw_only?.envelope_median_m ?? '—'} m. Aucune sonde de 2009.`
+      + (datum ? ` Recalage de terrain ${datum.toFixed(2)} m — plan d'eau de référence `
+        + `${meta.quickdraw_only.effective_z_ac_m_ngf} m NGF.` : '')
     : `Affiché : levé OFB 2009 relevé par le MNT et encadré par la communauté, `
       + `sonde à ${meta.coverage?.median_m ?? '—'} m en médiane.`;
   $('apropos-version').textContent = `${VERSION} · fond ${source.label} `

@@ -110,7 +110,7 @@ def fuse_emerged_terrain(values, mask, grid_x, grid_y, water_plane, margin):
     dem_path = DATA_DIR / "rge_alti.npy"
     if not dem_path.exists():
         print("  MNT absent — lancez tools/fetch_rge_alti.py", file=sys.stderr)
-        return values, {"available": False}
+        return values, np.zeros(values.shape, bool), {"available": False}
 
     with (DATA_DIR / "rge_alti.json").open(encoding="utf-8") as fh:
         meta = json.load(fh)
@@ -135,7 +135,9 @@ def fuse_emerged_terrain(values, mask, grid_x, grid_y, water_plane, margin):
     result = np.where(filled | raised, sampled, values)
 
     deltas = (sampled - values)[raised]
-    return result, {
+    # Le masque est rendu à l'appelant : ces cellules-là ne viennent plus d'une bande, et
+    # l'encadrement ne s'y vérifie plus. C'est ce que dit le canal bleu, mis à zéro dessus.
+    return result, (filled | raised), {
         "available": True,
         "water_plane_m_ngf": water_plane,
         "cells_terrain": int(emerged.sum()),
@@ -219,15 +221,34 @@ def main() -> int:
           f"médiane {np.median((high - values)[lowered]) if lowered.any() else 0:.2f} m")
 
     terrain_stats = None
+    terrain_touched = np.zeros(values.shape, bool)
     if cfg.get("terrain_source", True):
         water_plane = float(config["reference_levels"]["rge_alti"]["value_m_ngf"])
         print(f"terrain émergé mesuré au LiDAR (> {water_plane} m NGF)…")
-        values, terrain_stats = fuse_emerged_terrain(
+        values, terrain_touched, terrain_stats = fuse_emerged_terrain(
             values, mask, geom["grid_x"], geom["grid_y"], water_plane,
             float(grid_cfg.get("terrain_source", {}).get("margin_m", 0.05)))
         if terrain_stats.get("available"):
             print(f"  {terrain_stats['cells_filled']:,} cellules comblées, "
                   f"{terrain_stats['cells_raised']:,} relevées")
+
+    # --- recalage de terrain : la carte entière descend d'un bloc
+    #
+    # Mesuré sur l'eau, pas déduit : c'est ce que voit le barreur qui compare le trait de
+    # côte de cette carte à celui qu'il a sous les yeux. La grandeur corrigée est le PLAN
+    # D'EAU auquel se rapportent les profondeurs de la communauté, pas la bathymétrie —
+    # d'où un décalage rigoureusement uniforme, appliqué APRÈS la fusion du terrain pour
+    # que le trait de côte se déplace lui aussi. Sans quoi la correction serait sans effet
+    # sur l'émergé : à la cote du jour, 29,0 des 29,3 ha émergés viennent du MNT.
+    #
+    # Ce que ce décalage laisse ouvert est écrit dans config/model.json : il produit à
+    # l'écran exactement le même résultat qu'une cote de lac trop basse de la même valeur,
+    # et rien dans le dépôt ne permet aujourd'hui de trancher entre les deux.
+    offset = float(cfg.get("datum_offset_m", 0.0))
+    if offset:
+        print(f"recalage de terrain : {offset:+.2f} m sur toute la carte "
+              f"(plan d'eau de référence {z_ac:.2f} → {z_ac + offset:.2f} m NGF)")
+        values = values + offset
 
     values = np.where(mask, values, np.nan)
     valid = np.isfinite(values)
@@ -282,15 +303,23 @@ def main() -> int:
     #       chaque cellule visible porte le passage d'un sondeur, il n'y a pas de zone
     #       interpolée à hachurer. Là où personne n'est passé, la carte est vide et non
     #       douteuse — donc 255, mais l'alpha y est déjà nul.
-    #   G = borne de profondeur de la bande, en mètres arrondis au-dessus. Elle vaut ici
-    #       pour toute la carte : c'est ce qui rappelle qu'on lit un encadrement et non
-    #       une sonde.
+    #   G = borne de profondeur de la bande, en mètres arrondis au-dessus. Elle vaut pour
+    #       presque toute la carte : c'est ce qui rappelle qu'on lit un encadrement et non
+    #       une sonde. **Zéro là où le MNT a écrasé la bande** : l'altitude affichée n'y
+    #       sort plus de cette bande, l'annoncer serait faux, et l'application dit alors
+    #       « hors bande » plutôt que d'énoncer une borne qui ne commande rien.
     #   B = largeur de l'encadrement en décimètres, plafonnée — la seule mesure locale de
-    #       ce que la carte ignore encore. 0 sur les cellules comblées par le MNT.
+    #       ce que la carte ignore encore. **Zéro là où le MNT a écrasé la bande**, comblée
+    #       ou relevée : ces cellules ne sortent pas d'une bande, l'encadrement ne s'y
+    #       vérifie plus, et c'est ce qui permet à /test/ de les écarter sans les deviner.
     channels = np.zeros((height, width, 3), np.uint8)
     channels[..., 0] = np.where(framed, 0, 255).astype(np.uint8)
-    channels[..., 1] = np.clip(np.ceil(np.nan_to_num(dmax, nan=0.0)), 0, 255).astype(np.uint8)
-    channels[..., 2] = np.clip(np.nan_to_num(high - low, nan=0.0) * 10, 0, 255).astype(np.uint8)
+    channels[..., 1] = np.where(
+        terrain_touched, 0,
+        np.clip(np.ceil(np.nan_to_num(dmax, nan=0.0)), 0, 255)).astype(np.uint8)
+    channels[..., 2] = np.where(
+        terrain_touched, 0,
+        np.clip(np.nan_to_num(high - low, nan=0.0) * 10, 0, 255)).astype(np.uint8)
     Image.fromarray(channels, mode="RGB").save(DATA_DIR / "coverage_quickdraw.png",
                                                optimize=True)
 
@@ -324,6 +353,8 @@ def main() -> int:
             "coverage_ratio": round(coverage_ratio, 4),
             "quickdraw_only": {
                 "z_ac_m_ngf": z_ac,
+                "datum_offset_m": offset,
+                "effective_z_ac_m_ngf": round(z_ac + offset, 2),
                 "solidary_with": "ofb2009",
                 "mosaics": [p.name for p in paths],
                 "aggregate_quantile": quantile,
@@ -334,6 +365,13 @@ def main() -> int:
                 "lake_share_framed": round(float(framed.sum() / max(mask.sum(), 1)), 4),
                 "envelope_median_m": round(float(np.median(span)), 2),
                 "envelope_max_m": round(float(span.max()), 2),
+                "note_datum": "datum_offset_m descend la carte ENTIÈRE, terrain compris, "
+                              "après la fusion du MNT. Ce n'est pas une correction de "
+                              "bathymétrie mais du plan d'eau auquel se rapportent les "
+                              "profondeurs de la communauté : d'où un décalage uniforme. "
+                              "Mesuré sur l'eau le 14/08/2026. Il produit à l'écran le même "
+                              "résultat qu'une cote de lac trop basse d'autant — voir le "
+                              "$comment_datum de config/model.json.",
                 "note": "Aucune sonde du levé de 2009 n'entre dans cette grille, ni "
                         "triangulation, ni contrainte de bord, ni généralisation vers le "
                         "haut-fond. Chaque cellule reste à l'intérieur de la bande de "
@@ -349,8 +387,11 @@ def main() -> int:
                 "channels": {
                     "R": "0 là où la carte existe — chaque cellule visible porte le passage "
                          "d'un sondeur, il n'y a pas de zone interpolée ; 255 ailleurs",
-                    "G": "borne de profondeur de la bande, en mètres arrondis au-dessus",
-                    "B": "largeur de l'encadrement en décimètres, plafonnée à 255",
+                    "G": "borne de profondeur de la bande, en mètres arrondis au-dessus ; "
+                         "0 là où le MNT a écrasé la bande, l'altitude n'en sortant plus",
+                    "B": "largeur de l'encadrement en décimètres, plafonnée à 255 ; "
+                         "0 là où le MNT a écrasé la bande, donc là où l'encadrement ne "
+                         "se vérifie plus",
                 },
                 "note": "Mêmes canaux que coverage.png pour que l'application n'ait qu'un "
                         "décodeur, mais leur sens suit la source : ici tout est encadré et "
