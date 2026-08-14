@@ -62,6 +62,19 @@ export class Calibration extends EventTarget {
     this.#persist();
   }
 
+  /**
+   * Relevés pris sur un fond donné.
+   *
+   * Un résidu ne veut rien dire hors de la carte contre laquelle il a été mesuré : mêler
+   * un relevé pris sur le levé de 2009 à un relevé pris sur la carte communautaire
+   * donnerait une médiane qui ne corrige ni l'une ni l'autre. Les relevés antérieurs à la
+   * seconde carte ne portent pas de source — ce sont ceux du levé.
+   */
+  forBed(bedSource) {
+    if (!bedSource) return this.records;
+    return this.records.filter((r) => (r.bedSource ?? 'ofb2009') === bedSource);
+  }
+
   /** Relevés fiables : sur une trace de 2009 et position GPS correcte. */
   get trusted() {
     return this.records.filter((r) => r.onTrack && (r.accuracy ?? 99) <= 15);
@@ -70,9 +83,13 @@ export class Calibration extends EventTarget {
   /**
    * Statistiques sur les résidus. `usable` indique si la dispersion est assez faible
    * pour qu'une constante ait un sens.
+   *
+   * `bedSource` restreint le calcul aux relevés pris sur une carte donnée.
    */
-  stats(useTrustedOnly = true) {
-    const source = useTrustedOnly && this.trusted.length >= 3 ? this.trusted : this.records;
+  stats(useTrustedOnly = true, bedSource = null) {
+    const pool = this.forBed(bedSource);
+    const reliable = pool.filter((r) => r.onTrack && (r.accuracy ?? 99) <= 15);
+    const source = useTrustedOnly && reliable.length >= 3 ? reliable : pool;
     // Hauteur d'eau réelle au point : la lecture du sondeur plus son immersion — sauf
     // relevé à pied, où il n'y a rien d'immergé. Passer par `bedAltitude` évite de
     // réénoncer ici cette exception.
@@ -87,7 +104,7 @@ export class Calibration extends EventTarget {
     const shape = depthShape(sample, median);
     return {
       count: residuals.length,
-      trustedCount: this.trusted.length,
+      trustedCount: reliable.length,
       median,
       iqr: spread,
       min: residuals[0],
@@ -104,13 +121,14 @@ export class Calibration extends EventTarget {
     const columns = [
       'at', 'lon', 'lat', 'accuracy_m', 'level_m_ngf', 'level_source',
       'sounder_depth_m', 'transducer_depth_m', 'model_depth_m', 'model_bed_m_ngf',
-      'residual_m', 'on_track', 'nearest_sounding_m',
+      'residual_m', 'on_track', 'nearest_sounding_m', 'bed_source', 'bed_datum_m',
     ];
     const rows = this.records.map((r) => [
       r.at, r.lon?.toFixed(6), r.lat?.toFixed(6), fmt(r.accuracy, 1), fmt(r.level, 2),
       r.levelSource, fmt(r.sounderDepth, 2), fmt(r.transducerDepth, 2),
       fmt(r.modelDepth, 2), fmt(r.modelBedZ, 2), fmt(r.residual, 3),
       r.onTrack ? 'oui' : 'non', fmt(r.nearestSounding, 1),
+      r.bedSource ?? 'ofb2009', fmt(r.bedDatum, 2),
     ].join(','));
     return [columns.join(','), ...rows].join('\n');
   }
@@ -134,9 +152,13 @@ export class Calibration extends EventTarget {
  * `modelBedZ` est l'altitude **brute** du modèle : le décalage cherché est justement
  * celui qu'on lui appliquera ensuite.
  */
-export function makeRecord({ position, level, levelSource, modelBedZ, sounderDepth, transducerDepth, nearestSounding }) {
+export function makeRecord({ position, level, levelSource, modelBedZ, sounderDepth, transducerDepth, nearestSounding, bedSource = 'ofb2009', bedDatum = 0 }) {
   const trueBedZ = bedAltitude(level, sounderDepth, transducerDepth);
   return {
+    bedSource,
+    // Recalage en vigueur au moment du relevé : sans lui, un résidu mesuré ce matin ne
+    // serait plus interprétable ce soir si l'on a bougé le réglage entre-temps.
+    bedDatum,
     lon: position.lon,
     lat: position.lat,
     accuracy: position.accuracy,

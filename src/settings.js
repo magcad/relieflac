@@ -85,6 +85,10 @@ export function defaultsFrom(palette, model) {
     // seule). Les deux grilles partagent la maille, les relevés manuels s'appliquent sur
     // celle qui est active. Voir BED_SOURCES dans src/bed.js.
     bedSource: 'ofb2009',
+    // Recalage vertical de la carte communautaire, en mètres. `null` = celui inscrit dans
+    // data/bed_quickdraw.json par la chaîne Python ; toute autre valeur le remplace, ce qui
+    // permet de le mesurer sur l'eau en plusieurs points sans reconstruire la grille.
+    quickdrawDatum_m: null,
     // Les deux verrous de caméra sont actifs à l'ouverture : sur l'eau, on veut le bateau
     // au centre et l'étrave vers le haut sans avoir à y penser.
     followBoat: true,

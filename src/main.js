@@ -120,6 +120,7 @@ async function boot() {
     refreshCaptureUi();
     applyBigDepthMode();
     applySunMode();
+    applyBedDatum(); // recalage mémorisé, avant que les relevés ne se posent dessus
     applyModelCorrections(); // « carte 2009 corrigée » dès l'ouverture, s'il y a des relevés
     initSync(); // récupère les relevés partagés puis les applique (asynchrone, sans bloquer)
 
@@ -710,6 +711,13 @@ function wireSettings() {
   });
 
   bind('set-bed-source', 'change', (el) => s.set('bedSource', el.value));
+  bind('set-qd-datum', 'change', (el) => {
+    const value = Number(el.value);
+    s.set('quickdrawDatum_m', el.value === '' || !Number.isFinite(value)
+      ? null
+      : Math.max(-10, Math.min(10, round2(value))));
+  });
+  $('btn-qd-datum-reset').addEventListener('click', () => s.set('quickdrawDatum_m', null));
   bind('set-preset', 'change', (el) => s.set('preset', el.value));
   bind('set-opacity', 'input', (el) => s.set('opacity', Number(el.value) / 100));
   bind('set-outlines', 'change', (el) => s.set('showOutlines', el.checked));
@@ -777,6 +785,7 @@ function wireSettings() {
     // relevés se fait de l'autre côté de l'attente. `applyBedSource` ne fait rien si le
     // fond demandé est déjà celui qui est affiché, ce qui est le cas ordinaire.
     if (key == null || key === 'bedSource') applyBedSource(key === 'bedSource');
+    if (key == null || key === 'quickdrawDatum_m') applyBedDatum(key === 'quickdrawDatum_m');
     if (key == null || key === 'correctionRadius_m') applyModelCorrections();
   });
 
@@ -893,11 +902,24 @@ function refreshSettingsUi() {
 function wireCalibration() {
   $('btn-releve').addEventListener('click', recordCalibration);
   wireSignToggle('btn-cal-sign', 'cal-depth');
+  // Le même bouton corrige deux choses différentes selon la carte affichée, et c'est
+  // voulu : ce qu'on mesure au sondeur, c'est toujours « de combien cette carte-ci est à
+  // côté ». Sur le levé, la grandeur fautive est la cote du levé de 2009 ; sur la carte
+  // communautaire, c'est le plan d'eau auquel se rapportent les bandes. Les deux se
+  // règlent, mais pas au même endroit — les confondre corromprait l'autre carte.
   $('btn-apply-offset').addEventListener('click', () => {
-    const stats = app.calibration.stats();
+    const stats = app.calibration.stats(true, app.bed.source);
     if (!stats) return;
-    app.settings.set('calibrationOffset_m', round2(stats.median));
-    toast(`Correction de ${round2(stats.median) > 0 ? '+' : ''}${round2(stats.median)} m appliquée`);
+    const shift = round2(stats.median);
+    const sign = shift > 0 ? '+' : '';
+    if (app.bed.source === 'quickdraw') {
+      const datum = round2(app.bed.datum + shift);
+      app.settings.set('quickdrawDatum_m', datum);
+      toast(`Recalage porté à ${datum > 0 ? '+' : ''}${datum} m (${sign}${shift})`);
+    } else {
+      app.settings.set('calibrationOffset_m', shift);
+      toast(`Correction de ${sign}${shift} m appliquée`);
+    }
   });
   $('btn-cal-csv').addEventListener('click', () => download('etalonnage.csv', app.calibration.toCsv(), 'text/csv'));
   $('btn-cal-json').addEventListener('click', () => download('etalonnage.json', app.calibration.toJson(), 'application/json'));
@@ -932,6 +954,8 @@ function recordCalibration() {
     sounderDepth,
     transducerDepth: Number($('cal-transducer').value) || 0,
     nearestSounding: app.soundings?.distanceToNearest(position.lon, position.lat) ?? Infinity,
+    bedSource: app.bed.source,
+    bedDatum: app.bed.datum,
   }));
 
   setDepthInput('cal-depth');
@@ -980,7 +1004,9 @@ function depthVerdict(stats) {
 }
 
 function refreshCalibrationUi() {
-  const stats = app.calibration.stats();
+  // Les résidus se comptent par carte : un écart mesuré contre le levé ne corrige pas la
+  // carte communautaire, et l'inverse est tout aussi faux.
+  const stats = app.calibration.stats(true, app.bed?.source);
   const container = $('cal-stats');
   const apply = $('btn-apply-offset');
 
@@ -1011,12 +1037,27 @@ function refreshCalibrationUi() {
     apply.disabled = !stats.usable;
   }
 
+  // Dire sur quelle carte on mesure, et ce que « Appliquer » corrigera : le même bouton
+  // règle la cote du levé de 2009 ou le recalage de la carte communautaire.
+  const community = app.bed?.source === 'quickdraw';
+  const mine = app.calibration.forBed(app.bed?.source).length;
+  const other = app.calibration.records.length - mine;
+  $('cal-bed').innerHTML = `Carte mesurée : <strong>${BED_SOURCES[app.bed?.source ?? DEFAULT_BED_SOURCE].label}</strong>`
+    + ` — ${mine} relevé(s)${other ? `, ${other} sur l'autre carte, non comptés` : ''}.`
+    + (community
+      ? ` « Appliquer » reportera la médiane sur le <em>recalage</em> de cette carte`
+        + ` (actuellement ${app.bed.datum > 0 ? '+' : ''}${app.bed.datum.toFixed(2)} m).`
+      : ' « Appliquer » corrigera la cote du levé de 2009.');
+  apply.textContent = community ? 'Appliquer au recalage' : 'Appliquer la correction';
+
   const list = $('cal-records');
   list.replaceChildren(...app.calibration.records.slice().reverse().map((r) => {
     const item = document.createElement('li');
     const when = new Date(r.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+    const bed = r.bedSource ?? DEFAULT_BED_SOURCE;
     item.innerHTML = `<span class="residual">${r.residual > 0 ? '+' : ''}${r.residual.toFixed(2)} m</span>
       <span class="tag ${r.onTrack ? 'tag--on' : 'tag--off'}">${r.onTrack ? 'sur trace' : 'hors trace'}</span>
+      ${bed === (app.bed?.source ?? DEFAULT_BED_SOURCE) ? '' : `<span class="tag tag--off">${BED_SOURCES[bed]?.label ?? bed}</span>`}
       <span class="hint">${r.sounderDepth < 0 ? `${depthLabel(r.sounderDepth)} (à pied)` : `${depthLabel(r.sounderDepth)} au sondeur`} · ${when}</span>`;
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -1750,8 +1791,10 @@ async function applyBedSource(announce = false) {
   if (!app.bed || app.bed.source === wanted) return;
   try {
     if (await app.bed.useSource(wanted)) {
+      app.bed.setDatumOffset(app.settings.get('quickdrawDatum_m'));
       applyModelCorrections();
       refreshBedSourceUi();
+      refreshCalibrationUi();
       refreshDepthStyle();
       if (announce) toast(`Fond : ${BED_SOURCES[app.bed.source].label}`);
     }
@@ -1767,17 +1810,54 @@ function refreshBedSourceUi() {
   const source = BED_SOURCES[app.bed.source];
   const meta = app.bed.meta;
   $('set-bed-source').value = app.bed.source;
-  const datum = meta.quickdraw_only?.datum_offset_m ?? 0;
-  $('hint-bed-source').textContent = app.bed.source === 'quickdraw'
+  const community = app.bed.source === 'quickdraw';
+  $('hint-bed-source').textContent = community
     ? `Affiché : ${meta.quickdraw_only?.framed_ha ?? '—'} ha encadrés par la communauté `
       + `(${Math.round((meta.coverage_ratio ?? 0) * 100)} % du lac), largeur d'encadrement `
       + `médiane ${meta.quickdraw_only?.envelope_median_m ?? '—'} m. Aucune sonde de 2009.`
-      + (datum ? ` Recalage de terrain ${datum.toFixed(2)} m — plan d'eau de référence `
-        + `${meta.quickdraw_only.effective_z_ac_m_ngf} m NGF.` : '')
     : `Affiché : levé OFB 2009 relevé par le MNT et encadré par la communauté, `
       + `sonde à ${meta.coverage?.median_m ?? '—'} m en médiane.`;
+
+  // Le recalage ne concerne que la carte communautaire : sur le levé, le bloc disparaît
+  // plutôt que de rester là, grisé, à laisser croire qu'il pourrait s'appliquer.
+  $('bloc-recalage').hidden = !community || !meta.quickdraw_only;
+  if (community && meta.quickdraw_only) {
+    const applied = app.bed.datum;
+    const built = app.bed.builtInDatum;
+    const zAc = meta.quickdraw_only.z_ac_m_ngf;
+    const field = $('set-qd-datum');
+    // On n'écrase pas la saisie en cours : réécrire la valeur pendant que l'utilisateur
+    // tape lui déplacerait le curseur à chaque frappe.
+    if (document.activeElement !== field) field.value = applied.toFixed(2);
+    $('hint-qd-datum').textContent =
+      `Plan d'eau de référence : ${(zAc + applied).toFixed(2)} m NGF `
+      + `(mesuré ${zAc.toFixed(2)}, recalé de ${applied > 0 ? '+' : ''}${applied.toFixed(2)} m). `
+      + (Math.abs(applied - built) < 0.005
+        ? "C'est la valeur d'origine du fichier."
+        : `Réglage local — le fichier dit ${built > 0 ? '+' : ''}${built.toFixed(2)} m.`);
+  }
+
   $('apropos-version').textContent = `${VERSION} · fond ${source.label} `
     + `· grille ${app.bed.width}×${app.bed.height}`;
+}
+
+/**
+ * Reporte le recalage réglé à la main sur la grille en mémoire.
+ *
+ * Rien n'est retéléchargé : la grille du fichier reste intacte et l'on ne déplace que les
+ * cellules issues d'une bande, puis on réapplique les relevés manuels par-dessus. C'est ce
+ * qui permet de chercher la bonne valeur sur l'eau, en regardant le trait de côte bouger.
+ */
+function applyBedDatum(announce = false) {
+  if (!app.bed || !app.depthLayer) return;
+  if (!app.bed.setDatumOffset(app.settings.get('quickdrawDatum_m'))) return;
+  applyModelCorrections();
+  refreshBedSourceUi();
+  if (announce) {
+    const applied = app.bed.datum;
+    toast(`Recalage ${applied > 0 ? '+' : ''}${applied.toFixed(2)} m — plan d'eau `
+      + `${(app.bed.meta.quickdraw_only.z_ac_m_ngf + applied).toFixed(2)} m NGF`);
+  }
 }
 
 function enterSim() {

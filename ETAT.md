@@ -30,6 +30,7 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L5 bis** | Corriger le décalage de 16 m de la mosaïque et ajouter la borne basse (trait de côte, ports) | ✅ terminé le 14/08/2026, après retour de terrain — voir § 1 |
 | **L6** | Deuxième fond, **carte communautaire seule**, au choix dans l'application | ✅ terminé le 14/08/2026 — voir § 1 |
 | **L6 bis** | Recalage de terrain de +2,72 m sur la carte communautaire, mesuré sur l'eau | ✅ appliqué le 14/08/2026, **non confirmé au sondeur** — voir § 1 |
+| **L6 ter** | Recalage **réglable dans l'application** et mesurable au sondeur, carte par carte | ✅ terminé le 14/08/2026 — voir § 1 |
 
 Mode **« Sonde »** (saisie manuelle) livré le 11/08/2026 : le sondeur du bord est un
 **Eagle** monochrome sans enregistrement ni GPS — on relève la profondeur à la main. Un
@@ -363,6 +364,39 @@ bandes se déplace. Ne touche **que** cette carte, jamais le fond du levé.
 > (`quickdraw_source.lower_bound`) est calée sur `z_ac` = 647,68. Si la bonne valeur est
 > 650,40, elle a abaissé la frange du fond du levé d'environ 2,7 m de trop — et les 295 ha
 > abaissés sont à reprendre.
+
+**Lot L6 ter — le recalage devient un instrument de mesure** (14/08/2026). Le décalage
+était figé dans `config/model.json` : le vérifier demandait de reconstruire la grille et de
+redéployer, donc de ne jamais pouvoir le régler sur l'eau. Il est désormais **réglable dans
+les Paramètres**, et surtout **mesurable au sondeur**.
+
+Trois pièces, dont deux existaient déjà :
+
+1. **Réglage à chaud.** `BedGrid.setDatumOffset` déplace les cellules issues d'une bande —
+   celles dont le canal vert porte une borne — et laisse le MNT où il est, ses altitudes
+   étant absolues : un îlot ne bouge pas. La grille du fichier n'est jamais modifiée, on
+   travaille sur une copie et les relevés manuels se réappliquent par-dessus. Rien n'est
+   retéléchargé, l'effet est immédiat, et « valeur d'origine » rend le fichier à l'octet
+   près. Réglage `quickdrawDatum_m`, `null` = la valeur du fichier — ce qui fait qu'une
+   reconstruction ultérieure reprend la main d'elle-même.
+2. **L'écran Étalonnage, branché sur le fond affiché.** Il faisait déjà exactement la bonne
+   mesure — médiane des résidus, dispersion interquartile, et le verdict qui distingue un
+   décalage constant d'une erreur proportionnelle à la profondeur. Il ne savait pas contre
+   *quelle* carte il mesurait. Chaque relevé porte maintenant sa `bedSource` et le recalage
+   en vigueur au moment de la prise ; les statistiques se calculent **par carte**. Mêler un
+   résidu du levé à un résidu de la carte communautaire donnerait une médiane qui ne corrige
+   ni l'une ni l'autre.
+3. **Le même bouton, deux destinations.** « Appliquer » reporte la médiane sur la cote du
+   levé de 2009 quand c'est le levé qui est affiché, et sur le recalage de la carte
+   communautaire quand c'est elle. C'est la même question posée à deux cartes — « de combien
+   celle-ci est-elle à côté ? » — mais la grandeur fautive n'est pas la même, et les
+   confondre corromprait l'autre carte.
+
+Le mode d'emploi tient en une phrase, et il est écrit dans les Paramètres : relever en
+**plusieurs endroits** et à des profondeurs franchement différentes. C'est la seule façon de
+distinguer un vrai décalage de datum d'une erreur qui suivrait la profondeur — et
+`depthShape()` refuse de conclure tant que la bande sondée est trop étroite, plutôt que de
+donner une constante fausse au large.
 
 **Banc d'essai des enchaînements** (13/08/2026) : `test/interaction.html`. Il démarre la
 **vraie** application avec une carte factice ([`test/stub-map.js`](test/stub-map.js))
@@ -731,7 +765,7 @@ mauvaise donne une carte fausse sans aucun signe extérieur (§ 3.5).
 
 ### Vérifications
 
-Ouvrir `/test/`. 138 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 141 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
 simulation**, **forme de la correction (plateau, fondu, indépendance à l'ordre) et zones
@@ -747,7 +781,7 @@ bilinéairement : les comparer revient à comparer deux choses différentes.
 Après toute modification de `config/palette.json` ou de la grille, relancer
 `python tools/dump_reference.py`, sinon les tests comparent à une référence périmée.
 
-Ouvrir aussi `/test/interaction.html`. 47 enchaînements : l'application entière démarre
+Ouvrir aussi `/test/interaction.html`. 50 enchaînements : l'application entière démarre
 avec [`test/stub-map.js`](test/stub-map.js) à la place de MapLibre — substitué par une
 carte d'import, le reste du code ne voit pas la différence — et le banc provoque les mêmes
 événements que la vraie carte (`pinpoint`, `probeselect`, `zonevertex`…). Le balisage est
@@ -757,7 +791,8 @@ d'une suppression à la synchronisation, et la **bascule d'un fond à l'autre** 
 par le libellé affiché mais en posant deux fois la même sonde au même point et en comparant
 l'altitude que le modèle annonce dessous (642,65 m NGF sur le levé, 645,33 sur la carte
 communautaire — le point de contrôle a dû être déplacé, le précédent étant tombé, le temps
-d'une version, à 3 cm près sur les deux cartes).
+d'une version, à 3 cm près sur les deux cartes), et le **recalage réglable** : +1,5 m
+déplace bien le fond de 1,5 m, et « valeur d'origine » rend le fichier à l'octet près.
 
 Ce banc tourne sur la **même origine** que l'application, donc sur ses vraies données : il
 met de côté toutes les clés `relieflac.*` du stockage local — jeton compris, sans quoi une

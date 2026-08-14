@@ -437,6 +437,34 @@
         </select>
       </label>
       <p class="hint" id="hint-bed-source"></p>
+
+      <div id="bloc-recalage" hidden>
+        <label class="row">
+          <span>Recalage de la carte (m)</span>
+          <input type="number" id="set-qd-datum" min="-10" max="10" step="0.05"
+                 inputmode="decimal">
+        </label>
+        <p class="hint" id="hint-qd-datum"></p>
+        <div class="actions">
+          <button type="button" id="btn-qd-datum-reset">Valeur d'origine</button>
+        </div>
+        <p class="hint">
+          Positif = le fond <strong>remonte</strong>, donc moins d'eau et plus de rive
+          découverte. Le réglage agit tout de suite, sans rien retélécharger : on peut le
+          régler sur l'eau en regardant le trait de côte. Les îlots mesurés au laser ne
+          bougent pas — leur altitude est absolue.
+        </p>
+        <p class="hint">
+          <strong>Pour le mesurer plutôt que le deviner</strong> : passez par
+          <a href="#/etalonnage">Étalonnage</a>, carte communautaire affichée. Chaque relevé
+          au sondeur donne l'écart au point où vous êtes ; l'écran affiche la médiane, dit
+          si les relevés sont cohérents entre eux, et distingue un vrai décalage constant
+          d'une erreur qui suivrait la profondeur. « Appliquer la correction » reporte alors
+          la médiane ici. Relevez en <strong>plusieurs endroits</strong> et à des
+          profondeurs franchement différentes — c'est la seule façon de trancher.
+        </p>
+      </div>
+
       <p class="hint">
         <strong>Le levé de 2009</strong> mesure au décimètre, mais seulement le long de ses
         traces : plus de 150 m les séparent dans les grands bassins, et entre elles la carte
@@ -699,6 +727,10 @@
       Comparez la profondeur lue au sondeur à celle du modèle. Si les écarts se groupent
       autour d'une même valeur, c'est le décalage de référence cherché. S'ils se dispersent,
       le problème est l'interpolation et aucune constante ne le corrigera.
+    </p>
+    <p class="hint" id="cal-bed">
+      Les relevés comptent <strong>par carte</strong> : un écart mesuré contre le levé ne
+      corrige pas la carte communautaire, et l'inverse est tout aussi faux.
     </p>
     <p class="hint">
       <strong>Relevez sur les traces de 2009</strong> (activables dans les Paramètres) et

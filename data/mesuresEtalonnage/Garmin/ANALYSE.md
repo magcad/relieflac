@@ -707,6 +707,16 @@ dans le dépôt ne distingue les deux hypothèses.
   premier jour. Après recalage, l'écart y est de +3,05 m et la fosse principale
   tombe à 18,3 m quand le levé de 2009 en mesure 28,5.
 
+**Le recalage est désormais réglable dans l'application** (Paramètres → Fond
+bathymétrique), et surtout **mesurable** : l'écran Étalonnage calcule ses
+statistiques par carte, et « Appliquer » reporte la médiane des résidus sur le
+recalage quand c'est la carte communautaire qui est affichée. Il n'y a donc plus
+à reconstruire la grille pour essayer une valeur. Relever en **plusieurs
+endroits** et à des profondeurs franchement différentes : `depthShape()` refuse
+de conclure tant que la bande sondée est trop étroite pour distinguer un décalage
+constant d'une erreur proportionnelle à la profondeur, et c'est exactement la
+distinction qui compte ici.
+
 **Contre-épreuve, une minute sur l'eau.** Saisir la cote à la main, −2,72 m par
 rapport à celle d'EDF, et regarder si les **deux** cartes tombent juste. Si oui,
 l'erreur est sur la cote — datum de la station EDF, ou valeur périmée — et le

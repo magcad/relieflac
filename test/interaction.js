@@ -328,6 +328,41 @@ async function run() {
     && Math.abs(onSurvey - onCommunity) > 0.5,
     `${onSurvey?.toFixed(2)} m NGF (levé) · ${onCommunity?.toFixed(2)} m NGF (communauté)`);
 
+  // ------------------------------------- recalage réglable de la carte communautaire
+  //
+  // C'est le réglage qui sert à mesurer le bon décalage sur l'eau : il doit déplacer la
+  // grille pour de vrai, et « valeur d'origine » doit rendre exactement le fichier.
+  group('Recalage de la carte communautaire');
+  location.hash = '#/parametres';
+  await sleep(60);
+  check('le réglage du recalage apparaît avec cette carte',
+    $('bloc-recalage').hidden === false);
+  const baseline = Number($('set-qd-datum').value);
+  $('set-qd-datum').value = (baseline + 1.5).toFixed(2);
+  $('set-qd-datum').dispatchEvent(new Event('change'));
+  const moved = await until(
+    () => Math.abs(Number($('set-qd-datum').value) - (baseline + 1.5)) < 0.005, 8000);
+  location.hash = '#/';
+  await sleep(60);
+  const raised = await readModel();
+  check('le fond remonte de la valeur réglée',
+    moved && Number.isFinite(raised) && Math.abs(raised - onCommunity - 1.5) < 0.05,
+    `${onCommunity?.toFixed(2)} → ${raised?.toFixed(2)} m NGF, attendu `
+    + `${(onCommunity + 1.5).toFixed(2)}`);
+
+  location.hash = '#/parametres';
+  await sleep(60);
+  $('btn-qd-datum-reset').click();
+  const back0 = await until(
+    () => Math.abs(Number($('set-qd-datum').value) - baseline) < 0.005, 8000);
+  location.hash = '#/';
+  await sleep(60);
+  const restored = await readModel();
+  check('« Valeur d\'origine » rend exactement le fichier',
+    back0 && Number.isFinite(restored) && Math.abs(restored - onCommunity) < 0.005,
+    `${restored?.toFixed(2)} m NGF`);
+
+  group('Retour au fond du levé');
   location.hash = '#/parametres';
   await sleep(60);
   $('set-bed-source').value = 'ofb2009';

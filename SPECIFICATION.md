@@ -465,6 +465,16 @@ Contre-épreuve : saisir la cote à la main, −2,72 m, et voir si les **deux** 
 juste. Si le recalage se confirme, la borne basse du § 4.2 quinquies est calée 2,7 m trop
 bas et les 295 ha abaissés du fond du levé sont à reprendre.
 
+**Le recalage est réglable dans l'application** (`quickdrawDatum_m`, `null` = la valeur du
+fichier). `BedGrid.setDatumOffset` déplace les cellules issues d'une bande et laisse le MNT
+où il est ; la grille du fichier n'est pas modifiée et les relevés manuels se réappliquent
+par-dessus. C'est ce qui permet de le **mesurer** au lieu de le deviner : l'écran Étalonnage
+(§ 15.3) calcule ses statistiques par carte — chaque relevé porte sa `bedSource` et le
+recalage en vigueur — et « Appliquer » reporte la médiane sur la cote du levé ou sur le
+recalage communautaire selon la carte affichée. Relever en plusieurs endroits et à des
+profondeurs franchement différentes reste indispensable : c'est la seule façon de distinguer
+un décalage de datum d'une erreur proportionnelle à la profondeur.
+
 **Licence.** La donnée appartient à Garmin et à ses contributeurs, sous CGU interdisant la
 redistribution, sans licence ouverte. La grille dérivée est publiée en connaissance de
 cause (§ 12). La couche reste donc **identifiable cellule par cellule** — canaux G et B de

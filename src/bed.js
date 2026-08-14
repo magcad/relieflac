@@ -124,7 +124,67 @@ export class BedGrid {
     // sur 1,2 million de cellules : mémoriser évite de le refaire à chaque va-et-vient, et
     // rend la bascule instantanée même hors ligne.
     this.layers = new Map([[source, layer]]);
+    // Recalage de la carte communautaire : `null` = celui du fichier. Il survit au
+    // changement de source, sans quoi un aller-retour vers le levé effacerait un réglage
+    // que l'utilisateur vient de mesurer sur l'eau.
+    this.datumOffset = null;
     this.#adopt(layer, source);
+  }
+
+  /**
+   * Recalage vertical de la carte communautaire, en mètres, réglable sans reconstruire.
+   *
+   * `null` = celui inscrit dans le fichier par la chaîne Python. Toute autre valeur le
+   * remplace : c'est ce qui permet de mesurer le bon décalage **sur l'eau**, en plusieurs
+   * points, au lieu de le figer dans `config/model.json` et de reconstruire à chaque essai.
+   *
+   * Ne déplace que les cellules issues d'une bande — celles dont le canal vert porte une
+   * borne. Les cellules du MNT gardent leur altitude : elle est absolue, mesurée par avion,
+   * et n'a rien à voir avec la référence des sondeurs de la communauté. Un îlot ne bouge
+   * pas. (Conséquence assumée : au-delà d'un grand recalage vers le haut, une bande peut
+   * dépasser l'îlot qu'elle contourne ; la fusion « le plus haut gagne » n'est refaite
+   * qu'à la reconstruction.)
+   *
+   * Renvoie `true` si la grille de travail a changé. L'appelant réapplique ensuite ses
+   * relevés et renvoie la grille au GPU, comme après un changement de source.
+   */
+  setDatumOffset(offset) {
+    const wanted = Number.isFinite(offset) ? offset : null;
+    if (Object.is(wanted, this.datumOffset)) return false;
+    this.datumOffset = wanted;
+    return this.#rebase();
+  }
+
+  /** Recalage réellement appliqué à la carte affichée, en mètres. */
+  get datum() {
+    return this.datumOffset ?? this.builtInDatum;
+  }
+
+  /** Recalage inscrit dans le fichier — le point de départ, et ce vers quoi « défaut » ramène. */
+  get builtInDatum() {
+    return this.meta.quickdraw_only?.datum_offset_m ?? 0;
+  }
+
+  /** Reconstruit la grille brute de travail à partir du fichier et du recalage courant. */
+  #rebase() {
+    const layer = this.layers.get(this.source);
+    const shift = this.source === 'quickdraw' && this.meta.quickdraw_only
+      ? this.datum - this.builtInDatum
+      : 0;
+    const before = this.baseAltitudes;
+
+    if (!shift || !layer.bound) {
+      this.baseAltitudes = layer.altitudes;
+    } else {
+      const shifted = layer.altitudes.slice();
+      for (let i = 0; i < shifted.length; i += 1) {
+        if (layer.bound[i] > 0) shifted[i] += shift;
+      }
+      this.baseAltitudes = shifted;
+    }
+    this.altitudes = this.baseAltitudes;
+    this.coverage = this.baseCoverage;
+    return this.baseAltitudes !== before;
   }
 
   /** Installe un fond décodé comme fond courant, corrections remises à zéro. */
@@ -151,6 +211,7 @@ export class BedGrid {
     [this.x0, this.y0, this.x1, this.y1] = layer.meta.bbox_3857;
     this.width = layer.meta.width;
     this.height = layer.meta.height;
+    this.#rebase(); // le recalage suit la carte, et ne s'applique qu'à celle qui le porte
   }
 
   static async load(baseUrl = '.', source = DEFAULT_BED_SOURCE) {

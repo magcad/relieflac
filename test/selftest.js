@@ -207,6 +207,32 @@ export async function run(base = '..') {
     check('la carte communautaire est faite de bandes, pas de remplissage',
       framed / valid > 0.95, `${(100 * framed / valid).toFixed(1)} % des cellules affichées`);
 
+    // Recalage réglable : c'est l'outil de mesure sur l'eau. Il doit déplacer le fond issu
+    // des bandes, laisser le MNT où il est — ses altitudes sont absolues — et rendre le
+    // fichier intact quand on revient à la valeur d'origine.
+    {
+      const pristine = bed.baseAltitudes;
+      const band = bed.bound.findIndex(
+        (b, i) => b > 0 && Number.isFinite(bed.baseAltitudes[i]));
+      const terrain = bed.bound.findIndex(
+        (b, i) => b === 0 && Number.isFinite(bed.baseAltitudes[i]));
+      const zBand = bed.baseAltitudes[band];
+      const zTerrain = terrain >= 0 ? bed.baseAltitudes[terrain] : NaN;
+
+      bed.setDatumOffset(bed.datum + 1.25);
+      check('recalage : le fond issu d\'une bande se déplace',
+        near(bed.baseAltitudes[band], zBand + 1.25, 1e-3),
+        `${zBand.toFixed(2)} → ${bed.baseAltitudes[band].toFixed(2)} m NGF`);
+      check('recalage : le terrain mesuré au MNT ne bouge pas',
+        terrain < 0 || bed.baseAltitudes[terrain] === zTerrain,
+        terrain < 0 ? 'aucune cellule du MNT' : `${zTerrain.toFixed(2)} m NGF`);
+
+      bed.setDatumOffset(null);
+      check('recalage : « valeur d\'origine » rend le fichier intact',
+        bed.baseAltitudes === pristine && bed.datum === bed.builtInDatum,
+        `${bed.datum} m`);
+    }
+
     // Un relevé manuel doit mordre sur le fond affiché, quel qu'il soit.
     {
       const lon = 1.87132; const lat = 45.79328;
