@@ -23,11 +23,19 @@ Mesurée sur la vue d'ensemble du 14/08/2026, elle est juste à 0,2 % près, mai
 sa longueur en pixels est difficile à mesurer de façon fiable (le texte blanc
 des étiquettes de sonde pollue la détection).
 
-Usage :
-    python tools/qd_georef.py <dossier_de_captures> <capture_de_reference> \
-        [--out data/mesuresEtalonnage/Garmin/georef.json]
+Une **campagne** est un dossier de captures et une palette, déclarés dans
+`data/mesuresEtalonnage/Garmin/palettes.json`. Les couleurs se recyclent d'une
+campagne à l'autre — `(0,197,255)` vaut 12–30 m dans « 0-12m » et 12–14 m dans
+« 12_30m » — donc la palette n'est jamais une constante globale.
 
-La capture de référence doit montrer le lac entier.
+Deux campagnes n'ayant aucune couleur en commun, la seconde ne peut pas se caler
+par ressemblance de bandes sur la première. Elle se cale sur un **masque**
+partagé : « plus profond que 12 m » est à la fois la dernière bande de la
+campagne fine et la réunion de toutes les bandes de la campagne profonde.
+
+Usage :
+    python tools/qd_georef.py 0-12m
+    python tools/qd_georef.py 12_30m
 """
 from __future__ import annotations
 
@@ -51,24 +59,30 @@ CROP = (0, 192, 1752, 1599)
 
 LAND_RGB = np.array([155, 152, 98])
 
-# Palette lue sur la légende (IMG_1143, 14/08/2026), portées personnalisées :
-# couleur -> (profondeur mini, profondeur maxi) en mètres.
-PALETTE = [
-    ((206, 156, 197), 0.0, 0.5),
-    ((255, 0, 0), 0.5, 1.0),
-    ((255, 173, 0), 1.0, 1.5),
-    ((255, 255, 0), 1.5, 2.0),
-    ((132, 132, 0), 2.0, 3.0),
-    ((0, 132, 0), 3.0, 4.0),
-    ((0, 255, 0), 4.0, 6.0),
-    ((0, 0, 255), 6.0, 8.0),
-    ((66, 132, 255), 8.0, 12.0),
-    ((0, 197, 255), 12.0, 30.0),
-]
+PALETTES = "data/mesuresEtalonnage/Garmin/palettes.json"
 
 # Cote du plan d'eau à laquelle se rapportent les profondeurs Quickdraw, mesurée
 # par comparaison des isobathes au modèle, au large. Voir ANALYSE.md § 3.
 Z_AC_M_NGF = 647.68
+
+
+def load_campaign(name, path=PALETTES):
+    """Description d'une campagne : dossier, palette, mode de calage.
+
+    ATTENTION : les couleurs se recyclent d'une campagne à l'autre. (0,197,255)
+    vaut 12–30 m dans la campagne « 0-12m » et 12–14 m dans « 12_30m ». Décoder
+    avec la mauvaise palette produit une carte fausse sans aucun signe extérieur.
+    """
+    cfg = json.load(open(path, encoding="utf-8"))
+    if name not in cfg["campaigns"]:
+        raise SystemExit(f"campagne inconnue : {name} — "
+                         f"connues : {', '.join(cfg['campaigns'])}")
+    c = dict(cfg["campaigns"][name])
+    c["palette"] = [(tuple(p["rgb"]), p["dmin"], p["dmax"]) for p in c["palette"]]
+    c["z_ac_m_ngf"] = cfg["z_ac_m_ngf"]
+    c["root"] = os.path.dirname(path)
+    c["name"] = name
+    return c
 
 
 def merc(lon, lat):
@@ -102,10 +116,14 @@ def read_map(path):
     return a[CROP[1]:CROP[3], CROP[0]:CROP[2]]
 
 
-def bands(rgb, tol=30):
-    """Indice de bande par pixel ; -1 hors palette (étiquette, trait, calque)."""
+def bands(rgb, palette, tol=30):
+    """Indice de bande par pixel ; -1 hors palette (étiquette, trait, calque).
+
+    `palette` est la liste (couleur, dmin, dmax) de la campagne — jamais une
+    constante globale, voir `load_campaign`.
+    """
     out = np.full(rgb.shape[:2], -1, np.int8)
-    for i, (col, _, _) in enumerate(PALETTE):
+    for i, (col, _, _) in enumerate(palette):
         out[np.abs(rgb - np.array(col)).sum(axis=2) < tol] = i
     return out
 
@@ -131,12 +149,12 @@ def masked_ncc(A, MA, B, MB, min_overlap=0.30):
     return out
 
 
-def fit_overview(path, lake, mpp_hint, lat0):
+def fit_overview(path, lake, mpp_hint, lat0, palette):
     """Cale une vue d'ensemble sur le contour du lac : échelle puis translation."""
     rgb = read_map(path)
     L = ndimage.binary_erosion(land_mask(rgb), np.ones((5, 5)))
     W = ndimage.binary_erosion(
-        ndimage.binary_closing(bands(rgb) >= 0, np.ones((11, 11))), np.ones((5, 5)))
+        ndimage.binary_closing(bands(rgb, palette) >= 0, np.ones((11, 11))), np.ones((5, 5)))
     K = L | W
     b = lake.bounds
     cx0, cy0 = [float(v[0]) for v in merc(np.array([(b[0] + b[2]) / 2]),
@@ -170,24 +188,95 @@ def fit_overview(path, lake, mpp_hint, lat0):
             "ncc": float(cand[0]), "method": "contour"}
 
 
-def register(path, ref_bi, ref_geo, scales):
-    """Cale une capture sur une capture de référence déjà géoréférencée."""
-    bi = bands(read_map(path))
-    rv = ref_bi.astype(np.float64)
-    rv[ref_bi < 0] = 0.0
-    rm = (ref_bi >= 0).astype(np.float64)
+def reference_from_mosaic(png, meta, mask_bands, down=1):
+    """Signal de référence tiré d'une mosaïque déjà géoréférencée.
+
+    Sert à caler une campagne dont la palette n'a **aucune couleur en commun**
+    avec la précédente. On ne compare alors pas des bandes mais un masque : par
+    exemple « plus profond que 12 m », qui est la bande 12–30 m de la campagne
+    fine et la réunion de toutes les bandes de la campagne profonde. C'est le
+    seul signal partagé, et il suffit.
+    """
+    a = np.array(Image.open(png).convert("RGB")).astype(np.int16)
+    pal = [tuple(p["rgb"]) for p in meta["palette"]]
+    m = np.zeros(a.shape[:2], bool)
+    for i in mask_bands:
+        m |= (np.abs(a - np.array(pal[i])).sum(axis=2) < 30)
+    m = m[::down, ::down]
+    # Le centre se décale d'un demi-pixel résiduel quand la taille n'est pas
+    # divisible : on le recalcule depuis la taille réellement obtenue.
+    mpp = meta["mpp_merc"] * down
+    geo = {"cx": meta["bbox_3857"][0] + m.shape[1] / 2 * mpp,
+           "cy": meta["bbox_3857"][3] - m.shape[0] / 2 * mpp,
+           "mpp_merc": mpp}
+    lat0 = np.degrees(2 * np.arctan(np.exp(geo["cy"] / R)) - np.pi / 2)
+    geo["ground_mpp"] = mpp * np.cos(np.radians(lat0))
+    return m, geo
+
+
+def crop_reference(ref, geo, cx, cy, half_w_m, half_h_m):
+    """Découpe la référence autour d'une solution grossière.
+
+    Corréler une capture contre une mosaïque entière coûte des FFT de dizaines
+    de millions de pixels. Une fois la position connue à quelques mètres près,
+    il suffit de refaire le calcul sur une fenêtre à peine plus grande que la
+    capture : même résultat, deux ordres de grandeur moins cher.
+    """
+    mpp = geo["mpp_merc"]
+    h, w = ref.shape
+    ci = (cx - geo["cx"]) / mpp + w / 2
+    cj = h / 2 - (cy - geo["cy"]) / mpp
+    hw, hh = half_w_m / mpp, half_h_m / mpp
+    i0, i1 = int(max(ci - hw, 0)), int(min(ci + hw, w))
+    j0, j1 = int(max(cj - hh, 0)), int(min(cj + hh, h))
+    sub = ref[j0:j1, i0:i1]
+    sub_geo = dict(geo)
+    sub_geo["cx"] = geo["cx"] + ((i0 + i1) / 2 - w / 2) * mpp
+    sub_geo["cy"] = geo["cy"] - ((j0 + j1) / 2 - h / 2) * mpp
+    return sub, sub_geo
+
+
+def register(path, ref, ref_geo, scales, palette, binary=False):
+    """Cale une capture sur une référence déjà géoréférencée.
+
+    Deux modes :
+
+    - `binary=False` — `ref` est l'indice de bande d'une autre capture de la
+      **même** campagne. On compare des bandes, et seuls les pixels de palette
+      comptent (étiquettes et calques exclus de part et d'autre).
+    - `binary=True` — `ref` est un masque booléen produit par
+      `reference_from_mosaic`. On compare alors « dans le masque / hors du
+      masque », partout : c'est le seul recours quand les deux campagnes n'ont
+      aucune couleur en commun.
+    """
+    bi = bands(read_map(path), palette)
+    if binary:
+        sig = (bi >= 0).astype(np.int8)          # 1 = colorié, donc dans la plage
+        rv = ref.astype(np.float64)
+        rm = np.ones_like(rv)
+    else:
+        sig = bi
+        rv = ref.astype(np.float64)
+        rv[ref < 0] = 0.0
+        rm = (ref >= 0).astype(np.float64)
     best = None
     for ground in scales:
         k = ref_geo["ground_mpp"] / ground
-        h2, w2 = int(bi.shape[0] / k), int(bi.shape[1] / k)
-        if h2 < 20 or w2 < 20 or h2 > ref_bi.shape[0] or w2 > ref_bi.shape[1]:
+        h2, w2 = int(sig.shape[0] / k), int(sig.shape[1] / k)
+        if h2 < 20 or w2 < 20 or h2 > rv.shape[0] or w2 > rv.shape[1]:
             continue
-        sm = bi[np.ix_((np.arange(h2) * k).astype(int), (np.arange(w2) * k).astype(int))]
-        A = sm.astype(np.float64)
-        MA = (sm >= 0).astype(np.float64)
-        A[sm < 0] = 0.0
-        if MA.sum() < 1500:
-            continue
+        sm = sig[np.ix_((np.arange(h2) * k).astype(int), (np.arange(w2) * k).astype(int))]
+        if binary:
+            A = sm.astype(np.float64)
+            MA = np.ones_like(A)
+            if A.sum() < 1500:
+                continue
+        else:
+            A = sm.astype(np.float64)
+            MA = (sm >= 0).astype(np.float64)
+            A[sm < 0] = 0.0
+            if MA.sum() < 1500:
+                continue
         cc = masked_ncc(A, MA, rv, rm)
         j, i = np.unravel_index(cc.argmax(), cc.shape)
         if best is None or cc[j, i] > best[0]:
@@ -195,7 +284,7 @@ def register(path, ref_bi, ref_geo, scales):
     if best is None:
         return None
     v, ground, j, i, shp = best
-    H, W = ref_bi.shape
+    H, W = rv.shape
     return {"ncc": float(v), "ground_mpp": float(ground),
             "mpp_merc": float(ground * ref_geo["mpp_merc"] / ref_geo["ground_mpp"]),
             "cx": float(ref_geo["cx"] + (i + shp[1] / 2 - W / 2) * ref_geo["mpp_merc"]),
@@ -206,50 +295,100 @@ def register(path, ref_bi, ref_geo, scales):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("directory")
-    ap.add_argument("reference", help="capture montrant le lac entier")
+    ap.add_argument("campaign", help="nom d'une campagne de palettes.json")
+    ap.add_argument("--palettes", default=PALETTES)
     ap.add_argument("--lake", default="data/lake.geojson")
-    ap.add_argument("--out", default="data/mesuresEtalonnage/Garmin/georef.json")
-    ap.add_argument("--hint", type=float, default=3.40,
-                    help="mètres sol par pixel supposés pour la référence")
+    ap.add_argument("--out", default=None, help="défaut : georef_<campagne>.json")
     ap.add_argument("--min-ncc", type=float, default=0.90)
+    ap.add_argument("--ref-down", type=int, default=4,
+                    help="reduction de la mosaique de reference pour la recherche d'echelle")
+    ap.add_argument("--refine-margin", type=float, default=120.0,
+                    help="marge en metres autour de la solution grossiere, passe finale")
+    ap.add_argument("--ref-down-final", type=int, default=2,
+                    help="reduction pour la passe finale. 1 = pleine resolution, mais une "
+                         "mosaique au metre fait alors 60 Mpx par FFT : plusieurs Go de RAM "
+                         "pour une precision (0,7 m) sans objet face a la grille de 5 m")
     args = ap.parse_args()
+
+    camp = load_campaign(args.campaign, args.palettes)
+    pal = camp["palette"]
+    directory = os.path.join(camp["root"], camp["folder"])
+    out_path = args.out or os.path.join(camp["root"], f"georef_{args.campaign}.json")
+    ref = camp["reference"]
 
     lake = load_lake(args.lake)
     b = lake.bounds
     lat0 = (b[1] + b[3]) / 2
 
-    ref_path = os.path.join(args.directory, args.reference)
-    gref = fit_overview(ref_path, lake, args.hint / np.cos(np.radians(lat0)), lat0)
-    print(f"{args.reference}  référence  accord={gref['ncc']:.4f}  "
-          f"{gref['ground_mpp']:.4f} m/px")
-    ref_bi = bands(read_map(ref_path))
+    out = {}
+    if ref["type"] == "contour":
+        ref_path = os.path.join(directory, ref["capture"])
+        gref = fit_overview(ref_path, lake,
+                            ref["hint_ground_mpp"] / np.cos(np.radians(lat0)), lat0, pal)
+        ref_sig = bands(read_map(ref_path), pal)
+        fine_sig = fine_geo = None
+        binary = False
+        out[ref["capture"]] = gref
+        print(f"{ref['capture']}  référence sur contour  accord={gref['ncc']:.4f}  "
+              f"{gref['ground_mpp']:.4f} m/px")
+    elif ref["type"] == "mosaic":
+        other = load_campaign(ref["campaign"], args.palettes)
+        png = os.path.join(other["root"], ref["file"])
+        meta = json.load(open(os.path.splitext(png)[0] + ".json", encoding="utf-8"))
+        # Une mosaïque au mètre fait 60 Mpx : la corrélation y est hors de prix.
+        # On cherche donc l'échelle sur une version réduite, puis on rejoue le
+        # seul meilleur candidat à pleine résolution.
+        ref_sig, gref = reference_from_mosaic(png, meta, ref["mask_bands"], args.ref_down)
+        fine_sig, fine_geo = reference_from_mosaic(png, meta, ref["mask_bands"],
+                                                   args.ref_down_final)
+        binary = True
+        print(f"référence : masque {ref['mask_bands']} de {ref['file']} — "
+              f"{int(fine_sig.sum())} px, recherche à {gref['ground_mpp']:.3f} m/px "
+              f"puis calage final à {fine_geo['ground_mpp']:.3f} m/px")
+    else:
+        raise SystemExit(f"mode de référence inconnu : {ref['type']}")
 
-    # Échelles déjà rencontrées, essayées en premier ; sinon balayage large.
-    known = [0.6908, 0.6873, 0.6839, 2.1656, gref["ground_mpp"]]
+    # Balayage large systématique. Un raccourci « essayer d'abord les échelles
+    # déjà rencontrées » a été retiré : quand une campagne introduit un zoom
+    # inédit, il se verrouille sur le bord de la fenêtre d'affinage voisine et
+    # renvoie une solution plausible mais fausse — mesuré sur la campagne
+    # 12_30m, 0,663 m/px à NCC 0,605 contre 0,621 m/px à NCC 0,677.
     wide = np.exp(np.linspace(np.log(0.35), np.log(4.6), 40))
 
-    out = {args.reference: gref}
-    for p in sorted(glob.glob(os.path.join(args.directory, "*.PNG"))):
+    for p in sorted(glob.glob(os.path.join(directory, "*.PNG"))):
         name = os.path.basename(p)
-        if name == args.reference:
+        if name in out:
             continue
-        r = register(p, ref_bi, gref, known)
-        if r is None or r["ncc"] < args.min_ncc:
-            r = register(p, ref_bi, gref, wide)
+        r = register(p, ref_sig, gref, wide, pal, binary)
         if r is not None:
-            fine = register(p, ref_bi, gref, r["ground_mpp"] * np.linspace(0.98, 1.02, 9))
+            fine = register(p, ref_sig, gref, r["ground_mpp"] * np.linspace(0.98, 1.02, 9),
+                            pal, binary)
             if fine is not None and fine["ncc"] > r["ncc"]:
                 r = fine
+        if r is not None and fine_sig is not None:
+            # Passe finale : même corrélation, mais sur une fenêtre resserrée
+            # autour de la solution grossière — sinon la FFT porte sur toute la
+            # mosaïque et coûte des minutes par échelle essayée.
+            half_w = (CROP[2] - CROP[0]) / 2 * r["mpp_merc"] + args.refine_margin
+            half_h = (CROP[3] - CROP[1]) / 2 * r["mpp_merc"] + args.refine_margin
+            sub, sub_geo = crop_reference(fine_sig, fine_geo, r["cx"], r["cy"],
+                                          half_w, half_h)
+            if min(sub.shape) > 40:
+                full = register(p, sub, sub_geo,
+                                r["ground_mpp"] * np.linspace(0.99, 1.01, 5), pal, binary)
+                if full is not None and full["ncc"] > 0:
+                    r = full
         flag = "" if (r and r["ncc"] >= args.min_ncc) else "   <-- douteux, écarté"
         out[name] = r or {"ncc": -1.0}
         print(f"{name}  ncc={out[name]['ncc']:.3f}  "
               f"{out[name].get('ground_mpp', float('nan')):.4f} m/px{flag}")
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    json.dump({"crop": list(CROP), "z_ac_m_ngf": Z_AC_M_NGF,
-               "palette": [{"rgb": list(c), "dmin": a, "dmax": z} for c, a, z in PALETTE],
-               "captures": out}, open(args.out, "w", encoding="utf-8"), indent=1)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    json.dump({"campaign": args.campaign, "folder": camp["folder"],
+               "crop": list(CROP), "z_ac_m_ngf": camp["z_ac_m_ngf"],
+               "palette": [{"rgb": list(c), "dmin": a, "dmax": z} for c, a, z in pal],
+               "captures": out}, open(out_path, "w", encoding="utf-8"), indent=1)
+    args.out = out_path
     ok = sum(1 for v in out.values() if v["ncc"] >= args.min_ncc)
     print(f"\n{ok}/{len(out)} captures calées → {args.out}")
 

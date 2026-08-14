@@ -34,21 +34,28 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-from qd_georef import (CROP, bands, load_lake, rasterize, read_map, unmerc)
+from qd_georef import (CROP, PALETTES, bands, load_campaign, load_lake, rasterize,
+                       read_map, unmerc)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--georef", default="data/mesuresEtalonnage/Garmin/georef.json")
-    ap.add_argument("--directory", default="data/mesuresEtalonnage/Garmin")
+    ap.add_argument("campaign", help="nom d'une campagne de palettes.json")
+    ap.add_argument("--palettes", default=PALETTES)
+    ap.add_argument("--georef", default=None, help="défaut : georef_<campagne>.json")
     ap.add_argument("--bed", default="data/bed.json")
     ap.add_argument("--lake", default="data/lake.geojson")
-    ap.add_argument("--out", default="data/mesuresEtalonnage/Garmin/mosaique.png")
+    ap.add_argument("--out", default=None, help="défaut : mosaique_<campagne>.png")
     ap.add_argument("--mpp", type=float, default=1.0, help="mètres Mercator par pixel")
     ap.add_argument("--fill-radius", type=float, default=10.0)
     ap.add_argument("--min-ncc", type=float, default=0.90)
     args = ap.parse_args()
+
+    camp = load_campaign(args.campaign, args.palettes)
+    args.directory = os.path.join(camp["root"], camp["folder"])
+    args.georef = args.georef or os.path.join(camp["root"], f"georef_{args.campaign}.json")
+    args.out = args.out or os.path.join(camp["root"], f"mosaique_{args.campaign}.png")
 
     gj = json.load(open(args.georef, encoding="utf-8"))
     palette = [(tuple(p["rgb"]), p["dmin"], p["dmax"]) for p in gj["palette"]]
@@ -64,7 +71,7 @@ def main():
     agree = disagree = 0
     for n, name in enumerate(sorted(geo, key=lambda k: -geo[k]["ground_mpp"]), 1):
         g = geo[name]
-        bi = bands(read_map(os.path.join(args.directory, name)))
+        bi = bands(read_map(os.path.join(args.directory, name)), palette)
         h, w = bi.shape
         i0 = max(int((g["cx"] - w / 2 * g["mpp_merc"] - bb[0]) / args.mpp), 0)
         i1 = min(int((g["cx"] + w / 2 * g["mpp_merc"] - bb[0]) / args.mpp) + 1, W)
@@ -113,7 +120,8 @@ def main():
     for i, (col, _, _) in enumerate(palette):
         rgb[mos == i] = col
     Image.fromarray(rgb).save(args.out)
-    json.dump({"bbox_3857": bb, "width": W, "height": H, "mpp_merc": args.mpp,
+    json.dump({"campaign": args.campaign,
+               "bbox_3857": bb, "width": W, "height": H, "mpp_merc": args.mpp,
                "z_ac_m_ngf": gj["z_ac_m_ngf"],
                "palette": gj["palette"],
                "nodata_rgb": [16, 18, 24], "lake_nodata_rgb": [70, 70, 78],

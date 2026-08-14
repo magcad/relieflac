@@ -26,7 +26,7 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L2** | Page Paramètres | ✅ livrée avec L1 |
 | **L3** | Hors ligne — Service Worker, pré-chargement des tuiles | ⬜ à faire |
 | **L4** | Calage `Z_2009` confirmé, import des logs sondeur, isobathes étiquetées | 🟡 en cours |
-| **L5** | Intégrer la mosaïque Quickdraw à `build_grid.py`, reconstruire, déployer | ⬜ à faire — tout est prêt, voir § 3.5 |
+| **L5** | Intégrer les mosaïques Quickdraw à `build_grid.py`, reconstruire, déployer | ⬜ à faire — deux campagnes calées, voir § 3.5 |
 
 Mode **« Sonde »** (saisie manuelle) livré le 11/08/2026 : le sondeur du bord est un
 **Eagle** monochrome sans enregistrement ni GPS — on relève la profondeur à la main. Un
@@ -339,11 +339,23 @@ c'est sans importance : la couche communautaire s'exploite par **capture d'écra
 géoréférencée**. La légende donne l'intervalle exact de chaque couleur et les couleurs sont
 plates, donc une capture est une carte de bandes décodable sans ambiguïté.
 
-Fait, non intégré : 27 captures, 25 calées à NCC 0,95–0,99, mosaïque de 8 806 × 6 913 px à
-1 m/px couvrant **93,6 % du lac** — contre 62,2 % à moins de 60 m d'une sonde pour le levé
-2009. Cote de référence mesurée : **647,68 m NGF**. Effet attendu sur la carte : 90,6 ha
-relevés, dont 25,6 ha de plus de 3 m, jusqu'à 19,3 m. Méthode, mesures, produits et
-protocole de capture :
+Fait, non intégré, en **deux campagnes** — un dossier de captures et une palette chacune,
+déclarées dans `data/mesuresEtalonnage/Garmin/palettes.json` :
+
+| Campagne | Captures | Plage | Ce qu'elle apporte |
+|---|---|---|---|
+| `0-12m` | 27 | 0 à 12 m, 10 bandes | 25 calées à NCC 0,95–0,99, mosaïque 8 806 × 6 913 px à 1 m/px, **93,6 % du lac** décodé — contre 62,2 % à moins de 60 m d'une sonde en 2009 |
+| `12_30m` | 17 | 12 à 30 m, 6 bandes | comble le seul angle mort de la première : sa bande 12–30 m ne contraignait rien, donc tout le bassin ouest était muet |
+
+Cote de référence mesurée : **647,68 m NGF**. Effet attendu de la seule campagne `0-12m` :
+90,6 ha relevés, dont 25,6 ha de plus de 3 m, jusqu'à 19,3 m.
+
+**Piège de conception** : les couleurs se recyclent d'une campagne à l'autre. `(0,197,255)`
+vaut 12–30 m dans `0-12m` et 12–14 m dans `12_30m`. Décoder avec la mauvaise palette produit
+une carte fausse **sans aucun signe extérieur** — d'où `palettes.json` et l'argument
+`campaign` obligatoire sur les deux outils.
+
+Méthode, mesures, produits et protocole de capture :
 [`data/mesuresEtalonnage/Garmin/ANALYSE.md`](data/mesuresEtalonnage/Garmin/ANALYSE.md),
 outils `tools/qd_georef.py` et `tools/qd_mosaic.py`.
 

@@ -1,0 +1,40 @@
+{
+ "$comment": "Une campagne de captures = un dossier + une palette. ATTENTION : les couleurs se recyclent d'une campagne a l'autre. (0,197,255) vaut 12-30 m dans la campagne 0-12m et 12-14 m dans la campagne 12_30m. Decoder une capture avec la mauvaise palette produit une carte fausse sans aucun signe exterieur. Toujours passer par --campaign.",
+ "z_ac_m_ngf": 647.68,
+ "land_rgb": [155, 152, 98],
+ "crop": [0, 192, 1752, 1599],
+ "campaigns": {
+  "0-12m": {
+   "folder": "Carte_0-12m",
+   "date": "2026-08-14",
+   "note": "Portees personnalisees fines sous 12 m. La bande 12-30 m ne contraint rien : c'est elle que la campagne 12_30m remplace.",
+   "reference": {"type": "contour", "capture": "IMG_1143.PNG", "hint_ground_mpp": 3.40},
+   "palette": [
+    {"rgb": [206, 156, 197], "dmin": 0.0, "dmax": 0.5},
+    {"rgb": [255, 0, 0], "dmin": 0.5, "dmax": 1.0},
+    {"rgb": [255, 173, 0], "dmin": 1.0, "dmax": 1.5},
+    {"rgb": [255, 255, 0], "dmin": 1.5, "dmax": 2.0},
+    {"rgb": [132, 132, 0], "dmin": 2.0, "dmax": 3.0},
+    {"rgb": [0, 132, 0], "dmin": 3.0, "dmax": 4.0},
+    {"rgb": [0, 255, 0], "dmin": 4.0, "dmax": 6.0},
+    {"rgb": [0, 0, 255], "dmin": 6.0, "dmax": 8.0},
+    {"rgb": [66, 132, 255], "dmin": 8.0, "dmax": 12.0},
+    {"rgb": [0, 197, 255], "dmin": 12.0, "dmax": 30.0}
+   ]
+  },
+  "12_30m": {
+   "folder": "Carte_12_30m",
+   "date": "2026-08-14",
+   "note": "Portees au-dela de 12 m. Tout ce qui est plus haut passe en ombrage de relief, donc n'est pas une couleur plate et se trouve exclu tout seul. Aucune vue d'ensemble dans le lot : le calage se fait sur le masque > 12 m de la mosaique 0-12m, seul signal commun aux deux campagnes.",
+   "reference": {"type": "mosaic", "campaign": "0-12m", "file": "mosaique_0-12m.png", "mask_bands": [9]},
+   "palette": [
+    {"rgb": [0, 197, 255], "dmin": 12.0, "dmax": 14.0},
+    {"rgb": [0, 255, 255], "dmin": 14.0, "dmax": 16.0},
+    {"rgb": [132, 132, 255], "dmin": 16.0, "dmax": 20.0},
+    {"rgb": [132, 0, 255], "dmin": 20.0, "dmax": 22.0},
+    {"rgb": [132, 0, 132], "dmin": 22.0, "dmax": 25.0},
+    {"rgb": [255, 0, 255], "dmin": 25.0, "dmax": 30.0}
+   ]
+  }
+ }
+}

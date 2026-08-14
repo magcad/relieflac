@@ -6,8 +6,45 @@ intermédiaires pour que l'intégration se fasse dans une session dédiée.
 
 Point de départ : accès à un compte ActiveCaptain donnant la couche
 **Communauté Quickdraw** sur le lac, alimentée par les pêcheurs qui le
-parcourent quotidiennement. 27 captures d'écran d'iPad, dans
-`IMG_1143.PNG` … `IMG_1170.PNG`.
+parcourent quotidiennement.
+
+## 0. Deux campagnes, deux palettes
+
+Une **campagne** est un dossier de captures et une palette, déclarés dans
+[`palettes.json`](palettes.json). Les deux outils prennent le nom de la campagne
+en argument obligatoire.
+
+| Campagne | Dossier | Captures | Plage | Bandes |
+|---|---|---|---|---|
+| `0-12m` | `Carte_0-12m/` | 27 | 0 à 12 m | 10, dont 0,5 m sous 2 m |
+| `12_30m` | `Carte_12_30m/` | 17 | 12 à 30 m | 6 |
+
+La seconde comble le seul angle mort de la première : sa bande 12–30 m ne
+contraignait rien, si bien que tout le bassin ouest — le plus profond — était
+muet. Dans les captures profondes, tout ce qui est au-dessus de 12 m passe en
+ombrage de relief, donc n'est pas une couleur plate et se trouve exclu tout
+seul : les deux campagnes se complètent sans se recouvrir.
+
+> **Piège, et il est silencieux.** Les couleurs se recyclent d'une campagne à
+> l'autre. `(0,197,255)` vaut **12–30 m** dans `0-12m` et **12–14 m** dans
+> `12_30m`. Décoder une capture avec la mauvaise palette produit une carte
+> fausse sans le moindre signe extérieur — pas d'erreur, pas de pixel manquant,
+> juste des profondeurs inventées. D'où `palettes.json`, et l'argument
+> `campaign` obligatoire plutôt qu'une constante de module.
+
+### Caler une campagne sur une autre quand aucune couleur n'est partagée
+
+Une capture profonde ne peut pas se caler par ressemblance de bandes sur la
+campagne fine : les deux palettes sont disjointes. Elle se cale sur un
+**masque** commun — « plus profond que 12 m », qui est à la fois la dernière
+bande de `0-12m` et la réunion de toutes les bandes de `12_30m`. C'est le seul
+signal partagé, et il suffit. Voir `reference_from_mosaic` dans `qd_georef.py`.
+
+Conséquence à connaître : sur un masque binaire, le NCC plafonne bien plus bas
+que sur un motif de bandes — 0,6 à 0,7 au lieu de 0,95. **Ce n'est pas un
+mauvais calage** ; le seuil de 0,90 ne s'applique qu'au mode « bandes ». Le
+signe qui compte est ailleurs : les échelles trouvées indépendamment sur les
+17 captures doivent se grouper à quelques pour mille.
 
 ---
 
@@ -227,10 +264,9 @@ annonce 22,1 m là où la communauté ne permet pas plus de 9,3 m, et localement
 
 ## 7. Ce qui manque, par ordre d'importance
 
-1. **La bande 12–30 m ne dit rien.** Tout le bassin ouest — le plus profond — est
-   d'un seul bleu clair et ne contribue à aucune contrainte. **Ajouter des
-   portées au-dessus de 12 m** (12-15, 15-18, 18-22, 22-26, 26-30) et refaire une
-   passe sur l'ouest. Meilleur rapport effort/résultat qui reste, et de loin.
+1. ~~La bande 12–30 m ne dit rien.~~ **Réglé** par la campagne `12_30m` du même
+   jour : 17 captures, six bandes de 12 à 30 m. Reste à en produire la mosaïque
+   et à la fusionner avec celle de `0-12m`, les deux plages étant disjointes.
 2. **12 ha sans capture fine**, en quatre zones :
    45,80844 / 1,85344 (7,5 ha) · 45,79287 / 1,91855 (1,2) ·
    45,80615 / 1,88989 (0,9) · 45,80560 / 1,90600 (0,6).
@@ -248,8 +284,10 @@ annonce 22,1 m là où la communauté ne permet pas plus de 9,3 m, et localement
   recouvrement qui mesure la qualité du calage ;
 - conserver **une vue d'ensemble du lac entier** par campagne : c'est elle qui
   sert de référence à toutes les autres ;
-- ne pas changer la palette en cours de campagne — ou signaler le changement,
-  car la palette est lue une fois pour toutes dans `qd_georef.py`.
+- **ne jamais changer la palette à l'intérieur d'une campagne.** Changer de
+  plage de profondeur, c'est ouvrir une nouvelle campagne : un dossier neuf et
+  une entrée neuve dans `palettes.json`. C'est la seule protection contre le
+  décodage silencieusement faux décrit au § 0.
 
 ---
 
@@ -267,6 +305,50 @@ au moment de l'intégration, et pas après :
 - la couche doit rester **identifiable cellule par cellule** dans la grille, pour
   pouvoir être retirée d'un seul geste si Garmin le demandait.
 
-Les 27 captures d'origine sont dans ce dossier et **ne sont pas encore
-versionnées** : leur mise sous git est une décision distincte de celle de
-publier la grille dérivée.
+Les captures d'origine sont versionnées depuis le 14/08/2026 : ce sont les
+données sources d'une mesure, pas des illustrations.
+
+---
+
+## 10. Reprendre — le lot L5
+
+Refaire les produits, si besoin (le calage est déjà dans `georef_*.json`, ces
+commandes le recalculent — une trentaine de minutes chacune) :
+
+```bash
+python tools/qd_georef.py 0-12m
+python tools/qd_mosaic.py 0-12m
+python tools/qd_georef.py 12_30m --min-ncc 0.50
+python tools/qd_mosaic.py 12_30m --min-ncc 0.50
+```
+
+Puis l'intégration proprement dite :
+
+1. **fusionner les deux mosaïques.** Les plages sont disjointes : une cellule
+   contrainte par `12_30m` l'est entre 12 et 30 m, une cellule contrainte par
+   `0-12m` l'est entre 0 et 12 m. Aucune ne contredit l'autre ; en cas de
+   recouvrement, la borne la plus haute gagne, comme partout ailleurs ;
+2. **source à part entière dans `tools/build_grid.py`**, pas une retouche après
+   coup — la grille doit rester reproductible depuis les scripts ;
+3. **relèvement seul** : `z = max(z_modèle, 647,68 − dmax)`. Voir § 6 ;
+4. **après le lissage**, comme `terrain_source`, jamais avant : un σ de 15 m
+   étale les hauts-fonds et efface précisément ce qu'on ajoute ;
+5. couche **identifiable cellule par cellule**, pour pouvoir être retirée ;
+6. les trois obligations de licence du § 9, **avant** de déployer ;
+7. reconstruire, `python tools/dump_reference.py`, vérifier `/test/` et
+   `/test/interaction.html`, monter les deux numéros de version, déployer.
+
+Trois décisions à prendre en connaissance de cause :
+
+- **la frange côtière.** Le § 3 dit de l'exclure *pour mesurer*. Pour
+  *corriger*, c'est autre chose : le modèle y est déjà ~1,5 m trop haut, donc le
+  relèvement ne devrait presque jamais se déclencher — à vérifier plutôt qu'à
+  supposer, puis décider si on laisse faire ou si on masque la frange ;
+- **le hachurage du § 2 d'`ETAT.md`.** Il marque aujourd'hui ce qui est à plus
+  de 60 m d'une sonde de 2009. Après intégration, une bonne part de ces zones
+  sera renseignée — mais par un **encadrement**, pas par une mesure ponctuelle.
+  Soit on garde le hachurage et il devient trompeur dans l'autre sens, soit
+  `coverage.png` apprend à distinguer trois états : mesuré, encadré, interpolé ;
+- **`Z_2009`.** Le calage à 647,68 lui est solidaire (§ 3). Si on le confirme un
+  jour, les deux se déplacent ensemble : le noter dans `config/model.json` pour
+  que personne ne corrige l'un en oubliant l'autre.
