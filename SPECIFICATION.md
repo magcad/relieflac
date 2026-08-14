@@ -400,13 +400,52 @@ Effet mesuré sur la grille publiée :
 
 | | valeur |
 |---|---|
-| lac encadré | **881 ha — 94,0 %** |
-| fond relevé | **137,4 ha**, dont 36,0 ha de plus de 3 m |
-| relèvement maximal | **19,3 m** |
-| part du lac restant aveugle (> 60 m d'une sonde **et** sans encadrement) | **2,4 %**, contre 37,8 % |
-| volume à la cote 647 | 80,63 → **77,48 hm³**, soit 3,15 retirés (3,9 %) |
+| lac encadré | **884 ha — 94,3 %** |
+| fond relevé (borne basse) | **128,1 ha**, dont 33,0 ha de plus de 3 m |
+| relèvement maximal | **17,7 m** |
+| fond abaissé (borne haute) | **295,1 ha**, médiane 2,01 m |
+| remis sous l'eau à la cote 647 | **64,2 ha** |
+| part du lac restant aveugle (> 60 m d'une sonde **et** sans encadrement) | **2,2 %**, contre 37,8 % |
+| volume à la cote 647 | 80,63 → **84,76 hm³** |
 
-Le volume retiré est le prix assumé du sens prudent.
+Chiffres du 14/08/2026, après la correction de position et l'ajout de la borne haute
+(lot L5 bis). Le relèvement retire du volume — c'est le prix assumé du sens prudent — et
+l'abaissement en rend davantage, parce qu'il défait une erreur de la contrainte de bord.
+
+### 4.2 sexies Second fond : la carte communautaire seule
+
+La couche du § 4.2 quinquies **corrige** le modèle du levé. Elle peut aussi le
+**remplacer** : `tools/build_grid_quickdraw.py` produit un fond complet et autonome —
+`data/bed_quickdraw.png`, `.json`, `coverage_quickdraw.png` — sans une seule sonde de 2009,
+sans triangulation, sans contrainte de bord, sans `shoal_bias`. Le réglage « Source du
+fond » bascule de l'un à l'autre dans l'application.
+
+Motif : beaucoup de plaisanciers du lac naviguent **à la carte Garmin seule**, en
+retranchant simplement la baisse par rapport à la cote normale, et n'ont pas de raison de
+faire confiance à un levé qu'ils n'ont pas vu.
+
+**Contrainte de construction.** Les deux fonds partagent la géométrie au pixel près
+(`grid_geometry` dans `build_grid.py`) : l'application les échange tableau contre tableau,
+sans reconstruire la couche WebGL ni bouger la carte. `BedGrid.useSource` vérifie la maille
+plutôt que de la supposer — un pixel d'écart ne se verrait sur aucune image et décalerait
+toutes les profondeurs.
+
+**Valeur d'une cellule.** Une bande donne un intervalle, pas une profondeur. Le fond de
+l'intervalle trahirait la doctrine ; le sommet partout donne un escalier de plateaux, qui
+n'a plus de gradient et fait **disparaître le contour de sécurité** — il est calculé par
+`fwidth` dans le shader et ne trace rien quand le seuil du bateau tombe entre deux paliers.
+D'où la **détente sous contrainte** : partir du sommet, lisser, replier dans l'encadrement,
+recommencer. Quel que soit le nombre de passes, la sortie reste dans l'encadrement d'entrée
+— le lissage ne peut rien inventer. Invariant vérifié à la construction et dans `/test/`.
+
+**Trous.** Là où la communauté n'est jamais passée, la cellule reste **vide** — 45 ha, soit
+5,7 % du lac — et non extrapolée. Seule entorse au « rien que la communauté » : le terrain
+émergé du MNT RGE ALTI au-dessus de 648,80 m, qui comble en plus de relever, les îlots
+étant précisément là où aucun bateau ne passe (`quickdraw_only.terrain_source`).
+
+**Limite à énoncer.** Cette carte n'a aucune sonde à quoi se raccrocher : sa prudence tient
+au seul choix de la bande la moins profonde de chaque cellule de 5 m. Un caillou plus étroit
+que la résolution du traceur peut lui échapper là où `shoal_bias` l'aurait retenu.
 
 **Licence.** La donnée appartient à Garmin et à ses contributeurs, sous CGU interdisant la
 redistribution, sans licence ouverte. La grille dérivée est publiée en connaissance de
@@ -832,7 +871,8 @@ ReliefLac/
 | **L2 — Paramètres** ✅ | Page palette complète, tirant d'eau, unités (m/km/h ↔ m/nœuds), alarme haut-fond, sonde ponctuelle, export/import de profil | Exigence n°4 satisfaite |
 | **L3 — Hors ligne** | Service Worker, pré-chargement des tuiles, cote manuelle | Fonctionne sans réseau au milieu du lac |
 | **L4 — Calage & densification** | `Z_2009` confirmé par l'étalonnage, **levé multifaisceaux 2011** (§ 3.5), import des logs sondeur (§ 15.4), isobathes étiquetées | Profondeurs validées sondeur en main, couverture complète du lac |
-| **L5 — Encadrement communautaire** ✅ | Mosaïques Quickdraw intégrées à `build_grid.py` comme source à part entière (§ 4.2 quinquies), carte de fiabilité à trois états (§ 6.1 bis) | 94 % du lac encadré, 137 ha de fond relevé jusqu'à 19,3 m, part aveugle ramenée de 37,8 % à 2,4 % |
+| **L5 — Encadrement communautaire** ✅ | Mosaïques Quickdraw intégrées à `build_grid.py` comme source à part entière (§ 4.2 quinquies), carte de fiabilité à trois états (§ 6.1 bis) | 94 % du lac encadré, 128 ha de fond relevé jusqu'à 17,7 m, part aveugle ramenée de 37,8 % à 2,2 % |
+| **L6 — Deux fonds au choix** ✅ | Second fond bâti sur la seule cartographie communautaire (§ 4.2 sexies), réglage « Source du fond », relevés manuels valables pour les deux | Bascule instantanée, mêmes relevés, accord des deux cartes à moins de 2 m sur 80 % du lac |
 
 ---
 

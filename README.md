@@ -77,16 +77,28 @@ présenter une interpolation avec l'aplomb d'une mesure.
 communautaire Quickdraw (Garmin), décodée depuis des captures d'écran géoréférencées : là
 où le levé n'a qu'une interpolation, des dizaines de sondeurs de pêcheurs sont passés. Ce
 n'est pas une mesure au décimètre — une bande dit « entre 4 et 6 m » — mais un
-**encadrement**, et on n'en retient que la borne qui rend le fond moins profond.
+**encadrement**, et une bande porte **deux** bornes : elle interdit au fond d'être plus bas
+(« pas plus de 6 m ici ») comme d'être plus haut (« un bateau a flotté ici, donc au moins
+4 m d'eau »). La seconde ne descend jamais sous une sonde réellement mesurée du voisinage.
 
 | | avant | après |
 |---|---|---|
-| lac encadré ou mesuré à moins de 60 m | 62,2 % | **97,6 %** |
-| part aveugle | 37,8 % | **2,4 %** |
+| lac encadré ou mesuré à moins de 60 m | 62,2 % | **97,8 %** |
+| part aveugle | 37,8 % | **2,2 %** |
 
-137 ha de fond ont été relevés, jusqu'à **19,3 m**, et le volume à la cote 647 passe de
-80,6 à 77,5 hm³ : c'est le prix assumé du sens prudent. La carte distingue désormais trois
-états — mesuré, encadré, interpolé — au lieu de deux.
+128 ha de fond ont été relevés, jusqu'à **17,7 m**, et 295 ha abaissés : c'est la borne
+haute qui remet le trait de côte et **les ports dans l'eau** — 64 ha récupérés à la cote
+647. La carte distingue trois états — mesuré, encadré, interpolé — au lieu de deux.
+
+### Deux cartes, au choix
+
+L'application affiche, au choix, le fond du **levé de 2009** (mesuré au décimètre le long
+de ses traces, relevé par le MNT, encadré par la communauté, biaisé vers le haut-fond) ou
+la **carte communautaire seule** — rien que les bandes Quickdraw, sans une sonde de 2009,
+sans triangulation, sans contrainte de rive. Celle-ci décrit 94 % du lac et laisse les
+45 ha restants **vides** plutôt que de les inventer. Les deux fonds partagent la maille, la
+bascule est instantanée, et les relevés que vous saisissez s'appliquent à celui qui est
+affiché. Elles s'accordent à moins de 2 m sur 80 % du lac.
 
 Le correctif complet existe : un levé multifaisceaux à couverture totale a été réalisé en
 2011 par ENSTA Bretagne, Gand, la HCU Hamburg et le CIDCO pour EDF. Il reste à l'obtenir —
@@ -110,7 +122,8 @@ La ligne Quickdraw est la seule qui ne soit pas sous licence ouverte : la donné
 à Garmin et à ses contributeurs, dont les CGU interdisent la redistribution. La grille
 dérivée est publiée en connaissance de cause. Elle reste **identifiable cellule par
 cellule** dans `data/coverage.png` (canaux vert et bleu), et `quickdraw_source.enabled:
-false` dans `config/model.json` reconstruit le modèle sans elle.
+false` dans `config/model.json` reconstruit le modèle sans elle — le second fond,
+`data/bed_quickdraw.*`, en dérive entièrement et se retire en supprimant ces fichiers.
 
 ## Chaîne de préparation
 
@@ -125,6 +138,7 @@ python tools/qd_mosaic.py 0-12m         # → mosaique_0-12m.png
 python tools/qd_georef.py 12_30m --min-ncc 0.50   # campagne profonde (~30 min)
 python tools/qd_mosaic.py 12_30m --min-ncc 0.50
 python tools/build_grid.py              # tout → data/bed.png, bed.json, coverage.png
+python tools/build_grid_quickdraw.py    # fond communautaire seul → data/bed_quickdraw.*
 python tools/dump_reference.py          # → test/reference.json, requis par les tests
 ```
 

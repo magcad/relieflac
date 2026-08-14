@@ -145,6 +145,79 @@ export async function run(base = '..') {
       `${bed.bound[raised]} m`);
   }
 
+  // --- second fond : la carte communautaire seule -----------------------------
+  //
+  // Les deux grilles doivent partager la maille au pixel près — c'est ce qui autorise
+  // l'échange en place — sans partager leurs valeurs, faute de quoi la bascule ne
+  // changerait rien tout en prétendant le contraire.
+  if (reference.bed_quickdraw) {
+    const qd = reference.bed_quickdraw;
+    const survey = bed.baseAltitudes;
+    const switched = await bed.useSource('quickdraw');
+    check('bascule vers le fond communautaire',
+      switched && bed.source === 'quickdraw', bed.source);
+    check('même maille que le fond du levé',
+      bed.width === qd.width && bed.height === qd.height
+      && bed.baseAltitudes.length === survey.length,
+      `${bed.width}×${bed.height}`);
+
+    const wrong = qd.probes.filter((probe) => {
+      const z = bed.rawAltitudeAt(probe.lon, probe.lat);
+      return probe.z === null ? Number.isFinite(z) : !near(z, probe.z, 0.02);
+    });
+    check(`altitude communautaire correcte sur ${qd.probes.length} points de contrôle`,
+      wrong.length === 0,
+      wrong.map((p) => `${p.lat},${p.lon} attendu ${p.z}`).join(' · '));
+
+    let differing = 0;
+    for (let i = 0; i < survey.length; i += 1) {
+      if (Math.abs(survey[i] - bed.baseAltitudes[i]) > 0.02) differing += 1;
+    }
+    check('les deux fonds ne sont pas la même carte', differing > survey.length / 100,
+      `${differing} cellules diffèrent`);
+
+    // L'invariant de cette carte-ci : chaque cellule reste dans la bande que la communauté
+    // lui donne. Le canal vert porte la borne profonde arrondie au-dessus, donc
+    // z >= z_ac - G est vrai sans marge d'arrondi. Au-dessus du plan d'eau du LiDAR, la
+    // valeur vient du MNT et non d'une bande : elle est hors du champ de la règle.
+    const waterPlane = model.reference_levels.rge_alti.value_m_ngf;
+    let outside = 0;
+    let framed = 0;
+    let valid = 0;
+    for (let i = 0; i < bed.baseAltitudes.length; i += 1) {
+      const z = bed.baseAltitudes[i];
+      if (!Number.isFinite(z)) continue;
+      valid += 1;
+      if (bed.coverage[i] !== 0) continue; // comblé par le MNT, pas par une bande
+      framed += 1;
+      if (z < waterPlane && z < qd.z_ac_m_ngf - bed.bound[i] - 0.02) outside += 1;
+    }
+    check('aucune cellule sous la bande que la communauté lui donne', outside === 0,
+      `${framed} cellules encadrées vérifiées, ${outside} hors bande`);
+    // Presque tout ce que cette carte affiche vient d'une bande : le reste est le terrain
+    // du MNT qui comble les îlots. Si la proportion s'effondrait, c'est que la mosaïque
+    // n'aurait pas été décodée.
+    check('la carte communautaire est faite de bandes, pas de remplissage',
+      framed / valid > 0.95, `${(100 * framed / valid).toFixed(1)} % des cellules affichées`);
+
+    // Un relevé manuel doit mordre sur le fond affiché, quel qu'il soit.
+    {
+      const lon = 1.87132; const lat = 45.79328;
+      const before = bed.baseAltitudeAt(lon, lat);
+      bed.applyCorrections([{ lon, lat, bedZ: before + 3 }], 20);
+      check('relevé appliqué sur le fond communautaire',
+        near(bed.altitudeAt(lon, lat), before + 3, 0.05),
+        `${bed.altitudeAt(lon, lat).toFixed(2)} m`);
+      bed.applyCorrections([], 20);
+      check('relevé retiré : retour exact au fond communautaire',
+        bed.altitudes === bed.baseAltitudes);
+    }
+
+    await bed.useSource('ofb2009');
+    check('retour au fond du levé', bed.source === 'ofb2009'
+      && bed.baseAltitudes === survey);
+  }
+
   // --- correction manuelle de la carte (« 2009 corrigée ») --------------------
   {
     const lon = 1.87132; const lat = 45.79328;

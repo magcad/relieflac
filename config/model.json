@@ -77,6 +77,20 @@
       "$comment_aggregate": "Une cellule de 5 m couvre ~49 pixels de mosaïque : il faut choisir lequel commande. 0,0 = le plus haut-fond du bloc, 0,5 = la médiane. Retenu 0,0, la valeur prudente, pour deux raisons. D'abord la doctrine : sur ce modèle l'erreur va toujours dans le sens du haut-fond. Ensuite l'effet réel du bruit — l'accord entre captures qui se recouvrent n'est que de 88 % sur la campagne fine, mais le désaccord se loge aux FRONTIÈRES de bande, où un pixel de décalage suffit à changer de couleur. Prendre le minimum revient donc à dilater chaque bande peu profonde d'environ une cellule, exactement ce que shoal_bias fait déjà volontairement à 15 m sur les sondes mesurées. Mesuré sur la seule campagne fine : 0,0 relève 90,1 ha (max 19,3 m), 0,25 en relève 71,1, 0,5 en relève 63,8 ; 0,0 reproduit la prévision publiée au § 6 d'ANALYSE.md. min_decoded_fraction écarte les cellules de bord où quelques pixels seulement sont décodés — sans quoi trois pixels pourraient commander 25 m².",
       "$comment_shore": "min_shore_distance_m masquerait la frange côtière, où la contrainte de bord place déjà le fond ~1,5 m trop haut (ANALYSE.md § 3), ce qui devrait empêcher le relèvement de s'y déclencher. Vérifié plutôt que supposé, et c'est bien le cas : la frange 0-25 m est la tranche la MOINS relevée de toutes. Rien à masquer, donc 0."
     },
+    "quickdraw_only": {
+      "$comment": "Deuxième fond de carte, construit par tools/build_grid_quickdraw.py à partir de la SEULE cartographie communautaire : ni sonde de 2009, ni triangulation, ni contrainte de bord, ni shoal_bias. L'application passe de l'un à l'autre par un réglage ; les relevés manuels s'appliquent sur celui qui est actif. Beaucoup de plaisanciers du lac naviguent à la carte Garmin seule et n'ont pas de raison de faire confiance à un levé qu'ils n'ont pas vu — cette carte-là est la leur, et sa géométrie est celle de bed.png au pixel près (grid_geometry).",
+      "aggregate_quantile": 0.0,
+      "$comment_aggregate": "Une cellule de 5 m recouvre ~49 pixels de mosaïque. 0,0 retient la bande la moins profonde du bloc, ce qui dilate chaque haut-fond d'environ une cellule — la valeur prudente, celle de toute la chaîne. 0,5 retiendrait la bande médiane, donc exactement ce que montre l'écran du traceur, au prix d'un haut-fond de quelques pixels qui disparaît. Conséquence à assumer avec 0,0 : cette carte lit un cran plus haut que l'écran Garmin, jamais un cran plus bas.",
+      "min_decoded_fraction": 0.25,
+      "relaxation": {
+        "iterations": 24,
+        "sigma_m": 10.0,
+        "$comment": "Détente sous contrainte : on part du sommet de l'encadrement (la valeur prudente), on lisse, et on replie dans l'encadrement après chaque passe. Quel que soit le nombre d'itérations, la sortie reste dans la bande d'entrée — le lissage ne peut rien inventer, il choisit seulement, parmi les surfaces que la communauté autorise, celle qui a un gradient. Zéro itération redonne l'escalier de plateaux.",
+        "$comment_pourquoi": "Un fond en marches n'a pas seulement le défaut d'être laid : il n'a plus de gradient, et le contour de sécurité de l'application — calculé par fwidth dans le shader — DISPARAÎT dès que le seuil du bateau tombe entre deux paliers. Une carte qui n'affiche plus sa limite de sécurité là où elle compte est pire que terrassée."
+      },
+      "terrain_source": true,
+      "$comment_terrain": "Fusion du terrain émergé du MNT RGE ALTI au-dessus de 648,80 m NGF, y compris pour COMBLER les trous — les îlots sont précisément là où aucun bateau ne passe. Ce n'est pas le levé de 2009 mais une mesure aéroportée indépendante de l'IGN ; c'est tout de même une entorse au « rien que la communauté », d'où ce commutateur."
+    },
     "shoal_bias": {
       "enabled": true,
       "radius_m": 15.0,

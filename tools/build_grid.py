@@ -126,6 +126,71 @@ def iter_rings(geometry: dict):
             yield ring, index == 0  # (anneau, est_exterieur)
 
 
+def lake_geometry() -> dict:
+    with (DATA_DIR / "lake.geojson").open(encoding="utf-8") as fh:
+        return json.load(fh)["features"][0]["geometry"]
+
+
+def grid_geometry(config: dict) -> dict:
+    """Emprise, taille et centres de cellules — géométrie commune à tous les fonds.
+
+    Le dépôt produit désormais deux cartes du même lac : celle du levé de 2009 et celle
+    de la cartographie communautaire seule (`build_grid_quickdraw.py`). L'application
+    passe de l'une à l'autre **en échangeant les tableaux en place**, sans toucher ni au
+    cadrage de la couche ni à l'emprise déclarée : les deux grilles doivent donc tomber
+    sur exactement la même maille. Un seul pixel d'écart ne se verrait sur aucune image
+    et décalerait toutes les profondeurs.
+
+    D'où ce calcul en un seul endroit, appelé par les deux chaînes, plutôt que recopié.
+    """
+    grid_cfg = config["grid"]
+    ground_res = float(grid_cfg["resolution_m"])
+    margin = float(grid_cfg["margin_m"])
+    geometry = lake_geometry()
+
+    to_mercator = Transformer.from_crs(WGS84, WEBMERC, always_xy=True)
+    ring_lons = [p[0] for ring, _ in iter_rings(geometry) for p in ring]
+    ring_lats = [p[1] for ring, _ in iter_rings(geometry) for p in ring]
+    mx, my = to_mercator.transform(ring_lons, ring_lats)
+    mid_lat = (min(ring_lats) + max(ring_lats)) / 2
+
+    # Web Mercator dilate les distances de 1/cos(latitude) : on compense pour que la
+    # résolution demandée soit bien une résolution au sol.
+    scale = 1.0 / math.cos(math.radians(mid_lat))
+    res_merc = ground_res * scale
+    margin_merc = margin * scale
+
+    x0 = min(mx) - margin_merc
+    x1 = max(mx) + margin_merc
+    y0 = min(my) - margin_merc
+    y1 = max(my) + margin_merc
+
+    width = int(math.ceil((x1 - x0) / res_merc))
+    height = int(math.ceil((y1 - y0) / res_merc))
+    x1 = x0 + width * res_merc
+    y1 = y0 + height * res_merc
+
+    # Centres de cellules, en Web Mercator.
+    xs = x0 + (np.arange(width) + 0.5) * res_merc
+    ys = y1 - (np.arange(height) + 0.5) * res_merc
+    grid_x, grid_y = np.meshgrid(xs, ys)
+
+    return {
+        "geometry": geometry,
+        "to_mercator": to_mercator,
+        "bbox": (x0, y0, x1, y1),
+        "width": width,
+        "height": height,
+        "shape": (height, width),
+        "ground_res": ground_res,
+        "res_merc": res_merc,
+        "scale": scale,
+        "grid_x": grid_x,
+        "grid_y": grid_y,
+        "mask": build_mask(geometry, (x0, y0, x1, y1), (width, height), to_mercator),
+    }
+
+
 def build_mask(geometry: dict, bbox, size, to_mercator) -> np.ndarray:
     """Rastérise le contour du lac : True à l'intérieur, îles exclues."""
     x0, y0, x1, y1 = bbox
@@ -643,47 +708,24 @@ def main() -> int:
     encoding = config["encoding"]
 
     ground_res = float(grid_cfg["resolution_m"])
-    margin = float(grid_cfg["margin_m"])
 
     print("sondes :")
     points, measured, report = collect_points(config)
 
-    with (DATA_DIR / "lake.geojson").open(encoding="utf-8") as fh:
-        geometry = json.load(fh)["features"][0]["geometry"]
+    geom = grid_geometry(config)
+    geometry = geom["geometry"]
+    to_mercator = geom["to_mercator"]
+    x0, y0, x1, y1 = geom["bbox"]
+    width, height = geom["width"], geom["height"]
+    res_merc, scale = geom["res_merc"], geom["scale"]
+    grid_x, grid_y = geom["grid_x"], geom["grid_y"]
 
-    to_mercator = Transformer.from_crs(WGS84, WEBMERC, always_xy=True)
     to_lambert = Transformer.from_crs(WGS84, LAMBERT93, always_xy=True)
     mercator_to_lambert = Transformer.from_crs(WEBMERC, LAMBERT93, always_xy=True)
-
-    # Emprise : contour du lac élargi de la marge, en Web Mercator.
-    ring_lons = [p[0] for ring, _ in iter_rings(geometry) for p in ring]
-    ring_lats = [p[1] for ring, _ in iter_rings(geometry) for p in ring]
-    mx, my = to_mercator.transform(ring_lons, ring_lats)
-    mid_lat = (min(ring_lats) + max(ring_lats)) / 2
-
-    # Web Mercator dilate les distances de 1/cos(latitude) : on compense pour que la
-    # résolution demandée soit bien une résolution au sol.
-    scale = 1.0 / math.cos(math.radians(mid_lat))
-    res_merc = ground_res * scale
-    margin_merc = margin * scale
-
-    x0 = min(mx) - margin_merc
-    x1 = max(mx) + margin_merc
-    y0 = min(my) - margin_merc
-    y1 = max(my) + margin_merc
-
-    width = int(math.ceil((x1 - x0) / res_merc))
-    height = int(math.ceil((y1 - y0) / res_merc))
-    x1 = x0 + width * res_merc
-    y1 = y0 + height * res_merc
 
     print(f"\ngrille : {width} × {height} px "
           f"({width * height / 1e6:.2f} M cellules) · {ground_res} m au sol")
 
-    # Centres de cellules, en Web Mercator puis en Lambert-93 pour l'interpolation.
-    xs = x0 + (np.arange(width) + 0.5) * res_merc
-    ys = y1 - (np.arange(height) + 0.5) * res_merc
-    grid_x, grid_y = np.meshgrid(xs, ys)
     lam_x, lam_y = mercator_to_lambert.transform(grid_x.ravel(), grid_y.ravel())
 
     print("triangulation de Delaunay…")
@@ -694,7 +736,7 @@ def main() -> int:
     values = interpolator(lam_x, lam_y).reshape(height, width)
 
     print("masquage par le contour du lac…")
-    mask = build_mask(geometry, (x0, y0, x1, y1), (width, height), to_mercator)
+    mask = geom["mask"]
     values = np.where(mask, values, np.nan)
 
     sigma_px = float(grid_cfg["smoothing_sigma_m"]) / ground_res

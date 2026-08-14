@@ -386,6 +386,7 @@
        `location.hash`, que le routeur interpréterait comme un changement d'écran. -->
   <nav class="quicknav" aria-label="Sections des paramètres">
     <button type="button" data-goto="sec-bateau">Bateau</button>
+    <button type="button" data-goto="sec-fond">Fond</button>
     <button type="button" data-goto="sec-lisibilite">Lisibilité</button>
     <button type="button" data-goto="sec-couleurs">Couleurs</button>
     <button type="button" data-goto="sec-cote">Cote</button>
@@ -424,6 +425,40 @@
           <option value="kn">nœuds</option>
         </select>
       </label>
+    </fieldset>
+
+    <fieldset id="sec-fond">
+      <legend>Fond bathymétrique</legend>
+      <label class="row">
+        <span>Source du fond</span>
+        <select id="set-bed-source">
+          <option value="ofb2009">Levé OFB 2009 + apports</option>
+          <option value="quickdraw">Carte communautaire seule</option>
+        </select>
+      </label>
+      <p class="hint" id="hint-bed-source"></p>
+      <p class="hint">
+        <strong>Le levé de 2009</strong> mesure au décimètre, mais seulement le long de ses
+        traces : plus de 150 m les séparent dans les grands bassins, et entre elles la carte
+        interpole. Elle est ensuite relevée par le MNT, encadrée par la communauté et biaisée
+        vers le haut-fond — c'est la carte la plus prudente.
+      </p>
+      <p class="hint">
+        <strong>La carte communautaire seule</strong> ne contient rien d'autre que les bandes
+        de couleur Quickdraw : ni sonde de 2009, ni interpolation, ni contrainte de rive.
+        Elle décrit <strong>94 % du lac</strong> et laisse les 45 ha restants <em>vides</em>
+        plutôt qu'extrapolés. Une bande ne donne jamais une profondeur, seulement un
+        intervalle — la carte reste à l'intérieur de celui de chaque cellule. C'est la carte
+        de ceux qui naviguent au traceur, et celle qui met les ports dans l'eau : à la cote
+        647, elle laisse 29 ha émergés contre 49 pour le levé.
+      </p>
+      <p class="hint">
+        Les deux fonds s'accordent à moins de 2 m sur 80 % du lac. Là où ils divergent, sur
+        la frange, la communautaire donne environ 0,8 m d'eau de plus : elle n'a pas la
+        généralisation vers le haut-fond du levé, donc un caillou plus étroit que la maille
+        du traceur peut lui échapper. <strong>Vos relevés s'appliquent aux deux</strong>, et
+        le décalage d'étalonnage aussi.
+      </p>
     </fieldset>
 
     <fieldset id="sec-lisibilite">
@@ -718,6 +753,17 @@
     <pre><code>z_fond     = Z_référence − profondeur_mesurée
 profondeur = cote_du_jour − z_fond</code></pre>
 
+    <h2>Deux cartes</h2>
+    <p>
+      Le fond affiché se choisit dans les <em>Paramètres</em>. Le <strong>levé OFB 2009</strong>
+      mesure au décimètre le long de ses traces et interpole entre elles ; il est ensuite
+      relevé par le MNT, encadré par la communauté et biaisé vers le haut-fond. La
+      <strong>carte communautaire seule</strong> ne contient que les bandes Quickdraw : elle
+      couvre 94 % du lac, laisse le reste vide plutôt que de l'inventer, et suit le trait de
+      côte réel plutôt que celui de la retenue normale. Aucune ne remplace l'autre. Les
+      relevés que vous saisissez s'appliquent à celle qui est affichée.
+    </p>
+
     <h2>Sources</h2>
     <ul>
       <li><strong>Bathymétrie</strong> — 8 118 sondes du levé OFB / Onema du 22 avril 2009,
@@ -728,8 +774,11 @@ profondeur = cote_du_jour − z_fond</code></pre>
       <li><strong>Encadrement des fonds</strong> — cartographie communautaire
         <strong>Quickdraw</strong> (Garmin / ActiveCaptain), décodée depuis des captures
         d'écran géoréférencées : des dizaines de sondeurs sont passés là où le levé de 2009
-        n'a qu'une interpolation. Elle ne sert qu'à <em>relever</em> le fond, jamais à le
-        creuser. <strong>Usage dérivé, pas de licence ouverte</strong> — donnée Garmin et
+        n'a qu'une interpolation. Une bande de couleur porte <em>deux</em> bornes et le
+        modèle se sert des deux — elle interdit au fond d'être plus bas (« pas plus de 6 m
+        ici ») comme d'être plus haut (« un bateau a flotté ici, donc au moins 4 m d'eau »),
+        cette seconde borne ne descendant jamais sous une sonde réellement mesurée du
+        voisinage. <strong>Usage dérivé, pas de licence ouverte</strong> — donnée Garmin et
         de ses contributeurs.</li>
       <li><strong>Cote du lac</strong> — EDF Hydro,
         <a href="https://mariviereetmoi.edf.fr/#/map/place/PRACTICABILITY/31856100">Ma Rivière et Moi</a>,
@@ -758,10 +807,13 @@ profondeur = cote_du_jour − z_fond</code></pre>
     </ul>
 
     <p class="hint">
-      Là où il repose sur des mesures, le modèle applique une généralisation biaisée vers le
-      haut-fond : il n'est jamais plus profond qu'une sonde réellement mesurée à moins de
-      15 m, de sorte que les écarts vont toujours dans le sens prudent. Cette garantie ne
-      vaut évidemment pas dans les zones hachurées, où il n'y a aucune mesure.
+      Sur le fond du levé, là où il repose sur des mesures, le modèle applique une
+      généralisation biaisée vers le haut-fond : il n'est jamais plus profond qu'une sonde
+      réellement mesurée à moins de 15 m, de sorte que les écarts vont toujours dans le sens
+      prudent. Cette garantie ne vaut évidemment pas dans les zones hachurées, où il n'y a
+      aucune mesure — ni sur la carte communautaire seule, qui n'a aucune sonde à quoi se
+      raccrocher et où la prudence tient au seul choix de la bande la moins profonde de
+      chaque cellule.
     </p>
 
     <p class="hint">

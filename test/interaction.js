@@ -290,6 +290,52 @@ async function run() {
   check('sa pastille disparaît', map.simPoints.length === 0);
   $('btn-sim-exit').click();
 
+  // ------------------------------------------------- bascule de fond bathymétrique
+  //
+  // Le seul moyen de prouver que la bascule change vraiment la carte lue, et pas seulement
+  // le libellé affiché : poser deux fois la même sonde au même point, une fois sur chaque
+  // fond, et comparer l'altitude que le modèle annonce dessous.
+  group('Bascule de fond bathymétrique');
+  const readModel = async () => {
+    fire('pinpoint', lngLat);
+    $('cap-input').value = '3.0';
+    $('cap-input').dispatchEvent(new Event('input'));
+    $('btn-capture').click();
+    return probes().at(-1)?.modelBedZ;
+  };
+
+  const onSurvey = await readModel();
+  location.hash = '#/parametres';
+  await sleep(60);
+  $('set-bed-source').value = 'quickdraw';
+  $('set-bed-source').dispatchEvent(new Event('change'));
+  // Le menu ne montre pas le souhait mais le fond RÉELLEMENT chargé : `refreshSettingsUi`
+  // le remet sur la source affichée, et il ne bascule qu'une fois la grille échangée. C'est
+  // donc le signal d'attente le plus honnête dont dispose le banc.
+  const swapped = await until(() => $('set-bed-source').value === 'quickdraw', 8000);
+  check('le réglage bascule sur la carte communautaire', swapped,
+    $('hint-bed-source').textContent.slice(0, 90));
+
+  location.hash = '#/';
+  await sleep(60);
+  const onCommunity = await readModel();
+  check('le modèle lu sous le bateau change avec le fond',
+    Number.isFinite(onSurvey) && Number.isFinite(onCommunity)
+    && Math.abs(onSurvey - onCommunity) > 0.5,
+    `${onSurvey?.toFixed(2)} m NGF (levé) · ${onCommunity?.toFixed(2)} m NGF (communauté)`);
+
+  location.hash = '#/parametres';
+  await sleep(60);
+  $('set-bed-source').value = 'ofb2009';
+  $('set-bed-source').dispatchEvent(new Event('change'));
+  const back = await until(() => $('set-bed-source').value === 'ofb2009', 8000);
+  location.hash = '#/';
+  await sleep(60);
+  const again = await readModel();
+  check('retour au levé : la même valeur qu\'au départ',
+    back && Number.isFinite(again) && Math.abs(again - onSurvey) < 0.01,
+    `${again?.toFixed(2)} m NGF`);
+
   // ------------------------------------------ effacement en bloc et persistance
   group('Effacement en bloc');
   fire('pinpoint', lngLat);

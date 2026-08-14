@@ -541,3 +541,114 @@ généralisation biaisée vers le haut-fond des cartes marines, et c'est ce que
 l'utilisateur constate quand son sondeur lit plus creux que la carte — d'autant
 que le Eagle du bord **sous-lit d'environ 11 %**. Réduire le rayon est une
 décision ouverte, pas un correctif évident.
+
+---
+
+## 12. La carte communautaire seule — lot L6, 14/08/2026
+
+Jusqu'ici Quickdraw ne servait qu'à **corriger** le modèle du levé de 2009.
+L'utilisateur a demandé qu'elle puisse aussi le **remplacer** : beaucoup de
+plaisanciers du lac naviguent à la carte Garmin seule, en retranchant simplement
+la baisse par rapport à la cote normale, et n'ont pas de raison de faire
+confiance à un levé qu'ils n'ont pas vu. `tools/build_grid_quickdraw.py` produit
+donc un second fond complet, autonome, interchangeable — sans une seule sonde de
+2009, sans triangulation, sans contrainte de bord, sans `shoal_bias`.
+
+### 12.1 Le vrai problème : quelle valeur donner à une cellule
+
+Une bande ne donne jamais une profondeur, seulement un intervalle `[dmin, dmax]`.
+Trois façons d'en tirer une carte, et deux sont mauvaises.
+
+- **Le fond de l'intervalle** (le plus profond) trahit la doctrine du dépôt :
+  l'erreur doit toujours aller vers le haut-fond.
+- **Le sommet partout** (le moins profond) donne un escalier de plateaux. Le
+  défaut n'est pas esthétique : un fond en marches **n'a plus de gradient**, et le
+  contour de sécurité de l'application est calculé par `fwidth` dans le shader. Il
+  **disparaît** dès que le seuil du bateau tombe entre deux paliers — 1,7 m dans
+  une bande 1,5–2 m ne trace plus rien. Une carte qui n'affiche plus sa limite de
+  sécurité là où elle compte est pire que terrassée.
+- **La détente sous contrainte**, retenue. On part du sommet — la valeur prudente
+  — on lisse doucement, et l'on **replie** la valeur dans son encadrement après
+  chaque passe. Chaque lissage fait descendre les cellules voisines d'une bande
+  plus profonde ; le repli les empêche d'aller plus bas que leur propre bande ne
+  l'autorise. Au bout de quelques passes, chaque bande porte une rampe qui va de
+  son sommet à son plancher au contact de la suivante, et les isobathes tombent
+  exactement sur les frontières de couleur. C'est la reconstruction classique d'un
+  relief à partir de ses isobathes, à ceci près que la contrainte est un
+  encadrement et non une courbe.
+
+Le repli est ce qui rend l'opération sûre : **quel que soit le nombre
+d'itérations, la sortie reste dans l'encadrement d'entrée.** Le lissage ne peut
+donc rien inventer, il choisit seulement, parmi les surfaces que la communauté
+autorise, celle qui a un gradient. Vérifié à la construction (le script s'arrête
+sinon) et dans `/test/` : aucune cellule ne sort de sa bande. Zéro itération
+redonne l'escalier prudent — c'est un réglage, pas une réécriture.
+
+Mesuré : 24 passes à σ = 10 m descendent 683 des 884 ha encadrés sous la valeur
+prudente, de **1,00 m** en médiane, pour un encadrement large de 2,0 m en médiane.
+
+### 12.2 Le résultat, comparé au fond du levé
+
+| | levé 2009 + apports | communauté seule |
+|---|---|---|
+| surface décrite | 100 % du lac | **94,3 %** encadrés, 45 ha laissés vides |
+| émergé à la cote 647 | 49,4 ha | **29,1 ha** |
+| émergé à la cote 646 | 113,5 ha | **43,7 ha** |
+| cellules à fond plat | 25,1 % | **22,0 %** |
+| altitudes distinctes | 3 312 | **2 485** |
+| pente médiane du fond | 3,24 % | **3,26 %** |
+| profondeur maximale à 647 | 28,5 m | 21,3 m |
+
+Deux choses valent d'être notées. D'abord, **la carte communautaire est moins
+terrassée que celle du levé** — 22,0 % de cellules plates contre 25,1 %, et 2 485
+altitudes distinctes contre 3 312 : la détente fait mieux que compenser le pas des
+bandes, là où l'empilement de bornes sur le fond du levé, lui, fabrique des
+paliers (§ 11.3). Ensuite, les pentes médianes sont **identiques à 0,02 % près**,
+ce qui est la mesure honnête de « le contour de sécurité se comportera pareil ».
+
+Écart entre les deux cartes, par tranche de profondeur (positif = la communauté
+annonce moins d'eau) :
+
+| profondeur | surface | écart médian | part où la communauté est plus haute |
+|---|---|---|---|
+| 0–2 m | 49,8 ha | −0,91 m | 4,3 % |
+| 2–5 m | 167,5 ha | −0,77 m | 14,7 % |
+| 5–10 m | 314,4 ha | −0,12 m | 41,6 % |
+| 10–20 m | 268,4 ha | +0,00 m | 49,6 % |
+| 20–40 m | 63,0 ha | +0,46 m | 55,5 % |
+
+Elles s'accordent **à moins de 2 m sur 80 % du lac**, à moins d'1 m sur 54 %, et
+se confondent au-delà de 10 m. Elles divergent exactement là où c'était prévisible
+— sur la frange, où le fond du levé porte encore la contrainte de bord et
+`shoal_bias`. Le seul recul net est la fosse la plus profonde, lue 21 m au lieu de
+28 : la bande la plus profonde de la palette s'arrête à 30 m et l'agrégation
+retient la moins profonde de la cellule.
+
+### 12.3 Ce que cette carte ne sait pas faire
+
+Elle n'a **aucune sonde à quoi se raccrocher**. Sa prudence tient au seul choix de
+la bande la moins profonde de chaque cellule de 5 m, ce qui dilate un haut-fond
+d'environ une maille — mais un caillou plus étroit que la résolution du traceur
+peut lui échapper là où `shoal_bias` l'aurait retenu à 15 m. C'est le prix à payer
+pour une carte qui décrit 94 % du lac au lieu des 62 % couverts par le levé, et
+qui laisse le reste **vide** plutôt que de l'inventer.
+
+Une seule entorse au « rien que la communauté » : le terrain émergé du MNT RGE
+ALTI au-dessus de 648,80 m, qui **comble** les trous en plus de relever — les
+îlots sont précisément là où aucun bateau ne passe. Mesure aéroportée indépendante
+de l'IGN, et non le levé de 2009 ; commutateur `quickdraw_only.terrain_source`
+pour s'en passer. 3 410 cellules comblées, 8 173 relevées.
+
+### 12.4 Ce que la carte de fiabilité devient
+
+`coverage_quickdraw.png` garde les canaux de `coverage.png` — l'application n'a
+qu'un décodeur — mais leur **sens suit la source** :
+
+- **R** = 0 partout où la carte existe. Chaque cellule visible porte le passage
+  d'un sondeur : il n'y a pas de zone interpolée à hachurer. 255 ailleurs, où
+  l'alpha est de toute façon nul.
+- **G** = la borne de profondeur de la bande, en mètres arrondis au-dessus. Elle
+  vaut pour toute la carte, et c'est ce qui rappelle qu'on lit un encadrement et
+  non une sonde : l'étiquette sous le bateau affiche « communauté — bande ≤ N m ».
+- **B** = la largeur de l'encadrement en décimètres, seule mesure locale de ce que
+  la carte ignore encore.

@@ -28,6 +28,7 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L4** | Calage `Z_2009` confirmé, import des logs sondeur, isobathes étiquetées | 🟡 en cours |
 | **L5** | Intégrer les mosaïques Quickdraw à `build_grid.py`, reconstruire, déployer | ✅ terminé le 14/08/2026 — voir § 3.5 |
 | **L5 bis** | Corriger le décalage de 16 m de la mosaïque et ajouter la borne basse (trait de côte, ports) | ✅ terminé le 14/08/2026, après retour de terrain — voir § 1 |
+| **L6** | Deuxième fond, **carte communautaire seule**, au choix dans l'application | ✅ terminé le 14/08/2026 — voir § 1 |
 
 Mode **« Sonde »** (saisie manuelle) livré le 11/08/2026 : le sondeur du bord est un
 **Eagle** monochrome sans enregistrement ni GPS — on relève la profondeur à la main. Un
@@ -275,6 +276,67 @@ au-dessus relèvement, en dessous abaissement, par pas de 0,2 m — puisque la c
 désormais faire descendre le fond. C'est l'obligation de licence du § 3.5, honorée en même
 temps que le code et non après. **Ce que ça donne à l'écran n'a pas pu être vu par
 l'assistant** — page masquée, MapLibre ne s'initialise pas : cela se valide sur l'eau.
+
+**Lot L6 — deux cartes, au choix** (14/08/2026, dans la foulée de L5 bis). Demande de
+l'utilisateur, et elle vient du terrain : beaucoup de plaisanciers du lac naviguent **à la
+carte Garmin seule** et se contentent de retrancher la baisse par rapport à la cote
+normale. Ils n'ont aucune raison de faire confiance à un levé de 2009 qu'ils n'ont pas vu,
+et le dépôt leur devait une carte qu'ils reconnaissent, où rien d'autre n'entre.
+
+`tools/build_grid_quickdraw.py` produit donc un **second fond complet** — `bed_quickdraw.png`,
+`bed_quickdraw.json`, `coverage_quickdraw.png` — sans une seule sonde de 2009 : ni
+triangulation, ni contrainte de bord, ni `shoal_bias`. Le réglage « Source du fond » bascule
+de l'un à l'autre, et **les relevés manuels s'appliquent sur celui qui est affiché**, ce qui
+ne demande aucun travail supplémentaire : un relevé porte une altitude absolue.
+
+*La difficulté n'est pas de décoder les bandes, c'est de choisir une valeur par cellule.*
+Une bande ne donne jamais une profondeur, seulement un intervalle. Prendre le fond de
+l'intervalle trahirait la doctrine du dépôt ; prendre le sommet partout donne un escalier de
+plateaux, et un fond en marches **n'a plus de gradient** — le contour de sécurité, calculé
+par `fwidth` dans le shader, disparaît dès que le seuil du bateau tombe entre deux paliers.
+Une carte qui n'affiche plus sa limite de sécurité là où elle compte est pire que terrassée.
+
+D'où la **détente sous contrainte** : partir du sommet de l'encadrement, lisser, replier
+dans l'encadrement, recommencer. Quel que soit le nombre de passes, la sortie reste dans la
+bande d'entrée — le lissage ne peut rien inventer, il choisit seulement, parmi les surfaces
+que la communauté autorise, celle qui a un gradient. C'est la reconstruction classique d'un
+relief à partir de ses isobathes, la contrainte étant ici un encadrement et non une courbe.
+Zéro itération redonne l'escalier. Vérifié à la construction *et* dans `/test/` : aucune
+cellule ne sort de sa bande.
+
+| | levé 2009 + apports | communauté seule |
+|---|---|---|
+| surface décrite | 100 % du lac | **94,3 %** encadrés, 45 ha laissés **vides** |
+| émergé à la cote 647 | 49,4 ha | **29,1 ha** |
+| émergé à la cote 646 | 113,5 ha | **43,7 ha** |
+| cellules à fond plat | 25,1 % | **22,0 %** |
+| altitudes distinctes | 3 312 | **2 485** |
+| pente médiane du fond | 3,24 % | **3,26 %** |
+| profondeur maximale à 647 | 28,5 m | 21,3 m |
+
+Les deux cartes s'accordent **à moins de 2 m sur 80 % du lac**, à moins d'1 m sur 54 %.
+Elles divergent là où c'était attendu : sur la frange, la communautaire donne ~0,8 m d'eau
+de plus (médiane −0,91 m entre 0 et 2 m, −0,77 entre 2 et 5), parce qu'elle n'a ni
+contrainte de bord ni généralisation vers le haut-fond. Au-delà de 10 m elles se confondent
+(médiane 0,00 m). Le seul recul net est la fosse la plus profonde, que la communauté lit
+21 m au lieu de 28 : sa bande la plus profonde s'arrête à 30 m et l'agrégation retient la
+moins profonde de la cellule.
+
+**Ce que cette carte-là ne sait pas faire, et il faut le dire.** Elle n'a aucune sonde à
+quoi se raccrocher : la prudence n'y tient qu'au choix de la bande la moins profonde de
+chaque cellule de 5 m, ce qui dilate un haut-fond d'environ une maille — mais un caillou
+plus étroit que la résolution du traceur peut lui échapper là où `shoal_bias` l'aurait
+retenu. Le contre-poids est qu'elle décrit 94 % du lac au lieu des 62 % couverts par le
+levé, et qu'elle laisse le reste **vide** plutôt que de l'inventer.
+
+Une seule entorse au « rien que la communauté » : le **terrain émergé du MNT RGE ALTI**
+au-dessus de 648,80 m, qui *comble* les trous en plus de relever — les îlots sont
+précisément là où aucun bateau ne passe. Ce n'est pas le levé de 2009 mais une mesure
+aéroportée indépendante ; commutateur `quickdraw_only.terrain_source` pour s'en passer.
+
+Au passage, une phrase fausse de la page « À propos » a été corrigée : elle affirmait encore
+que la couche communautaire « ne sert qu'à relever le fond, jamais à le creuser », ce qui
+n'est plus vrai depuis L5 bis.
 
 **Banc d'essai des enchaînements** (13/08/2026) : `test/interaction.html`. Il démarre la
 **vraie** application avec une carte factice ([`test/stub-map.js`](test/stub-map.js))
@@ -613,9 +675,18 @@ python tools/qd_mosaic.py 0-12m         # → mosaique_0-12m.png
 python tools/qd_georef.py 12_30m --min-ncc 0.50   # campagne profonde (~30 min)
 python tools/qd_mosaic.py 12_30m --min-ncc 0.50
 python tools/build_grid.py              # tout → data/bed.png, bed.json, coverage.png
+python tools/build_grid_quickdraw.py    # fond communautaire seul → data/bed_quickdraw.*
 python tools/dump_reference.py          # → test/reference.json, requis par les tests
 python tools/preview_grid.py            # contrôle visuel → data/preview.png
+python tools/preview_grid.py --quickdraw  # le même, pour le fond communautaire
 ```
+
+`build_grid_quickdraw.py` doit tourner **après** `build_grid.py` — non pour lui emprunter
+sa grille, dont il refait la géométrie par la même fonction, mais pour pouvoir chiffrer
+l'écart entre les deux cartes, qui est le seul chiffre utile à qui bascule de l'une à
+l'autre. Les deux fonds **doivent partager la maille au pixel près** : l'application les
+échange tableau contre tableau, et un pixel d'écart ne se verrait sur aucune image tout en
+décalant toutes les profondeurs. `BedGrid.useSource` le vérifie plutôt que de le supposer.
 
 `data/rge_alti.npy` (4,9 Mo) n'est pas versionné : `fetch_rge_alti.py` le retélécharge.
 `build_grid.py` échoue proprement sans lui, en signalant quoi lancer. Les quatre étapes
@@ -634,7 +705,7 @@ mauvaise donne une carte fausse sans aucun signe extérieur (§ 3.5).
 
 ### Vérifications
 
-Ouvrir `/test/`. 128 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 137 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
 simulation**, **forme de la correction (plateau, fondu, indépendance à l'ordre) et zones
@@ -650,13 +721,16 @@ bilinéairement : les comparer revient à comparer deux choses différentes.
 Après toute modification de `config/palette.json` ou de la grille, relancer
 `python tools/dump_reference.py`, sinon les tests comparent à une référence périmée.
 
-Ouvrir aussi `/test/interaction.html`. 44 enchaînements : l'application entière démarre
+Ouvrir aussi `/test/interaction.html`. 47 enchaînements : l'application entière démarre
 avec [`test/stub-map.js`](test/stub-map.js) à la place de MapLibre — substitué par une
 carte d'import, le reste du code ne voit pas la différence — et le banc provoque les mêmes
 événements que la vraie carte (`pinpoint`, `probeselect`, `zonevertex`…). Le balisage est
 chargé depuis `index.html` lui-même : rien à tenir à jour de ce côté. Couvre le point posé
-sans GPS, les quatre chemins de suppression, le tracé et la reprise d'une zone, et la
-survie d'une suppression à la synchronisation.
+sans GPS, les quatre chemins de suppression, le tracé et la reprise d'une zone, la survie
+d'une suppression à la synchronisation, et la **bascule d'un fond à l'autre** — prouvée non
+par le libellé affiché mais en posant deux fois la même sonde au même point et en comparant
+l'altitude que le modèle annonce dessous (628,23 m NGF sur le levé, 630,95 sur la carte
+communautaire).
 
 Ce banc tourne sur la **même origine** que l'application, donc sur ses vraies données : il
 met de côté toutes les clés `relieflac.*` du stockage local — jeton compris, sans quoi une
@@ -715,6 +789,9 @@ base relative (`<base href="../">`), y compris pour les clés de sa carte d'impo
 | La couche communautaire peut **abaisser** le fond | Oui, partout, avec deux garde-fous | Décision de l'utilisateur le 14/08/2026, après une sortie où les ports apparaissaient à sec. Le relèvement seul ne pouvait rien réparer sur les bords, où le modèle est trop haut : la couche y était inopérante par construction. Garde-fous : jamais sous une sonde mesurée à moins de 25 m, et arrêt 0,5 m au-dessus de la borne stricte |
 | Position de la couche communautaire calée sur le levé de 2009 | Oui, translation unique mesurée sur les 8 118 sondes | Le calage sur le contour BD TOPO laissait 16 m d'erreur. Conséquence assumée : la **position** de la couche n'est plus indépendante du modèle ; sa **profondeur**, elle, le reste, et c'est elle qui sert de contrôle |
 | Carte de fiabilité | Trois états — mesuré, encadré, interpolé | Un encadrement n'est pas une mesure, mais ce n'est plus une interpolation : les deux mensonges opposés sont également graves |
+| Deux fonds au lieu d'un | Levé 2009 **ou** carte communautaire seule, au choix dans l'application | Demande de l'utilisateur le 14/08/2026 : beaucoup naviguent à la carte Garmin seule et n'ont pas de raison de croire un levé qu'ils n'ont pas vu. Aucune des deux ne remplace l'autre — l'une mesure au décimètre le long de ses traces, l'autre encadre 94 % du lac. Les deux partagent la maille, d'où une bascule instantanée et des relevés manuels valables pour les deux |
+| Valeur d'une cellule sur le fond communautaire | Détente sous contrainte, départ au sommet de l'encadrement | Une bande donne un intervalle, pas une profondeur. L'escalier de plateaux fait **disparaître le contour de sécurité** (plus de gradient à donner à `fwidth`) ; la détente rend un gradient partout sans jamais sortir de l'encadrement d'entrée |
+| Trous de la carte communautaire | Laissés vides, jamais extrapolés | 45 ha où personne n'est passé. C'est le seul endroit où cette carte est inconfortable, et c'est aussi le seul où elle est parfaitement honnête |
 | Décalage d'étalonnage | Appliqué **seulement** sous le plan d'eau LiDAR | Au-dessus, la grille vient du MNT : ce sont des altitudes absolues |
 | Dépendances | MapLibre vendorisé en `.js` | La vérification stricte du type MIME rejette `.mjs` sur certains serveurs |
 | Build | Aucun — modules ES natifs | Le code lu est le code exécuté ; rien à casser entre les deux |

@@ -1,0 +1,134 @@
+{
+  "description": "Altitude du fond du lac de Vassivière d'après la seule cartographie communautaire Quickdraw, encodée en Terrain-RGB.",
+  "bed_source": "quickdraw",
+  "formula": "altitude_m_ngf = base + (R * 65536 + G * 256 + B) * interval ; alpha = 0 → pas de donnée",
+  "crs": "EPSG:3857",
+  "width": 1228,
+  "height": 964,
+  "resolution_ground_m": 5.0,
+  "resolution_crs_m": 7.1716,
+  "bbox_3857": [
+    205008.5247316736,
+    5744576.511456641,
+    213815.29743904862,
+    5751489.971464711
+  ],
+  "bounds_wgs84": {
+    "west": 1.8416229114125728,
+    "south": 45.77631999324139,
+    "east": 1.9207354966805892,
+    "north": 45.81961877515333
+  },
+  "corners_wgs84": [
+    [
+      1.8416229114125728,
+      45.81961877515333
+    ],
+    [
+      1.9207354966805892,
+      45.81961877515333
+    ],
+    [
+      1.9207354966805892,
+      45.77631999324139
+    ],
+    [
+      1.8416229114125728,
+      45.77631999324139
+    ]
+  ],
+  "encoding": {
+    "base": -1000.0,
+    "interval": 0.01
+  },
+  "z_range_m_ngf": [
+    625.68,
+    655.72
+  ],
+  "coverage_ratio": 0.9522,
+  "quickdraw_only": {
+    "z_ac_m_ngf": 647.68,
+    "solidary_with": "ofb2009",
+    "mosaics": [
+      "mosaique_0-12m.png",
+      "mosaique_12_30m.png"
+    ],
+    "aggregate_quantile": 0.0,
+    "min_decoded_fraction": 0.25,
+    "relaxation": {
+      "iterations": 24,
+      "sigma_m": 10.0
+    },
+    "framed_ha": 883.6,
+    "unframed_ha": 53.3,
+    "lake_share_framed": 0.9431,
+    "envelope_median_m": 2.0,
+    "envelope_max_m": 18.0,
+    "note": "Aucune sonde du levé de 2009 n'entre dans cette grille, ni triangulation, ni contrainte de bord, ni généralisation vers le haut-fond. Chaque cellule reste à l'intérieur de la bande de couleur que la communauté lui donne ; là où la communauté n'est pas passée, la cellule est vide. z_ac est solidaire de Z_2009 (config/model.json, solidarity_note) : le décalage d'étalonnage de l'application s'applique donc aussi à ce fond."
+  },
+  "terrain_source": {
+    "available": true,
+    "water_plane_m_ngf": 648.8,
+    "cells_terrain": 11583,
+    "cells_filled": 3410,
+    "cells_raised": 8173,
+    "max_shallower_m": 13.48
+  },
+  "comparison": {
+    "against": "bed.png",
+    "cells_compared": 356793,
+    "median_diff_m": -0.32,
+    "mean_diff_m": 0.06,
+    "share_shallower": 0.3926,
+    "median_abs_diff_m": 0.89,
+    "share_within_1m": 0.5408,
+    "share_within_2m": 0.8023,
+    "volume_647_hm3": [
+      84.02,
+      80.14
+    ]
+  },
+  "coverage": {
+    "file": "coverage_quickdraw.png",
+    "channels": {
+      "R": "0 là où la carte existe — chaque cellule visible porte le passage d'un sondeur, il n'y a pas de zone interpolée ; 255 ailleurs",
+      "G": "borne de profondeur de la bande, en mètres arrondis au-dessus",
+      "B": "largeur de l'encadrement en décimètres, plafonnée à 255"
+    },
+    "note": "Mêmes canaux que coverage.png pour que l'application n'ait qu'un décodeur, mais leur sens suit la source : ici tout est encadré et rien n'est interpolé."
+  },
+  "reference_levels": {
+    "$comment": "Cote du plan d'eau au moment de chaque levé, en m NGF. C'est ce qui convertit une profondeur en altitude de fond.",
+    "ofb2009": {
+      "value_m_ngf": 648.0,
+      "confirmed": false,
+      "plausible_range_m_ngf": [
+        645.0,
+        648.8
+      ],
+      "note": "Cote du lac le 22/04/2009, jour du levé OFB. NON CONFIRMÉE. Établi que la valeur est <= ~648,8 m NGF (les 460 sondes les moins profondes tombent dans le plan d'eau du LiDAR RGE ALTI, constant à 648,80 m). À caler par étalonnage au sondeur (SPECIFICATION.md § 15).",
+      "solidary_with": "quickdraw",
+      "solidarity_note": "ATTENTION : la cote Quickdraw (647,68) a été MESURÉE par comparaison des isobathes communautaires à ce modèle-ci, donc à cette valeur-ci de Z_2009. Les deux se déplacent ENSEMBLE : confirmer l'une sans corriger l'autre fausse silencieusement le relèvement communautaire, sans aucun signe extérieur. L'énoncé invariant, lui, ne dépend pas de Z_2009 : la surface Quickdraw est 0,32 m sous le plan d'eau du jour du levé OFB.",
+      "confirmation_procedure": "Si Z_2009 est confirmé à une autre valeur V, écrire ici V et là-dessous V - 0.32, puis relancer build_grid.py. Ne jamais toucher à l'une seule."
+    },
+    "quickdraw": {
+      "value_m_ngf": 647.68,
+      "confirmed": false,
+      "solidary_with": "ofb2009",
+      "offset_from_ofb2009_m": -0.32,
+      "note": "Cote du plan d'eau à laquelle se rapportent les profondeurs de la cartographie communautaire Quickdraw. Garmin ne publie AUCUNE référence verticale — il existe même un décalage d'affichage réservé aux cartes communautaires, ce qui ne s'inventerait pas si la donnée en avait une. Cette valeur est donc mesurée, sur les frontières de bande, au large (>= 100 m du rivage), médiane des isobathes >= 3 m. Voir data/mesuresEtalonnage/Garmin/ANALYSE.md § 3. Dispersion réelle : sigma robuste de 0,8 à 1,3 m par point — c'est une valeur centrale, PAS une précision ; ne pas en attendre mieux que ±1,5 m localement. Solidaire de ofb2009 : voir solidarity_note ci-dessus."
+    },
+    "rge_alti": {
+      "value_m_ngf": 648.8,
+      "confirmed": true,
+      "note": "Cote du plan d'eau au moment de l'acquisition LiDAR IGN, mesurée via l'API altimétrie. Au-dessus de cette altitude, le RGE ALTI décrit les berges réelles."
+    }
+  },
+  "sources": {
+    "quickdraw": {
+      "label": "Cartographie communautaire Quickdraw (Garmin)",
+      "captures": 42,
+      "licence": "donnée Garmin, usage dérivé, pas de licence ouverte"
+    }
+  }
+}

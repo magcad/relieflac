@@ -9,9 +9,105 @@
 //
 // Le filtrage de la texture doit rester en NEAREST : interpoler des octets encodés
 // donnerait des altitudes absurdes.
+//
+// Deux fonds, échangeables : celui du levé de 2009 et celui de la cartographie
+// communautaire seule. Ils sont produits sur la MÊME maille (voir `grid_geometry` dans
+// tools/build_grid.py), ce qui permet de les échanger tableau contre tableau sans rien
+// reconstruire — ni la couche WebGL, ni le cadrage, ni les relevés manuels, qui
+// s'appliquent ensuite sur le fond actif quel qu'il soit.
 
 const EARTH_CIRCUMFERENCE = 40075016.685578488;
 const ORIGIN_SHIFT = EARTH_CIRCUMFERENCE / 2; // 20037508.34
+
+/**
+ * Les fonds disponibles. `bed` et `coverage` sont les noms de fichiers dans data/.
+ *
+ * Le choix n'est pas « lequel est le bon » mais « lequel répond à la question du jour ».
+ * Le levé de 2009 mesure au décimètre là où le bateau sondeur est passé, et extrapole
+ * ailleurs. La communauté est passée presque partout, mais ne donne jamais qu'une bande
+ * de couleur. Beaucoup de plaisanciers du lac naviguent à la carte Garmin seule : la
+ * seconde carte est la leur, et rien d'autre n'y entre.
+ */
+export const BED_SOURCES = {
+  ofb2009: {
+    label: 'Levé OFB 2009',
+    bed: 'bed',
+    coverage: 'coverage',
+  },
+  quickdraw: {
+    label: 'Carte communautaire',
+    bed: 'bed_quickdraw',
+    coverage: 'coverage_quickdraw',
+  },
+};
+
+export const DEFAULT_BED_SOURCE = 'ofb2009';
+
+/**
+ * Télécharge et décode un fond : altitudes, alpha, et carte de fiabilité.
+ *
+ * Décodage processeur en un seul passage. La carte de fiabilité est facultative — sans
+ * elle, l'application n'affiche simplement aucune mise en garde.
+ *
+ * Trois canaux depuis l'apport communautaire, et leur sens suit la source : R = distance
+ * à la mesure la plus proche, G = borne de profondeur de la bande (0 = aucune), B =
+ * provenance, jamais lu ici. Une carte à un seul canal — les versions antérieures — se lit
+ * toujours : G y vaut 0 partout, ce qui revient à « aucun encadrement ».
+ */
+async function fetchLayer(baseUrl, source) {
+  const files = BED_SOURCES[source];
+  const meta = await fetch(`${baseUrl}/data/${files.bed}.json`, { cache: 'no-cache' }).then((r) => {
+    if (!r.ok) throw new Error(`${files.bed}.json : HTTP ${r.status}`);
+    return r.json();
+  });
+
+  const blob = await fetch(`${baseUrl}/data/${files.bed}.png`).then((r) => {
+    if (!r.ok) throw new Error(`${files.bed}.png : HTTP ${r.status}`);
+    return r.blob();
+  });
+  const bitmap = await createImageBitmap(blob);
+
+  const canvas = new OffscreenCanvas(meta.width, meta.height);
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  context.drawImage(bitmap, 0, 0);
+  const { data } = context.getImageData(0, 0, meta.width, meta.height);
+
+  const { base, interval } = meta.encoding;
+  const count = meta.width * meta.height;
+  const altitudes = new Float32Array(count);
+  const alpha = new Uint8Array(count);
+
+  for (let i = 0; i < count; i += 1) {
+    const o = i * 4;
+    alpha[i] = data[o + 3];
+    altitudes[i] = data[o + 3] === 0
+      ? NaN
+      : base + (data[o] * 65536 + data[o + 1] * 256 + data[o + 2]) * interval;
+  }
+
+  let coverage = null;
+  let coverageBitmap = null;
+  let bound = null;
+  try {
+    const response = await fetch(`${baseUrl}/data/${files.coverage}.png`);
+    if (response.ok) {
+      coverageBitmap = await createImageBitmap(await response.blob());
+      context.clearRect(0, 0, meta.width, meta.height);
+      context.drawImage(coverageBitmap, 0, 0);
+      const channels = context.getImageData(0, 0, meta.width, meta.height).data;
+      coverage = new Uint8Array(count);
+      bound = new Uint8Array(count);
+      for (let i = 0; i < count; i += 1) {
+        coverage[i] = channels[i * 4];
+        bound[i] = channels[i * 4 + 1];
+      }
+    }
+  } catch {
+    // Sans couverture, on n'affiche simplement aucune mise en garde.
+  }
+
+  return { meta, bitmap, altitudes, alpha, coverage, coverageBitmap, bound };
+}
 
 /** lon/lat → EPSG:3857, la projection dans laquelle la grille est calculée. */
 export function toMercator(lon, lat) {
@@ -22,87 +118,73 @@ export function toMercator(lon, lat) {
 }
 
 export class BedGrid {
-  constructor(meta, bitmap, altitudes, alpha, coverage = null, coverageBitmap = null, bound = null) {
-    this.meta = meta;
-    this.bitmap = bitmap;
-    // Grille brute du levé 2009 (invariante) et grille de travail affichée : elles ne
+  constructor(layer, baseUrl = '.', source = DEFAULT_BED_SOURCE) {
+    this.baseUrl = baseUrl;
+    // Fonds déjà téléchargés et décodés, par nom de source. Le décodage coûte un passage
+    // sur 1,2 million de cellules : mémoriser évite de le refaire à chaque va-et-vient, et
+    // rend la bascule instantanée même hors ligne.
+    this.layers = new Map([[source, layer]]);
+    this.#adopt(layer, source);
+  }
+
+  /** Installe un fond décodé comme fond courant, corrections remises à zéro. */
+  #adopt(layer, source) {
+    this.source = source;
+    this.meta = layer.meta;
+    this.bitmap = layer.bitmap;
+    // Grille brute du fond choisi (invariante) et grille de travail affichée : elles ne
     // diffèrent que là où des relevés manuels corrigent le fond. `altitudes` et `coverage`
     // pointent sur la brute tant qu'aucune correction n'est appliquée.
-    this.baseAltitudes = altitudes; // Float32Array, NaN hors du lac
-    this.altitudes = altitudes;
-    this.alpha = alpha;
-    // Distance en mètres à la sonde mesurée la plus proche, plafonnée à 255.
-    this.baseCoverage = coverage;
-    this.coverage = coverage;
-    this.coverageBitmap = coverageBitmap;
+    this.baseAltitudes = layer.altitudes; // Float32Array, NaN hors du lac
+    this.altitudes = layer.altitudes;
+    this.alpha = layer.alpha;
+    // Distance en mètres à la mesure la plus proche, plafonnée à 255. Sur le fond
+    // communautaire elle vaut zéro partout où la carte existe : chaque cellule visible
+    // porte le passage d'un sondeur, il n'y a pas de zone interpolée à signaler.
+    this.baseCoverage = layer.coverage;
+    this.coverage = layer.coverage;
+    this.coverageBitmap = layer.coverageBitmap;
     // Borne de profondeur de la cartographie communautaire, en mètres ; 0 = aucune.
     // Elle ne bouge pas avec les corrections manuelles : c'est une donnée du fichier, pas
     // un état de travail. Un relevé manuel rapproche la sonde, il n'efface pas l'encadrement.
-    this.bound = bound;
-    [this.x0, this.y0, this.x1, this.y1] = meta.bbox_3857;
-    this.width = meta.width;
-    this.height = meta.height;
+    this.bound = layer.bound;
+    [this.x0, this.y0, this.x1, this.y1] = layer.meta.bbox_3857;
+    this.width = layer.meta.width;
+    this.height = layer.meta.height;
   }
 
-  static async load(baseUrl = '.') {
-    const meta = await fetch(`${baseUrl}/data/bed.json`, { cache: 'no-cache' }).then((r) => {
-      if (!r.ok) throw new Error(`bed.json : HTTP ${r.status}`);
-      return r.json();
-    });
+  static async load(baseUrl = '.', source = DEFAULT_BED_SOURCE) {
+    const name = BED_SOURCES[source] ? source : DEFAULT_BED_SOURCE;
+    return new BedGrid(await fetchLayer(baseUrl, name), baseUrl, name);
+  }
 
-    const blob = await fetch(`${baseUrl}/data/bed.png`).then((r) => {
-      if (!r.ok) throw new Error(`bed.png : HTTP ${r.status}`);
-      return r.blob();
-    });
-    const bitmap = await createImageBitmap(blob);
+  /**
+   * Change de fond de carte sans rien reconstruire.
+   *
+   * Les deux grilles sont produites sur la même maille par la même fonction Python, mais
+   * un fichier périmé dans le cache du navigateur suffirait à en amener une autre : on
+   * vérifie donc la maille plutôt que de la supposer. Un décalage d'un pixel ne se verrait
+   * sur aucune image et fausserait toutes les profondeurs.
+   *
+   * Renvoie `true` si le fond a changé. L'appelant doit ensuite réappliquer ses relevés
+   * (`applyCorrections`) puis renvoyer la grille au GPU (`DepthLayer.updateBed`).
+   */
+  async useSource(source) {
+    const name = BED_SOURCES[source] ? source : DEFAULT_BED_SOURCE;
+    if (name === this.source) return false;
 
-    // Décodage processeur : un seul passage, à l'ouverture.
-    const canvas = new OffscreenCanvas(meta.width, meta.height);
-    const context = canvas.getContext('2d', { willReadFrequently: true });
-    context.drawImage(bitmap, 0, 0);
-    const { data } = context.getImageData(0, 0, meta.width, meta.height);
-
-    const { base, interval } = meta.encoding;
-    const count = meta.width * meta.height;
-    const altitudes = new Float32Array(count);
-    const alpha = new Uint8Array(count);
-
-    for (let i = 0; i < count; i += 1) {
-      const o = i * 4;
-      alpha[i] = data[o + 3];
-      altitudes[i] = data[o + 3] === 0
-        ? NaN
-        : base + (data[o] * 65536 + data[o + 1] * 256 + data[o + 2]) * interval;
-    }
-
-    // Carte de fiabilité, à trois canaux depuis l'apport communautaire : R = distance à la
-    // sonde mesurée la plus proche, G = borne de profondeur Quickdraw (0 = aucune), B = le
-    // relèvement qu'elle a appliqué. Trois états, donc, et non deux : mesuré, encadré,
-    // interpolé. Une carte à un seul canal — les versions antérieures — se lit toujours :
-    // G y vaut 0 partout, ce qui revient à « aucun encadrement », et l'application retombe
-    // sur son comportement d'avant. Facultative : sans elle, plus aucune mise en garde.
-    let coverage = null;
-    let coverageBitmap = null;
-    let bound = null;
-    try {
-      const response = await fetch(`${baseUrl}/data/coverage.png`);
-      if (response.ok) {
-        coverageBitmap = await createImageBitmap(await response.blob());
-        context.clearRect(0, 0, meta.width, meta.height);
-        context.drawImage(coverageBitmap, 0, 0);
-        const channels = context.getImageData(0, 0, meta.width, meta.height).data;
-        coverage = new Uint8Array(count);
-        bound = new Uint8Array(count);
-        for (let i = 0; i < count; i += 1) {
-          coverage[i] = channels[i * 4];
-          bound[i] = channels[i * 4 + 1];
-        }
+    let layer = this.layers.get(name);
+    if (!layer) {
+      layer = await fetchLayer(this.baseUrl, name);
+      const { width, height, bbox_3857: bbox } = layer.meta;
+      const drift = Math.max(...bbox.map((v, i) => Math.abs(v - this.meta.bbox_3857[i])));
+      if (width !== this.width || height !== this.height || drift > 0.5) {
+        throw new Error(`le fond « ${BED_SOURCES[name].label} » n'a pas la maille de l'autre`);
       }
-    } catch {
-      // Sans couverture, on n'affiche simplement aucune mise en garde.
+      this.layers.set(name, layer);
     }
-
-    return new BedGrid(meta, bitmap, altitudes, alpha, coverage, coverageBitmap, bound);
+    this.#adopt(layer, name);
+    return true;
   }
 
   /** Indice de cellule contenant ce point, ou -1 hors emprise. */
@@ -136,7 +218,7 @@ export class BedGrid {
     return this.#sample(this.altitudes, lon, lat);
   }
 
-  /** Altitude du levé 2009 seul, sans les corrections manuelles (point de départ d'un relevé). */
+  /** Altitude du fond seul, sans les corrections manuelles (point de départ d'un relevé). */
   baseAltitudeAt(lon, lat) {
     return this.#sample(this.baseAltitudes, lon, lat);
   }
@@ -197,20 +279,22 @@ export class BedGrid {
   }
 
   /**
-   * Applique des relevés manuels sur la grille du levé 2009 pour produire la « carte
-   * courante ». Deux formes de relevé sont acceptées dans le même tableau :
+   * Applique des relevés manuels sur la grille du fond actif — levé de 2009 ou carte
+   * communautaire, les relevés valent pour l'un comme pour l'autre puisqu'ils portent une
+   * altitude absolue — pour produire la « carte courante ». Deux formes de relevé sont
+   * acceptées dans le même tableau :
    *
    *   • un **point** `{ lon, lat, bedZ, radius_m }` — une sonde ou un témoin ;
    *   • une **zone** `{ ring: [[lon, lat], …], bedZ, radius_m }` — un contour fermé, tracé
    *     à la main, dont tout l'intérieur est porté à `bedZ` (un îlot, une langue de terre).
    *
    * Chaque relevé pose un **plateau** — la surface où la carte vaut exactement la valeur
-   * relevée — entouré d'un **fondu** en cosinus qui rejoint le levé 2009. Pour un point, le
+   * relevée — entouré d'un **fondu** en cosinus qui rejoint le fond actif. Pour un point, le
    * plateau occupe la moitié centrale du rayon ; pour une zone, c'est l'intérieur du
    * contour, et `radius_m` mesure la largeur du fondu au-delà du bord.
    *
    * Le plateau est ce qui distingue cette version de la précédente, qui n'appliquait la
-   * valeur relevée qu'au centre exact et retombait vers 2009 dès le premier mètre : une
+   * valeur relevée qu'au centre exact et retombait vers le fond dès le premier mètre : une
    * mesure de haut-fond y devenait une pointe, alors que ce qu'elle dit honnêtement est
    * « au moins ça, sur une certaine surface ».
    *
@@ -224,7 +308,7 @@ export class BedGrid {
    *     (deux mesures du même endroit se moyennent ; un voisin lointain ne déplace pas
    *     une valeur mesurée ici) ;
    *   • atteinte par des fondus seulement → moyenne pondérée des relevés concernés, mêlée
-   *     au levé 2009 selon la somme des poids, plafonnée à 1. Plusieurs relevés qui se
+   *     au fond actif selon la somme des poids, plafonnée à 1. Plusieurs relevés qui se
    *     recouvrent tirent donc la carte **plus fermement** vers leur valeur commune, sans
    *     jamais la dépasser.
    *
@@ -232,7 +316,8 @@ export class BedGrid {
    * réelle au relevé, ce qui efface le hachurage « non sondé » et la mise en garde
    * d'interpolation à cet endroit.
    *
-   * On repart toujours de la grille brute : retirer un relevé suffit à revenir au 2009.
+   * On repart toujours de la grille brute : retirer un relevé — ou changer de fond —
+   * suffit à revenir à la carte nue.
    * Renvoie le rectangle de cellules modifiées (pour un ré-upload ciblé), ou null.
    */
   applyCorrections(records, radiusM = 20) {
@@ -418,6 +503,11 @@ function distanceToRing(x, y, ring) {
  * des altitudes absolues et ne doivent pas bouger. Elles se reconnaissent sans donnée
  * supplémentaire : par construction, la fusion ne les a relevées qu'au-dessus du plan
  * d'eau LiDAR.
+ *
+ * La règle vaut telle quelle sur le fond communautaire, et ce n'est pas un hasard : `z_ac`
+ * a été mesuré en comparant les isobathes de la communauté à ce modèle-ci, il est donc
+ * solidaire de `Z_2009` et se déplace avec lui (config/model.json, `solidarity_note`).
+ * Un étalonnage au sondeur corrige bien les deux cartes du même coup.
  */
 export function correctedAltitude(raw, offset, waterPlane) {
   if (!Number.isFinite(raw)) return NaN;

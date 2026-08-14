@@ -1,6 +1,6 @@
 // Assemblage de l'application : chargement des données, carte, réglages, étalonnage.
 
-import { BedGrid, correctedAltitude } from './bed.js';
+import { BedGrid, BED_SOURCES, correctedAltitude, DEFAULT_BED_SOURCE } from './bed.js';
 import { Calibration, makeRecord, ON_TRACK_RADIUS_M } from './calibration.js';
 import { DepthLayer } from './depth-layer.js';
 import { formatSpeed, Geolocator } from './geo.js';
@@ -64,7 +64,17 @@ async function boot() {
     app.level = new Level('.');
     app.geo = new Geolocator();
 
-    app.bed = await BedGrid.load('.');
+    // Un réglage mémorisé peut désigner un fond que ce déploiement-ci ne contient pas
+    // (fichier absent, version antérieure resservie par le cache) : on se rabat sur le
+    // levé plutôt que de refuser de démarrer sur l'eau.
+    try {
+      app.bed = await BedGrid.load('.', app.settings.get('bedSource'));
+    } catch (err) {
+      if (app.settings.get('bedSource') === DEFAULT_BED_SOURCE) throw err;
+      console.warn('fond indisponible, retour au levé de 2009', err);
+      app.settings.set('bedSource', DEFAULT_BED_SOURCE);
+      app.bed = await BedGrid.load('.', DEFAULT_BED_SOURCE);
+    }
     await app.level.refresh();
 
     // MapLibre s'initialise depuis sa boucle de rendu, suspendue tant que la page est
@@ -125,7 +135,6 @@ async function boot() {
     registerServiceWorker();
     $('chargement').hidden = true;
     $('app-version').textContent = VERSION;
-    $('apropos-version').textContent = `${VERSION} · levé ${app.bed.meta.sources?.ofb2009?.label ? '2009' : '—'} · grille ${app.bed.width}×${app.bed.height}`;
   } catch (err) {
     $('chargement').innerHTML = `<p><strong>Chargement impossible</strong><br>${err.message}</p>`;
     console.error(err);
@@ -259,17 +268,26 @@ function onPosition(event) {
     // cartographie communautaire est passée, le fond est encadré par la bande qu'elle
     // donne : ce n'est pas une mesure au décimètre, c'est tout de même un sondeur qui est
     // passé, et le haut-fond invisible est exclu. On le dit, sans crier.
+    //
+    // Sur le fond communautaire la question ne se pose plus dans les mêmes termes : il n'y
+    // a pas de zone interpolée, chaque cellule affichée porte le passage d'un sondeur. Mais
+    // aucune n'est mesurée au décimètre non plus, et il serait faux de laisser croire le
+    // contraire — l'étiquette dit donc toujours la bande, ce qui rappelle en même temps
+    // quelle carte est sous les pieds.
     const distance = app.bed.soundingDistanceAt(position.lon, position.lat);
     const unsurveyed = Number.isFinite(distance) && distance > app.settings.get('voidRadius_m');
     const bound = app.bed.communityBoundAt(position.lon, position.lat);
+    const community = app.bed.source === 'quickdraw';
     const label = depth <= 0
       ? 'fond émergé'
-      : unsurveyed
-        ? (bound > 0
-          ? `encadré — communauté ≤ ${bound} m`
-          : `interpolé — sonde à ${Math.round(distance)} m`)
-        : 'sous le bateau';
-    const warning = unsurveyed && bound === 0 && depth > 0;
+      : community
+        ? (bound > 0 ? `communauté — bande ≤ ${bound} m` : 'communauté — hors bande')
+        : unsurveyed
+          ? (bound > 0
+            ? `encadré — communauté ≤ ${bound} m`
+            : `interpolé — sonde à ${Math.round(distance)} m`)
+          : 'sous le bateau';
+    const warning = depth > 0 && bound === 0 && (community || unsurveyed);
     $('prof-label').textContent = label;
     $('prof-label').classList.toggle('is-warning', warning);
     app.lastBigDepth = { value: text, label, color, warning };
@@ -691,6 +709,7 @@ function wireSettings() {
     select.append(new Option(preset.label, key));
   });
 
+  bind('set-bed-source', 'change', (el) => s.set('bedSource', el.value));
   bind('set-preset', 'change', (el) => s.set('preset', el.value));
   bind('set-opacity', 'input', (el) => s.set('opacity', Number(el.value) / 100));
   bind('set-outlines', 'change', (el) => s.set('showOutlines', el.checked));
@@ -754,6 +773,10 @@ function wireSettings() {
     // renvoi de texture : on ne le refait que si le rayon a bougé — ou si l'on ne sait pas
     // ce qui a bougé (profil importé, réinitialisation), auquel cas il a pu bouger.
     const key = event.detail?.key;
+    // Changer de fond recharge une grille : c'est asynchrone, et la réapplication des
+    // relevés se fait de l'autre côté de l'attente. `applyBedSource` ne fait rien si le
+    // fond demandé est déjà celui qui est affiché, ce qui est le cas ordinaire.
+    if (key == null || key === 'bedSource') applyBedSource(key === 'bedSource');
     if (key == null || key === 'correctionRadius_m') applyModelCorrections();
   });
 
@@ -836,6 +859,7 @@ function refreshSettingsUi() {
   $('set-transducer').value = s.get('transducer_m');
   $('set-probes').checked = s.get('showProbes');
   $('set-radius').value = s.get('correctionRadius_m');
+  refreshBedSourceUi();
   refreshProbesUi();
   refreshZonesUi();
 
@@ -1708,6 +1732,49 @@ function applyModelCorrections() {
   if (!app.bed || !app.depthLayer) return;
   app.bed.applyCorrections(correctionRecords(), app.settings.get('correctionRadius_m'));
   app.depthLayer.updateBed();
+}
+
+/**
+ * Change de fond bathymétrique si le réglage ne correspond plus à ce qui est chargé.
+ *
+ * Les deux grilles partagent la maille : l'échange se fait tableau contre tableau, sans
+ * reconstruire la couche WebGL ni bouger la carte. Restent à refaire les relevés manuels,
+ * qui portent une altitude absolue et valent donc pour l'un comme pour l'autre.
+ *
+ * Un fond absent du déploiement ne doit pas laisser l'application dans un état ambigu :
+ * on remet alors le réglage sur le fond réellement affiché, plutôt que d'afficher une
+ * carte qui n'est pas celle annoncée.
+ */
+async function applyBedSource(announce = false) {
+  const wanted = app.settings.get('bedSource');
+  if (!app.bed || app.bed.source === wanted) return;
+  try {
+    if (await app.bed.useSource(wanted)) {
+      applyModelCorrections();
+      refreshBedSourceUi();
+      refreshDepthStyle();
+      if (announce) toast(`Fond : ${BED_SOURCES[app.bed.source].label}`);
+    }
+  } catch (err) {
+    toast(`Fond indisponible : ${err.message}`, 6000);
+    app.settings.set('bedSource', app.bed.source);
+  }
+}
+
+/** Rappelle partout quelle carte est sous les pieds : réglages et page « À propos ». */
+function refreshBedSourceUi() {
+  if (!app.bed) return;
+  const source = BED_SOURCES[app.bed.source];
+  const meta = app.bed.meta;
+  $('set-bed-source').value = app.bed.source;
+  $('hint-bed-source').textContent = app.bed.source === 'quickdraw'
+    ? `Affiché : ${meta.quickdraw_only?.framed_ha ?? '—'} ha encadrés par la communauté `
+      + `(${Math.round((meta.coverage_ratio ?? 0) * 100)} % du lac), largeur d'encadrement `
+      + `médiane ${meta.quickdraw_only?.envelope_median_m ?? '—'} m. Aucune sonde de 2009.`
+    : `Affiché : levé OFB 2009 relevé par le MNT et encadré par la communauté, `
+      + `sonde à ${meta.coverage?.median_m ?? '—'} m en médiane.`;
+  $('apropos-version').textContent = `${VERSION} · fond ${source.label} `
+    + `· grille ${app.bed.width}×${app.bed.height}`;
 }
 
 function enterSim() {

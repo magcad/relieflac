@@ -81,6 +81,10 @@ export function defaultsFrom(palette, model) {
     alarmDepth_m: 1.5,
     speedUnit: 'kmh',
     basemap: 'plan',
+    // Fond bathymétrique : 'ofb2009' (levé + apports) ou 'quickdraw' (carte communautaire
+    // seule). Les deux grilles partagent la maille, les relevés manuels s'appliquent sur
+    // celle qui est active. Voir BED_SOURCES dans src/bed.js.
+    bedSource: 'ofb2009',
     // Les deux verrous de caméra sont actifs à l'ouverture : sur l'eau, on veut le bateau
     // au centre et l'étrave vers le haut sans avoir à y penser.
     followBoat: true,

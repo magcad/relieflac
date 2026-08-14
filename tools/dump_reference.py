@@ -27,26 +27,17 @@ PROBES = [
 ]
 
 
-def main() -> int:
-    palette = load_palette()
-    lut_max = palette["lut_max_depth_m"]
-
-    presets = {}
-    for name in palette["presets"]:
-        lut, _ = build_lut(palette, name)
-        samples = {}
-        for depth in DEPTHS:
-            r, g, b = lut[int(lut_index(depth, lut_max))]
-            samples[f"{depth:g}"] = f"#{r:02x}{g:02x}{b:02x}"
-        presets[name] = samples
-
-    with (DATA_DIR / "bed.json").open(encoding="utf-8") as fh:
+def load_grid(stem: str) -> tuple[dict, np.ndarray]:
+    with (DATA_DIR / f"{stem}.json").open(encoding="utf-8") as fh:
         meta = json.load(fh)
-    image = np.array(Image.open(DATA_DIR / "bed.png").convert("RGBA"))
+    image = np.array(Image.open(DATA_DIR / f"{stem}.png").convert("RGBA"))
     r, g, b, a = (image[..., i].astype(np.int64) for i in range(4))
     enc = meta["encoding"]
-    bed = np.where(a > 0, enc["base"] + (r * 65536 + g * 256 + b) * enc["interval"], np.nan)
+    return meta, np.where(a > 0, enc["base"] + (r * 65536 + g * 256 + b) * enc["interval"], np.nan)
 
+
+def sample(bed: np.ndarray, meta: dict) -> list[dict]:
+    """Altitude aux points de contrôle, lue exactement comme le fait `BedGrid.indexAt`."""
     x0, y0, x1, y1 = meta["bbox_3857"]
     height, width = bed.shape
     earth = 40075016.685578488
@@ -64,6 +55,40 @@ def main() -> int:
             "lon": lon, "lat": lat,
             "z": None if not np.isfinite(z) else round(z, 2),
         })
+    return probes
+
+
+def main() -> int:
+    palette = load_palette()
+    lut_max = palette["lut_max_depth_m"]
+
+    presets = {}
+    for name in palette["presets"]:
+        lut, _ = build_lut(palette, name)
+        samples = {}
+        for depth in DEPTHS:
+            r, g, b = lut[int(lut_index(depth, lut_max))]
+            samples[f"{depth:g}"] = f"#{r:02x}{g:02x}{b:02x}"
+        presets[name] = samples
+
+    meta, bed = load_grid("bed")
+    probes = sample(bed, meta)
+
+    # Second fond, communautaire seul : mêmes points de contrôle, même maille. Le test du
+    # navigateur s'en sert pour vérifier que la bascule d'une source à l'autre lit bien la
+    # bonne grille — deux cartes de même taille et de même emprise ne se distinguent que
+    # par leurs valeurs.
+    quickdraw = None
+    if (DATA_DIR / "bed_quickdraw.png").exists():
+        qd_meta, qd_bed = load_grid("bed_quickdraw")
+        quickdraw = {
+            "width": qd_meta["width"],
+            "height": qd_meta["height"],
+            "coverage_ratio": qd_meta["coverage_ratio"],
+            "z_ac_m_ngf": qd_meta["quickdraw_only"]["z_ac_m_ngf"],
+            "lake_share_framed": qd_meta["quickdraw_only"]["lake_share_framed"],
+            "probes": sample(qd_bed, qd_meta),
+        }
 
     coverage = meta.get("coverage", {})
 
@@ -78,6 +103,7 @@ def main() -> int:
         "safety_depth_m": palette["safety_contour"]["draft_m"] + palette["safety_contour"]["margin_m"],
         "presets": presets,
         "bed": {"width": meta["width"], "height": meta["height"], "probes": probes},
+        "bed_quickdraw": quickdraw,
     }
 
     path = ROOT / "test" / "reference.json"
