@@ -26,6 +26,7 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L2** | Page Paramètres | ✅ livrée avec L1 |
 | **L3** | Hors ligne — Service Worker, pré-chargement des tuiles | ⬜ à faire |
 | **L4** | Calage `Z_2009` confirmé, import des logs sondeur, isobathes étiquetées | 🟡 en cours |
+| **L5** | Intégrer la mosaïque Quickdraw à `build_grid.py`, reconstruire, déployer | ⬜ à faire — tout est prêt, voir § 3.5 |
 
 Mode **« Sonde »** (saisie manuelle) livré le 11/08/2026 : le sondeur du bord est un
 **Eagle** monochrome sans enregistrement ni GPS — on relève la profondeur à la main. Un
@@ -158,6 +159,26 @@ et panneau haut — le rail replie d'abord sa capsule de zoom plutôt que de gli
 bandeau de cap : le pincement fait la même chose, alors que le bouton Outils n'a aucun
 substitut. Vérifié à 520 px de haut : rail replié à 201 px, remonté de 179, sommet à 205 px.
 
+**Cartographie communautaire Quickdraw exploitée** (14/08/2026) — accès à un compte
+ActiveCaptain, 27 captures d'écran, et une chaîne qui les cale géographiquement sans jamais
+s'appuyer sur le modèle qu'elles servent à vérifier. Trois résultats, dans l'ordre
+d'importance :
+
+1. **Le § 3.2 bis est réglé** : des dizaines de sondeurs indépendants s'accordent avec le
+   modèle à ±5 % près. Le Eagle est seul à 12 %.
+2. **La couverture change de nature** : 93,6 % du lac décodé à 1 m/px, contre 62,2 % à
+   moins de 60 m d'une sonde en 2009. Les corrections se logent à 46 % au-delà de 60 m
+   d'une sonde — soit exactement là où le levé est aveugle (§ 2).
+3. **La contrainte de bord est chiffrée** : le modèle place le fond ~1,5 m trop haut dans
+   la frange côtière. Sens prudent, mais mesuré pour la première fois.
+
+**Rien n'est intégré à la grille** : c'est la tâche suivante, volontairement laissée à une
+session dédiée. Tout est conservé —
+[`data/mesuresEtalonnage/Garmin/ANALYSE.md`](data/mesuresEtalonnage/Garmin/ANALYSE.md)
+(méthode, mesures, protocole de capture, décision de licence), `georef.json` (le calage,
+une trentaine de minutes de calcul à ne pas refaire), `mosaique.png` (le raster de bandes,
+relu à l'identique), et les outils `tools/qd_georef.py` / `tools/qd_mosaic.py`.
+
 **Banc d'essai des enchaînements** (13/08/2026) : `test/interaction.html`. Il démarre la
 **vraie** application avec une carte factice ([`test/stub-map.js`](test/stub-map.js))
 substituée à MapLibre par une carte d'import, et provoque les mêmes événements que la vraie
@@ -206,6 +227,12 @@ IGN (plan d'eau à 648,80 m NGF).
 zones au-delà du seuil sont hachurées, et la profondeur sous le bateau annonce
 « interpolé — sonde à N m ». Voir `data/coverage.png` et § 4.2 bis de la spécification.
 
+**Confirmé par une source indépendante le 14/08/2026.** La cartographie communautaire
+Quickdraw (§ 3.5) dit le fond plus haut que le modèle sur **90,6 ha**, dont 25,6 ha de plus
+de 3 m et jusqu'à 19,3 m. 46 % de ces cellules sont à plus de 60 m d'une sonde de 2009,
+contre 37,8 % sur l'ensemble du lac : le défaut est bien là où le levé ne voit rien, et
+c'est mesuré, plus seulement déduit.
+
 ---
 
 ## 3. Points ouverts, par priorité
@@ -244,7 +271,23 @@ Une fois la valeur stabilisée : la reporter dans `config/model.json`
 (`reference_levels.ofb2009.value_m_ngf`), passer `confirmed` à `true`, relancer
 `build_grid.py`, et remettre le décalage d'étalonnage à zéro dans l'application.
 
-### 3.2 bis Le sondeur Eagle sous-lit d'environ 10 %
+### 3.2 bis Le sondeur Eagle sous-lit d'environ 10 % — **tranché le 14/08/2026**
+
+**Réglé par la cartographie communautaire Quickdraw** : elle vient de dizaines de
+sondeurs indépendants, qui ne peuvent pas partager le défaut d'étalonnage d'un
+Eagle. Comparée au modèle sur neuf isobathes, au large, elle s'accorde avec lui à
+**±5 % près**, alors que le Eagle en diffère de 12 %. **Le sondeur du bord est
+seul en cause, le modèle est indemne.** Le *bar check* reste souhaitable pour
+fixer le facteur, il n'est plus bloquant. Analyse complète :
+[`data/mesuresEtalonnage/Garmin/ANALYSE.md`](data/mesuresEtalonnage/Garmin/ANALYSE.md).
+
+Piège à ne pas refaire : la première mesure, prise sur **tout** le lac, annonçait
+17 % d'écart d'échelle et semblait accuser le modèle. C'était la contrainte de
+bord — `shore_constraint` épingle une profondeur nulle sur un trait de côte de
+cote haute. Toute comparaison d'isobathes avec ce modèle doit écarter la frange
+côtière, sinon elle mesure la contrainte de bord et rien d'autre.
+
+Historique de la découverte, ci-dessous.
 
 Découvert par la sortie du 12/08/2026 (`data/mesuresEtalonnage/etalonnage_12_08_2026.json`).
 L'écart entre le modèle et le sondeur **n'est pas une constante** : il vaut 12 % de la
@@ -290,16 +333,30 @@ Résolue par le levé 2011 (§ 3.1), ou par des traces de sondeur horodatées (�
 
 ### 3.5 Traces de sondeur
 
-**Piste Garmin abandonnée pour cet usage.** ActiveCaptain / Quickdraw Community est une
-impasse pour ce projet précis : (a) le format on-device (`ContoursLog.svy` + grilles
-propriétaires) n'est décodé par aucun outil public, GPSBabel refuse ; (b) surtout, la
-donnée appartient à Garmin/à la communauté, sous CGU interdisant la redistribution et sans
-licence ouverte — **incompatible avec une appli libre et gratuite**. Le traceur de l'ami
-n'a donc pas été sollicité.
+**Piste Garmin rouverte le 14/08/2026, par un autre chemin.** Le format on-device
+(`ContoursLog.svy` + grilles propriétaires) reste indécodable par tout outil public, et
+c'est sans importance : la couche communautaire s'exploite par **capture d'écran
+géoréférencée**. La légende donne l'intervalle exact de chaque couleur et les couleurs sont
+plates, donc une capture est une carte de bandes décodable sans ambiguïté.
 
-Voie retenue à la place : **saisie manuelle** (§ L4 ci-dessus, `src/probes.js`), le sondeur
-du bord étant un Eagle sans export. L'utilisateur collecte lui-même ses points, librement
-rediffusables.
+Fait, non intégré : 27 captures, 25 calées à NCC 0,95–0,99, mosaïque de 8 806 × 6 913 px à
+1 m/px couvrant **93,6 % du lac** — contre 62,2 % à moins de 60 m d'une sonde pour le levé
+2009. Cote de référence mesurée : **647,68 m NGF**. Effet attendu sur la carte : 90,6 ha
+relevés, dont 25,6 ha de plus de 3 m, jusqu'à 19,3 m. Méthode, mesures, produits et
+protocole de capture :
+[`data/mesuresEtalonnage/Garmin/ANALYSE.md`](data/mesuresEtalonnage/Garmin/ANALYSE.md),
+outils `tools/qd_georef.py` et `tools/qd_mosaic.py`.
+
+**Ce qui n'a pas changé, et qui a été tranché** : la donnée appartient à Garmin et à sa
+communauté, sous CGU interdisant la redistribution, sans licence ouverte. L'utilisateur a
+décidé le 14/08/2026 de **publier quand même la grille corrigée**. Trois obligations en
+découlent, à honorer au moment de l'intégration et non après : la ligne de source doit
+porter « usage dérivé, pas de licence ouverte » et non Etalab ; le présent § doit être
+réécrit en conséquence ; et la couche doit rester identifiable cellule par cellule, pour
+pouvoir être retirée d'un seul geste.
+
+Voie complémentaire, inchangée : **saisie manuelle** (§ L4 ci-dessus, `src/probes.js`), le
+sondeur du bord étant un Eagle sans export. Ces points-là sont librement rediffusables.
 
 L'importeur reste écrit, testé et prêt : `tools/import_soundings.py` accepte CSV, GPX (y
 compris l'extension Garmin `<gpxx:Depth>`), GeoJSON et KML, gère l'immersion du
