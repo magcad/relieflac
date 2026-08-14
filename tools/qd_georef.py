@@ -390,7 +390,7 @@ def main():
                "captures": out}, open(out_path, "w", encoding="utf-8"), indent=1)
     args.out = out_path
     ok = sum(1 for v in out.values() if v["ncc"] >= args.min_ncc)
-    print(f"\n{ok}/{len(out)} captures calées → {args.out}")
+    print(f"\n{ok}/{len(out)} captures calées -> {args.out}")
 
 
 if __name__ == "__main__":

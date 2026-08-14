@@ -41,10 +41,25 @@ bande de `0-12m` et la réunion de toutes les bandes de `12_30m`. C'est le seul
 signal partagé, et il suffit. Voir `reference_from_mosaic` dans `qd_georef.py`.
 
 Conséquence à connaître : sur un masque binaire, le NCC plafonne bien plus bas
-que sur un motif de bandes — 0,6 à 0,7 au lieu de 0,95. **Ce n'est pas un
-mauvais calage** ; le seuil de 0,90 ne s'applique qu'au mode « bandes ». Le
-signe qui compte est ailleurs : les échelles trouvées indépendamment sur les
-17 captures doivent se grouper à quelques pour mille.
+que sur un motif de bandes — médiane **0,750** ici (0,600 à 0,923) au lieu de
+0,96. **Ce n'est pas un mauvais calage** ; le seuil de 0,90 ne s'applique qu'au
+mode « bandes ». Les preuves sont ailleurs, et elles sont trois :
+
+| Contrôle | Résultat |
+|---|---|
+| dispersion des échelles trouvées indépendamment sur les 17 captures | **0,84 %** (0,6086 à 0,6310 m/px) |
+| accord entre captures qui se recouvrent, campagne `12_30m` | **97,0 %** — contre 88,1 % pour `0-12m`, qui mêle des captures de résolutions très différentes |
+| surface plus profonde que 12 m, vue par chaque campagne | **309 ha** selon `0-12m` (sa bande 12–30), **326 ha** selon `12_30m` (toutes bandes) |
+
+Et le recoupement géométrique des deux : **91,1 %** de la couverture `12_30m`
+tombe dans la zone « > 12 m » de `0-12m`, et **96,1 %** de cette zone est
+couverte par `12_30m`. Deux palettes disjointes, deux modes de calage
+différents, un accord au ras de la dizaine de mètres — c'est ce qui valide la
+méthode du masque, bien mieux qu'un NCC.
+
+Les 17 captures sont calées, `georef_12_30m.json` et `mosaique_12_30m.png`
+écrits. Cette campagne décode **326 ha, soit 35 % du lac** — la part profonde,
+et c'est exactement ce qu'on lui demande.
 
 ---
 
