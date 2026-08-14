@@ -433,3 +433,111 @@ Le § 7 n'a pas bougé pour ses points 2 à 4 : 12 ha sans capture fine, les
 Et le rendu à l'écran des trois états n'a pas pu être vu par l'assistant — la
 page de test est masquée, MapLibre ne s'y initialise pas. **Cela se valide sur
 l'eau, comme la refonte de l'interface.**
+
+---
+
+## 11. Ce que la sortie du 14/08/2026 a corrigé
+
+Deux défauts rapportés depuis l'eau, tous deux fondés. Ni l'un ni l'autre
+n'était visible depuis le dépôt.
+
+### 11.1 La mosaïque était décalée de 16 m
+
+**Comment on le sait, sans repasser par la corrélation.** Les 8 118 sondes
+brutes du levé OFB 2009 servent de juge : pour chacune, on lit la bande de
+couleur qui la recouvre et on regarde si sa profondeur tombe dans l'intervalle
+annoncé. On refait le compte en déplaçant la mosaïque. C'est une comparaison
+entre deux jeux de données indépendants, sans modèle intermédiaire.
+
+Ce n'est pas le gain brut qui démontre le décalage — il est modeste, les bandes
+étant larges — mais **sa dépendance à la pente** :
+
+| pente du fond | écart moyen sonde / bande | après déplacement |
+|---|---|---|
+| 0-2 % | 0,18 m | 0,13 m (−26 %) |
+| 5-10 % | 0,39 m | 0,24 m (−38 %) |
+| 10-20 % | 0,81 m | 0,46 m (−43 %) |
+| > 20 % | 1,78 m | 0,61 m (**−66 %**) |
+
+Un biais vertical améliorerait toutes les classes pareillement. Du bruit n'aurait
+pas de direction constante. Seul un décalage horizontal produit ce profil — et
+l'optimum est le même sur onze sous-ensembles disjoints (les deux bassins, les
+deux moitiés, chaque tranche de profondeur, chaque tranche de distance au rivage,
+les deux campagnes).
+
+**Correction retenue : +18 / −15 m Mercator**, soit +12,6 m est et 10,5 m sud au
+sol. Elle s'applique au **mosaïquage** et nulle part ailleurs : `georef_*.json`
+garde les solutions de la corrélation brute, donc rejouables sans double
+correction. `reference_from_mosaic` retire la correction de la mosaïque de
+référence pour la même raison.
+
+> **Piège de signe, payé une fois.** L'indice de ligne d'une image croît vers le
+> sud, l'ordonnée Mercator vers le nord. Une première version avec +15 au lieu de
+> −15 en Y a **doublé** l'erreur au lieu de l'annuler, sans que rien d'autre ne le
+> signale. Refaire le contrôle ci-dessus après toute modification : le résidu doit
+> être nul dans les deux axes.
+
+Après correction : écart moyen sur pente forte **0,63 → 0,33 m**, accord dans la
+bande 55 → 64 %, relèvement maximal ramené de 19,3 à 17,7 m.
+
+Conséquence de méthode à assumer : la **position** de la couche communautaire est
+désormais calée sur le levé de 2009, elle n'en est plus indépendante. Sa
+**profondeur** le reste, et c'est elle qui sert de contrôle — le § 4 tient.
+
+### 11.2 Une bande a deux bornes, et il en manquait une
+
+Le lot L5 n'utilisait que `z >= z_ac − dmax`, « pas plus profond que ». Prudent,
+mais **inopérant là où le modèle se trompe le plus** : sur les bords, il est trop
+*haut*, pas trop bas.
+
+Chiffré avant correction : fond médian **648,89 m NGF** sur les 12 premiers mètres
+depuis le trait de côte, **113,7 ha émergés à la cote 647** — 12 % du masque du
+lac. La cause est la `shore_constraint`, qui épingle une profondeur nulle sur le
+contour BD TOPO, lequel est le trait de côte de la **retenue normale à 650 m**.
+Les bassins portuaires, dragués, jamais sondés en 2009 et invisibles au LiDAR
+sous l'eau, n'ont rien d'autre : ils sortaient de l'eau sur la carte.
+
+L'autre borne le répare : `z <= z_ac − dmin`, « au moins `dmin` d'eau, puisqu'un
+bateau a flotté ici ».
+
+| | avant | après |
+|---|---|---|
+| émergé à la cote 648 | 67,2 ha | **17,1 ha** |
+| émergé à la cote 647 | 113,7 ha | **49,4 ha** |
+| fond médian de la frange de 12 m | 648,89 m | **646,18 m** |
+| pente médiane de la frange 0-10 m | 79,1 % | **63,6 %** |
+
+C'est le seul mécanisme du modèle qui puisse annoncer **plus** d'eau qu'il n'y en
+a. D'où deux garde-fous, tous deux obligatoires et tous deux mesurés avant d'être
+activés :
+
+- l'abaissement ne descend **jamais** sous l'altitude d'une sonde réellement
+  mesurée à moins de 25 m — 30 % des cellules candidates en avaient une, le
+  garde-fou mord donc réellement ;
+- il s'arrête **0,5 m au-dessus** de la borne stricte, `z_ac` = 647,68 étant une
+  valeur centrale à ±1,5 m près (§ 3) et non une précision.
+
+283 ha abaissés, médiane 2,20 m, maximum 20,4 m.
+
+### 11.3 Le prix : le terrassement
+
+Une source en bandes produit des paliers plats. La surface concernée passe de
+121 à **404 ha**, et 20 altitudes distinctes y couvrent 95,6 % des cellules. Ce
+n'est pas un défaut de calcul mais la forme honnête de la donnée : lisser
+inventerait un relief que Quickdraw ne contient pas. Cela se voit néanmoins sur
+les courbes de niveau, et c'est ce qui fait échouer une vérification sur 128 —
+« épaisseur des contours constante d'un zoom à l'autre », 1,55 d'écart pour un
+seuil de 1,5. Le shader n'a pas changé ; ce sont les isobathes qui se resserrent.
+**Le seuil n'a pas été desserré pour faire passer le test.**
+
+### 11.4 Ce qui reste à corriger, et qui n'est pas Quickdraw
+
+Le modèle est systématiquement **au-dessus** des sondes de 2009 : écart médian
+**+0,56 m**, 30 % des sondes dépassées de plus de 1 m. La couche communautaire
+n'y est pour presque rien — c'est `shoal_bias`, qui impose au fond de ne jamais
+être plus profond que la sonde la moins profonde dans un rayon de 15 m. Sur une
+pente à 10 %, cela vaut mécaniquement +1,5 m. C'est délibéré, c'est la
+généralisation biaisée vers le haut-fond des cartes marines, et c'est ce que
+l'utilisateur constate quand son sondeur lit plus creux que la carte — d'autant
+que le Eagle du bord **sous-lit d'environ 11 %**. Réduire le rayon est une
+décision ouverte, pas un correctif évident.

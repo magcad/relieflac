@@ -27,6 +27,7 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L3** | Hors ligne — Service Worker, pré-chargement des tuiles | ⬜ à faire |
 | **L4** | Calage `Z_2009` confirmé, import des logs sondeur, isobathes étiquetées | 🟡 en cours |
 | **L5** | Intégrer les mosaïques Quickdraw à `build_grid.py`, reconstruire, déployer | ✅ terminé le 14/08/2026 — voir § 3.5 |
+| **L5 bis** | Corriger le décalage de 16 m de la mosaïque et ajouter la borne basse (trait de côte, ports) | ✅ terminé le 14/08/2026, après retour de terrain — voir § 1 |
 
 Mode **« Sonde »** (saisie manuelle) livré le 11/08/2026 : le sondeur du bord est un
 **Eagle** monochrome sans enregistrement ni GPS — on relève la profondeur à la main. Un
@@ -183,10 +184,11 @@ calage résiduelle.
 
 | | valeur |
 |---|---|
-| lac encadré | **881 ha — 94,0 %** |
-| fond relevé | **137,4 ha**, dont 36,0 de plus de 3 m, maximum **19,3 m** |
-| part du lac restant aveugle | **2,4 %**, contre 37,8 % |
-| volume à 647 m | 80,63 → **77,48 hm³** — 3,15 retirés, prix assumé du sens prudent |
+| lac encadré | **884 ha — 94,3 %** |
+| fond relevé | **128,1 ha**, dont 33,0 de plus de 3 m, maximum **17,7 m** |
+| fond abaissé | **283 ha**, médiane 2,20 m — voir L5 bis, ce volet est arrivé après |
+| part du lac restant aveugle | **2,2 %**, contre 37,8 % |
+| volume à 647 m | 80,63 → **84,76 hm³** — le relèvement en retire, la borne basse en rend plus |
 
 Trois décisions prises **sur mesure et non sur intuition** :
 
@@ -206,9 +208,71 @@ Trois décisions prises **sur mesure et non sur intuition** :
    l'un sera confirmé (§ 3.2). Sans quoi quelqu'un — nous, dans six mois — corrigerait
    l'un en oubliant l'autre, et fausserait le relèvement sans aucun signe extérieur.
 
+**Lot L5 bis — la sortie du 14/08/2026 a trouvé deux défauts, corrigés le jour même.**
+L'utilisateur a rapporté que les hauts-fonds ne tombaient pas où il les voyait, et que les
+ports sortaient de l'eau. Les deux étaient fondés.
+
+1. **La mosaïque était décalée d'environ 16 m vers l'ouest-nord-ouest.** Mesuré hors de la
+   chaîne de corrélation, sur les 8 118 sondes brutes de 2009 : pour chaque sonde on lit la
+   bande qui la recouvre et on vérifie que sa profondeur tombe dans l'intervalle annoncé.
+   L'optimum est le même sur onze sous-ensembles disjoints, et **le gain croît avec la
+   pente** — 26 % de réduction de l'écart sur fond plat, 66 % au-delà de 20 % de pente.
+   Un biais vertical améliorerait tout pareillement ; du bruit n'aurait pas de direction ;
+   seul un décalage horizontal fait cela. Origine probable : le calage de la vue d'ensemble
+   sur le contour BD TOPO, le trait de côte du fond de carte Garmin n'étant pas celui de
+   l'IGN. Correction appliquée au **mosaïquage** (`position_correction_merc` dans
+   `palettes.json`), jamais au géoréférencement, pour rester rejouable sans double
+   application. Résultat : écart moyen sur pente forte **0,63 → 0,33 m**, résidu nul dans
+   toutes les directions, relèvement maximal ramené de 19,3 à 17,7 m.
+
+   > Piège payé au passage : l'indice de ligne d'une image croît vers le **sud**, l'ordonnée
+   > Mercator vers le **nord**. La première correction avait +15 au lieu de −15 en Y et
+   > doublait l'erreur au lieu de l'annuler. Le contrôle sur les sondes l'a montré tout de
+   > suite — le refaire après toute modification.
+
+2. **La borne basse manquait, et c'est elle qui répare le trait de côte.** Une bande ne dit
+   pas seulement « pas plus profond que `dmax` » : elle dit aussi « au moins `dmin` d'eau,
+   puisqu'un bateau a flotté ici ». Sans elle, la couche ne pouvait rien réparer sur les
+   bords, où le modèle est trop **haut** et non trop bas : la `shore_constraint` épingle une
+   profondeur nulle sur le contour BD TOPO, qui est celui de la retenue normale à 650 m.
+   Mesuré avant correction : fond médian **648,89 m NGF** sur les 12 premiers mètres,
+   **113,7 ha émergés à la cote 647**, ports compris.
+
+   | | avant | après |
+   |---|---|---|
+   | émergé à la cote 647 | 113,7 ha | **49,4 ha** |
+   | émergé à la cote 648 | 67,2 ha | **17,1 ha** |
+   | fond médian de la frange de 12 m | 648,89 m | **646,18 m** |
+   | pente médiane de la frange 0-10 m | 79,1 % | **63,6 %** |
+   | volume à 647 m | 80,63 hm³ | **84,76 hm³** |
+
+   C'est le **seul mécanisme du modèle qui puisse annoncer plus d'eau qu'il n'y en a**, d'où
+   deux garde-fous obligatoires : l'abaissement ne descend jamais sous une sonde réellement
+   mesurée à moins de 25 m (le levé de 2009 garde le dernier mot là où il est passé), et il
+   s'arrête 0,5 m au-dessus de la borne stricte, `z_ac` étant une valeur centrale à ±1,5 m
+   et non une précision. 283 ha abaissés, médiane 2,20 m.
+
+**Deux prix à connaître.** D'abord le **terrassement** : une source en bandes produit des
+paliers plats, et la surface concernée passe de 121 à 404 ha — 20 altitudes couvrent 95,6 %
+des zones abaissées. C'est la forme honnête de la donnée, pas un défaut de calcul, mais cela
+se voit sur les courbes de niveau. Ensuite, **une vérification sur 128 échoue** :
+« épaisseur des contours constante d'un zoom à l'autre », 1,55 d'écart pour un seuil de 1,5,
+au point de sonde 45,79884 / 1,84400. Le shader n'a pas changé ; ce sont les isobathes qui
+s'y resserrent depuis que la zone est terrassée, et la mesure fusionne des traits voisins.
+Le seuil n'a **pas** été desserré pour faire passer le test.
+
+**Ce que ces deux défauts enseignent.** Aucun n'était visible depuis le dépôt : le premier
+demandait de confronter la couche à une source indépendante, le second de savoir à quoi
+ressemble un port en août. Le relèvement seul avait été jugé « prudent » sans qu'on
+remarque qu'il rendait la couche **inopérante là où le modèle se trompe le plus**. La leçon
+n'est pas « il fallait mieux vérifier » mais : une doctrine de sécurité formulée dans un
+seul sens ne protège que dans ce sens-là.
+
 Le canal bleu rend la couche **retirable d'un seul geste** : `quickdraw_source.enabled` à
 `false` reconstruit la grille sans elle, et les deux canaux disent, sans recalcul, ce
-qu'elle avait changé et de combien. C'est l'obligation de licence du § 3.5, honorée en même
+qu'elle avait changé et de combien. Il est devenu **signé** — 128 = aucun changement,
+au-dessus relèvement, en dessous abaissement, par pas de 0,2 m — puisque la couche peut
+désormais faire descendre le fond. C'est l'obligation de licence du § 3.5, honorée en même
 temps que le code et non après. **Ce que ça donne à l'écran n'a pas pu être vu par
 l'assistant** — page masquée, MapLibre ne s'initialise pas : cela se valide sur l'eau.
 
@@ -648,6 +712,8 @@ base relative (`<base href="../">`), y compris pour les clés de sa carte d'impo
 | Zones émergées | Locales, jamais synchronisées | Une interprétation n'a pas à voyager dans un fichier de mesures |
 | Encadrement communautaire | Relèvement seul, `max(z_modèle, 647,68 − dmax)` | On n'utilise que la borne basse de l'altitude : une erreur de calage ou une contribution prise à basse cote ne peut alors que remplir le lac, jamais le creuser |
 | Agrégation des bandes Quickdraw | Le minimum du bloc de 5 m, pas la médiane | Le désaccord entre captures se loge aux frontières de bande : prendre le minimum dilate le haut-fond d'une cellule, ce que la généralisation fait déjà volontairement à 15 m |
+| La couche communautaire peut **abaisser** le fond | Oui, partout, avec deux garde-fous | Décision de l'utilisateur le 14/08/2026, après une sortie où les ports apparaissaient à sec. Le relèvement seul ne pouvait rien réparer sur les bords, où le modèle est trop haut : la couche y était inopérante par construction. Garde-fous : jamais sous une sonde mesurée à moins de 25 m, et arrêt 0,5 m au-dessus de la borne stricte |
+| Position de la couche communautaire calée sur le levé de 2009 | Oui, translation unique mesurée sur les 8 118 sondes | Le calage sur le contour BD TOPO laissait 16 m d'erreur. Conséquence assumée : la **position** de la couche n'est plus indépendante du modèle ; sa **profondeur**, elle, le reste, et c'est elle qui sert de contrôle |
 | Carte de fiabilité | Trois états — mesuré, encadré, interpolé | Un encadrement n'est pas une mesure, mais ce n'est plus une interpolation : les deux mensonges opposés sont également graves |
 | Décalage d'étalonnage | Appliqué **seulement** sous le plan d'eau LiDAR | Au-dessus, la grille vient du MNT : ce sont des altitudes absolues |
 | Dépendances | MapLibre vendorisé en `.js` | La vérification stricte du type MIME rejette `.mjs` sur certains serveurs |

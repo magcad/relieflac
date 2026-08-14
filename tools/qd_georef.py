@@ -80,6 +80,10 @@ def load_campaign(name, path=PALETTES):
     c = dict(cfg["campaigns"][name])
     c["palette"] = [(tuple(p["rgb"]), p["dmin"], p["dmax"]) for p in c["palette"]]
     c["z_ac_m_ngf"] = cfg["z_ac_m_ngf"]
+    # Translation mesurée sur les sondes de 2009, appliquée au mosaïquage et NON ici :
+    # les solutions de `georef_*.json` restent celles de la corrélation brute, sans quoi
+    # une seconde exécution la réappliquerait par-dessus la première. Voir qd_mosaic.py.
+    c["position_correction_merc"] = tuple(cfg.get("position_correction_merc", (0.0, 0.0)))
     c["root"] = os.path.dirname(path)
     c["name"] = name
     return c
@@ -206,8 +210,13 @@ def reference_from_mosaic(png, meta, mask_bands, down=1):
     # Le centre se décale d'un demi-pixel résiduel quand la taille n'est pas
     # divisible : on le recalcule depuis la taille réellement obtenue.
     mpp = meta["mpp_merc"] * down
-    geo = {"cx": meta["bbox_3857"][0] + m.shape[1] / 2 * mpp,
-           "cy": meta["bbox_3857"][3] - m.shape[0] / 2 * mpp,
+    # La mosaïque de référence porte déjà la correction de position ; on la retire pour
+    # que les captures calées dessus ressortent dans le repère brut de la corrélation,
+    # celui que qd_mosaic.py corrigera à son tour. Sans cela, la correction serait
+    # appliquée deux fois à la campagne profonde, et seulement à elle.
+    fix_x, fix_y = meta.get("position_correction_merc", (0.0, 0.0))
+    geo = {"cx": meta["bbox_3857"][0] + m.shape[1] / 2 * mpp - fix_x,
+           "cy": meta["bbox_3857"][3] - m.shape[0] / 2 * mpp - fix_y,
            "mpp_merc": mpp}
     lat0 = np.degrees(2 * np.arctan(np.exp(geo["cy"] / R)) - np.pi / 2)
     geo["ground_mpp"] = mpp * np.cos(np.radians(lat0))

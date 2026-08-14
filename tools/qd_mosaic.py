@@ -67,10 +67,22 @@ def main():
     H = int((bb[3] - bb[1]) / args.mpp)
     print(f"mosaïque {W} x {H} px à {args.mpp} m/px Mercator, {len(geo)} captures")
 
+    # Correction de position, mesurée sur les sondes de 2009 (voir palettes.json).
+    # Elle s'applique ici et nulle part ailleurs : les solutions de georef_*.json
+    # restent celles de la corrélation brute, donc rejouables sans double correction.
+    fix_x, fix_y = camp["position_correction_merc"]
+    if fix_x or fix_y:
+        lat0 = np.degrees(2 * np.arctan(np.exp((bb[1] + bb[3]) / 2 / 6378137.0)) - np.pi / 2)
+        gnd = np.cos(np.radians(lat0))
+        print(f"correction de position : {fix_x:+.1f} / {fix_y:+.1f} m Mercator "
+              f"= {fix_x * gnd:+.1f} m est, {fix_y * gnd:+.1f} m nord au sol")
+
     mos = np.full((H, W), -1, np.int8)
     agree = disagree = 0
     for n, name in enumerate(sorted(geo, key=lambda k: -geo[k]["ground_mpp"]), 1):
-        g = geo[name]
+        g = dict(geo[name])
+        g["cx"] += fix_x
+        g["cy"] += fix_y
         bi = bands(read_map(os.path.join(args.directory, name)), palette)
         h, w = bi.shape
         i0 = max(int((g["cx"] - w / 2 * g["mpp_merc"] - bb[0]) / args.mpp), 0)
@@ -125,6 +137,7 @@ def main():
                "z_ac_m_ngf": gj["z_ac_m_ngf"],
                "palette": gj["palette"],
                "nodata_rgb": [16, 18, 24], "lake_nodata_rgb": [70, 70, 78],
+               "position_correction_merc": [fix_x, fix_y],
                "captures": sorted(geo),
                "overlap_agreement": round(agree / max(tot, 1), 4)},
               open(os.path.splitext(args.out)[0] + ".json", "w", encoding="utf-8"), indent=1)

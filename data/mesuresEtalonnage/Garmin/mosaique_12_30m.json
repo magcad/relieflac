@@ -76,6 +76,10 @@
   70,
   78
  ],
+ "position_correction_merc": [
+  18.0,
+  -15.0
+ ],
  "captures": [
   "IMG_1172.PNG",
   "IMG_1173.PNG",

@@ -1,0 +1,746 @@
+[
+ {
+  "lat": 45.80105,
+  "lon": 1.84945,
+  "profondeur_m": 0.3,
+  "releve_m": 4.0,
+  "surface_ha": 0.2,
+  "sonde_2009_m": 12
+ },
+ {
+  "lat": 45.809224,
+  "lon": 1.86343,
+  "profondeur_m": 0.9,
+  "releve_m": 2.6,
+  "surface_ha": 0.84,
+  "sonde_2009_m": 7
+ },
+ {
+  "lat": 45.798311,
+  "lon": 1.869615,
+  "profondeur_m": 1.3,
+  "releve_m": 2.2,
+  "surface_ha": 1.38,
+  "sonde_2009_m": 2
+ },
+ {
+  "lat": 45.807787,
+  "lon": 1.896866,
+  "profondeur_m": 2.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.07,
+  "sonde_2009_m": 30
+ },
+ {
+  "lat": 45.802398,
+  "lon": 1.898799,
+  "profondeur_m": 2.0,
+  "releve_m": 5.6,
+  "surface_ha": 1.63,
+  "sonde_2009_m": 108
+ },
+ {
+  "lat": 45.794582,
+  "lon": 1.889522,
+  "profondeur_m": 2.0,
+  "releve_m": 5.4,
+  "surface_ha": 0.99,
+  "sonde_2009_m": 113
+ },
+ {
+  "lat": 45.792831,
+  "lon": 1.882886,
+  "profondeur_m": 2.0,
+  "releve_m": 3.0,
+  "surface_ha": 0.46,
+  "sonde_2009_m": 27
+ },
+ {
+  "lat": 45.792426,
+  "lon": 1.85396,
+  "profondeur_m": 2.3,
+  "releve_m": 2.4,
+  "surface_ha": 0.3,
+  "sonde_2009_m": 8
+ },
+ {
+  "lat": 45.786811,
+  "lon": 1.874511,
+  "profondeur_m": 2.5,
+  "releve_m": 2.2,
+  "surface_ha": 0.09,
+  "sonde_2009_m": 1
+ },
+ {
+  "lat": 45.802398,
+  "lon": 1.856473,
+  "profondeur_m": 2.7,
+  "releve_m": 2.8,
+  "surface_ha": 4.24,
+  "sonde_2009_m": 13
+ },
+ {
+  "lat": 45.806574,
+  "lon": 1.868455,
+  "profondeur_m": 3.0,
+  "releve_m": 5.0,
+  "surface_ha": 0.33,
+  "sonde_2009_m": 108
+ },
+ {
+  "lat": 45.804913,
+  "lon": 1.858856,
+  "profondeur_m": 3.0,
+  "releve_m": 2.8,
+  "surface_ha": 2.63,
+  "sonde_2009_m": 68
+ },
+ {
+  "lat": 45.800826,
+  "lon": 1.894096,
+  "profondeur_m": 3.0,
+  "releve_m": 2.2,
+  "surface_ha": 0.66,
+  "sonde_2009_m": 62
+ },
+ {
+  "lat": 45.800646,
+  "lon": 1.850997,
+  "profondeur_m": 3.0,
+  "releve_m": 2.4,
+  "surface_ha": 0.08,
+  "sonde_2009_m": 42
+ },
+ {
+  "lat": 45.79575,
+  "lon": 1.858276,
+  "profondeur_m": 3.0,
+  "releve_m": 6.6,
+  "surface_ha": 1.5,
+  "sonde_2009_m": 85
+ },
+ {
+  "lat": 45.795975,
+  "lon": 1.863366,
+  "profondeur_m": 3.0,
+  "releve_m": 4.0,
+  "surface_ha": 1.26,
+  "sonde_2009_m": 69
+ },
+ {
+  "lat": 45.794987,
+  "lon": 1.862979,
+  "profondeur_m": 3.0,
+  "releve_m": 5.0,
+  "surface_ha": 0.32,
+  "sonde_2009_m": 63
+ },
+ {
+  "lat": 45.790135,
+  "lon": 1.868842,
+  "profondeur_m": 3.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.06,
+  "sonde_2009_m": 63
+ },
+ {
+  "lat": 45.813849,
+  "lon": 1.856473,
+  "profondeur_m": 4.0,
+  "releve_m": 5.2,
+  "surface_ha": 2.96,
+  "sonde_2009_m": 39
+ },
+ {
+  "lat": 45.810347,
+  "lon": 1.869808,
+  "profondeur_m": 4.0,
+  "releve_m": 2.4,
+  "surface_ha": 1.24,
+  "sonde_2009_m": 24
+ },
+ {
+  "lat": 45.807248,
+  "lon": 1.852092,
+  "profondeur_m": 4.0,
+  "releve_m": 2.4,
+  "surface_ha": 0.1,
+  "sonde_2009_m": 12
+ },
+ {
+  "lat": 45.80617,
+  "lon": 1.851512,
+  "profondeur_m": 4.0,
+  "releve_m": 2.2,
+  "surface_ha": 3.58,
+  "sonde_2009_m": 51
+ },
+ {
+  "lat": 45.802892,
+  "lon": 1.846873,
+  "profondeur_m": 4.0,
+  "releve_m": 3.8,
+  "surface_ha": 0.23,
+  "sonde_2009_m": 74
+ },
+ {
+  "lat": 45.800646,
+  "lon": 1.851319,
+  "profondeur_m": 4.0,
+  "releve_m": 3.6,
+  "surface_ha": 0.29,
+  "sonde_2009_m": 55
+ },
+ {
+  "lat": 45.797457,
+  "lon": 1.866909,
+  "profondeur_m": 4.0,
+  "releve_m": 2.4,
+  "surface_ha": 0.79,
+  "sonde_2009_m": 136
+ },
+ {
+  "lat": 45.796918,
+  "lon": 1.892163,
+  "profondeur_m": 4.0,
+  "releve_m": 4.0,
+  "surface_ha": 0.81,
+  "sonde_2009_m": 14
+ },
+ {
+  "lat": 45.79593,
+  "lon": 1.86285,
+  "profondeur_m": 4.0,
+  "releve_m": 4.2,
+  "surface_ha": 0.07,
+  "sonde_2009_m": 51
+ },
+ {
+  "lat": 45.807742,
+  "lon": 1.874511,
+  "profondeur_m": 4.2,
+  "releve_m": 3.4,
+  "surface_ha": 1.44,
+  "sonde_2009_m": 4
+ },
+ {
+  "lat": 45.789956,
+  "lon": 1.872772,
+  "profondeur_m": 4.7,
+  "releve_m": 2.4,
+  "surface_ha": 1.22,
+  "sonde_2009_m": 15
+ },
+ {
+  "lat": 45.790585,
+  "lon": 1.868262,
+  "profondeur_m": 4.8,
+  "releve_m": 2.2,
+  "surface_ha": 0.15,
+  "sonde_2009_m": 5
+ },
+ {
+  "lat": 45.804015,
+  "lon": 1.847131,
+  "profondeur_m": 5.6,
+  "releve_m": 2.0,
+  "surface_ha": 0.12,
+  "sonde_2009_m": 10
+ },
+ {
+  "lat": 45.807832,
+  "lon": 1.867489,
+  "profondeur_m": 5.7,
+  "releve_m": 4.2,
+  "surface_ha": 0.91,
+  "sonde_2009_m": 8
+ },
+ {
+  "lat": 45.794043,
+  "lon": 1.855635,
+  "profondeur_m": 5.7,
+  "releve_m": 2.2,
+  "surface_ha": 0.11,
+  "sonde_2009_m": 8
+ },
+ {
+  "lat": 45.802353,
+  "lon": 1.871612,
+  "profondeur_m": 5.9,
+  "releve_m": 2.2,
+  "surface_ha": 0.71,
+  "sonde_2009_m": 3
+ },
+ {
+  "lat": 45.806979,
+  "lon": 1.868713,
+  "profondeur_m": 6.0,
+  "releve_m": 2.2,
+  "surface_ha": 2.22,
+  "sonde_2009_m": 114
+ },
+ {
+  "lat": 45.807023,
+  "lon": 1.900087,
+  "profondeur_m": 6.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.05,
+  "sonde_2009_m": 48
+ },
+ {
+  "lat": 45.804329,
+  "lon": 1.871419,
+  "profondeur_m": 6.0,
+  "releve_m": 5.2,
+  "surface_ha": 0.21,
+  "sonde_2009_m": 76
+ },
+ {
+  "lat": 45.802443,
+  "lon": 1.848226,
+  "profondeur_m": 6.0,
+  "releve_m": 2.0,
+  "surface_ha": 2.21,
+  "sonde_2009_m": 13
+ },
+ {
+  "lat": 45.799927,
+  "lon": 1.902278,
+  "profondeur_m": 6.0,
+  "releve_m": 2.4,
+  "surface_ha": 0.32,
+  "sonde_2009_m": 132
+ },
+ {
+  "lat": 45.799523,
+  "lon": 1.858534,
+  "profondeur_m": 6.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.19,
+  "sonde_2009_m": 68
+ },
+ {
+  "lat": 45.7962,
+  "lon": 1.866072,
+  "profondeur_m": 6.0,
+  "releve_m": 3.8,
+  "surface_ha": 0.07,
+  "sonde_2009_m": 139
+ },
+ {
+  "lat": 45.795256,
+  "lon": 1.85615,
+  "profondeur_m": 6.0,
+  "releve_m": 4.2,
+  "surface_ha": 0.07,
+  "sonde_2009_m": 25
+ },
+ {
+  "lat": 45.788878,
+  "lon": 1.876895,
+  "profondeur_m": 6.0,
+  "releve_m": 8.4,
+  "surface_ha": 1.91,
+  "sonde_2009_m": 67
+ },
+ {
+  "lat": 45.780342,
+  "lon": 1.869293,
+  "profondeur_m": 6.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.1,
+  "sonde_2009_m": 25
+ },
+ {
+  "lat": 45.811739,
+  "lon": 1.853638,
+  "profondeur_m": 6.5,
+  "releve_m": 2.2,
+  "surface_ha": 0.16,
+  "sonde_2009_m": 10
+ },
+ {
+  "lat": 45.804464,
+  "lon": 1.862142,
+  "profondeur_m": 7.4,
+  "releve_m": 2.0,
+  "surface_ha": 0.07,
+  "sonde_2009_m": 3
+ },
+ {
+  "lat": 45.815286,
+  "lon": 1.858534,
+  "profondeur_m": 8.0,
+  "releve_m": 2.2,
+  "surface_ha": 0.04,
+  "sonde_2009_m": 37
+ },
+ {
+  "lat": 45.812816,
+  "lon": 1.858985,
+  "profondeur_m": 8.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.06,
+  "sonde_2009_m": 64
+ },
+ {
+  "lat": 45.808146,
+  "lon": 1.860596,
+  "profondeur_m": 8.0,
+  "releve_m": 2.6,
+  "surface_ha": 0.17,
+  "sonde_2009_m": 17
+ },
+ {
+  "lat": 45.805272,
+  "lon": 1.871097,
+  "profondeur_m": 8.0,
+  "releve_m": 2.2,
+  "surface_ha": 0.04,
+  "sonde_2009_m": 5
+ },
+ {
+  "lat": 45.804284,
+  "lon": 1.871805,
+  "profondeur_m": 8.0,
+  "releve_m": 5.6,
+  "surface_ha": 0.45,
+  "sonde_2009_m": 67
+ },
+ {
+  "lat": 45.800646,
+  "lon": 1.902407,
+  "profondeur_m": 8.0,
+  "releve_m": 3.0,
+  "surface_ha": 0.4,
+  "sonde_2009_m": 87
+ },
+ {
+  "lat": 45.795661,
+  "lon": 1.895191,
+  "profondeur_m": 8.0,
+  "releve_m": 2.4,
+  "surface_ha": 0.04,
+  "sonde_2009_m": 73
+ },
+ {
+  "lat": 45.795122,
+  "lon": 1.855571,
+  "profondeur_m": 8.0,
+  "releve_m": 5.4,
+  "surface_ha": 0.36,
+  "sonde_2009_m": 17
+ },
+ {
+  "lat": 45.794987,
+  "lon": 1.852478,
+  "profondeur_m": 8.0,
+  "releve_m": 2.4,
+  "surface_ha": 0.3,
+  "sonde_2009_m": 19
+ },
+ {
+  "lat": 45.793594,
+  "lon": 1.855635,
+  "profondeur_m": 8.0,
+  "releve_m": 7.0,
+  "surface_ha": 0.07,
+  "sonde_2009_m": 25
+ },
+ {
+  "lat": 45.790764,
+  "lon": 1.882242,
+  "profondeur_m": 8.0,
+  "releve_m": 2.8,
+  "surface_ha": 0.04,
+  "sonde_2009_m": 30
+ },
+ {
+  "lat": 45.789417,
+  "lon": 1.870388,
+  "profondeur_m": 8.0,
+  "releve_m": 5.4,
+  "surface_ha": 0.09,
+  "sonde_2009_m": 7
+ },
+ {
+  "lat": 45.786586,
+  "lon": 1.852027,
+  "profondeur_m": 8.0,
+  "releve_m": 2.2,
+  "surface_ha": 0.1,
+  "sonde_2009_m": 35
+ },
+ {
+  "lat": 45.808775,
+  "lon": 1.873802,
+  "profondeur_m": 9.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.09,
+  "sonde_2009_m": 7
+ },
+ {
+  "lat": 45.811873,
+  "lon": 1.853831,
+  "profondeur_m": 10.2,
+  "releve_m": 2.6,
+  "surface_ha": 0.06,
+  "sonde_2009_m": 9
+ },
+ {
+  "lat": 45.799254,
+  "lon": 1.873223,
+  "profondeur_m": 11.0,
+  "releve_m": 2.4,
+  "surface_ha": 0.18,
+  "sonde_2009_m": 11
+ },
+ {
+  "lat": 45.804104,
+  "lon": 1.876379,
+  "profondeur_m": 11.9,
+  "releve_m": 3.2,
+  "surface_ha": 0.17,
+  "sonde_2009_m": 9
+ },
+ {
+  "lat": 45.799209,
+  "lon": 1.846229,
+  "profondeur_m": 11.9,
+  "releve_m": 2.0,
+  "surface_ha": 0.07,
+  "sonde_2009_m": 7
+ },
+ {
+  "lat": 45.816813,
+  "lon": 1.861369,
+  "profondeur_m": 12.0,
+  "releve_m": 3.2,
+  "surface_ha": 0.51,
+  "sonde_2009_m": 13
+ },
+ {
+  "lat": 45.816004,
+  "lon": 1.862464,
+  "profondeur_m": 12.0,
+  "releve_m": 2.4,
+  "surface_ha": 0.04,
+  "sonde_2009_m": 21
+ },
+ {
+  "lat": 45.815241,
+  "lon": 1.861949,
+  "profondeur_m": 12.0,
+  "releve_m": 4.4,
+  "surface_ha": 0.19,
+  "sonde_2009_m": 31
+ },
+ {
+  "lat": 45.813894,
+  "lon": 1.854926,
+  "profondeur_m": 12.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.04,
+  "sonde_2009_m": 37
+ },
+ {
+  "lat": 45.812951,
+  "lon": 1.858663,
+  "profondeur_m": 12.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.17,
+  "sonde_2009_m": 49
+ },
+ {
+  "lat": 45.811963,
+  "lon": 1.852478,
+  "profondeur_m": 12.0,
+  "releve_m": 4.0,
+  "surface_ha": 0.13,
+  "sonde_2009_m": 6
+ },
+ {
+  "lat": 45.811379,
+  "lon": 1.854475,
+  "profondeur_m": 12.0,
+  "releve_m": 2.6,
+  "surface_ha": 0.41,
+  "sonde_2009_m": 65
+ },
+ {
+  "lat": 45.808191,
+  "lon": 1.854733,
+  "profondeur_m": 12.0,
+  "releve_m": 6.4,
+  "surface_ha": 0.32,
+  "sonde_2009_m": 162
+ },
+ {
+  "lat": 45.807922,
+  "lon": 1.860402,
+  "profondeur_m": 12.0,
+  "releve_m": 3.4,
+  "surface_ha": 0.08,
+  "sonde_2009_m": 3
+ },
+ {
+  "lat": 45.805092,
+  "lon": 1.860725,
+  "profondeur_m": 12.0,
+  "releve_m": 2.6,
+  "surface_ha": 0.05,
+  "sonde_2009_m": 79
+ },
+ {
+  "lat": 45.803296,
+  "lon": 1.872385,
+  "profondeur_m": 12.0,
+  "releve_m": 4.0,
+  "surface_ha": 0.5,
+  "sonde_2009_m": 85
+ },
+ {
+  "lat": 45.799793,
+  "lon": 1.851963,
+  "profondeur_m": 12.0,
+  "releve_m": 10.6,
+  "surface_ha": 0.11,
+  "sonde_2009_m": 14
+ },
+ {
+  "lat": 45.799074,
+  "lon": 1.858599,
+  "profondeur_m": 12.0,
+  "releve_m": 2.4,
+  "surface_ha": 0.05,
+  "sonde_2009_m": 43
+ },
+ {
+  "lat": 45.796289,
+  "lon": 1.872901,
+  "profondeur_m": 12.0,
+  "releve_m": 2.8,
+  "surface_ha": 0.15,
+  "sonde_2009_m": 17
+ },
+ {
+  "lat": 45.795795,
+  "lon": 1.868069,
+  "profondeur_m": 12.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.12,
+  "sonde_2009_m": 92
+ },
+ {
+  "lat": 45.795616,
+  "lon": 1.852478,
+  "profondeur_m": 12.0,
+  "releve_m": 5.4,
+  "surface_ha": 0.04,
+  "sonde_2009_m": 9
+ },
+ {
+  "lat": 45.792741,
+  "lon": 1.85673,
+  "profondeur_m": 12.0,
+  "releve_m": 2.2,
+  "surface_ha": 0.06,
+  "sonde_2009_m": 34
+ },
+ {
+  "lat": 45.792202,
+  "lon": 1.857374,
+  "profondeur_m": 12.0,
+  "releve_m": 2.2,
+  "surface_ha": 0.1,
+  "sonde_2009_m": 25
+ },
+ {
+  "lat": 45.790989,
+  "lon": 1.868391,
+  "profondeur_m": 12.0,
+  "releve_m": 2.2,
+  "surface_ha": 0.05,
+  "sonde_2009_m": 34
+ },
+ {
+  "lat": 45.790899,
+  "lon": 1.87857,
+  "profondeur_m": 12.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.05,
+  "sonde_2009_m": 33
+ },
+ {
+  "lat": 45.811784,
+  "lon": 1.854604,
+  "profondeur_m": 14.0,
+  "releve_m": 6.6,
+  "surface_ha": 0.04,
+  "sonde_2009_m": 42
+ },
+ {
+  "lat": 45.808281,
+  "lon": 1.858792,
+  "profondeur_m": 16.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.15,
+  "sonde_2009_m": 115
+ },
+ {
+  "lat": 45.805047,
+  "lon": 1.856666,
+  "profondeur_m": 19.9,
+  "releve_m": 2.6,
+  "surface_ha": 0.46,
+  "sonde_2009_m": 3
+ },
+ {
+  "lat": 45.812861,
+  "lon": 1.852349,
+  "profondeur_m": 20.0,
+  "releve_m": 2.2,
+  "surface_ha": 0.08,
+  "sonde_2009_m": 17
+ },
+ {
+  "lat": 45.812367,
+  "lon": 1.853509,
+  "profondeur_m": 20.0,
+  "releve_m": 4.6,
+  "surface_ha": 0.05,
+  "sonde_2009_m": 64
+ },
+ {
+  "lat": 45.807607,
+  "lon": 1.859049,
+  "profondeur_m": 20.0,
+  "releve_m": 2.2,
+  "surface_ha": 0.1,
+  "sonde_2009_m": 112
+ },
+ {
+  "lat": 45.805137,
+  "lon": 1.854862,
+  "profondeur_m": 22.0,
+  "releve_m": 5.2,
+  "surface_ha": 0.3,
+  "sonde_2009_m": 73
+ },
+ {
+  "lat": 45.794942,
+  "lon": 1.853702,
+  "profondeur_m": 22.0,
+  "releve_m": 2.0,
+  "surface_ha": 0.1,
+  "sonde_2009_m": 20
+ },
+ {
+  "lat": 45.802667,
+  "lon": 1.855184,
+  "profondeur_m": 25.0,
+  "releve_m": 2.4,
+  "surface_ha": 0.06,
+  "sonde_2009_m": 5
+ }
+]

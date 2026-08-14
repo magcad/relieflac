@@ -3,6 +3,8 @@
  "z_ac_m_ngf": 647.68,
  "land_rgb": [155, 152, 98],
  "crop": [0, 192, 1752, 1599],
+ "position_correction_merc": [18.0, -15.0],
+ "$comment_position": "Translation appliquee a TOUTES les captures au moment du mosaiquage, en metres Mercator (est, nord) — soit +12,6 m est et 10,5 m SUD au sol, environ 16 m vers l'est-sud-est. Attention au signe en Y : l'indice de ligne d'une image croit vers le sud, l'ordonnee Mercator vers le nord. Une premiere version avait +15 au lieu de -15 et doublait l'erreur au lieu de l'annuler ; le controle qui l'a montre est ci-dessous, refaites-le apres toute modification. Le calage brut de qd_georef.py place les motifs environ 16 m trop au sud-ouest. Mesure independamment de la correlation, sur les 8118 sondes brutes du leve OFB 2009 : pour chaque sonde on lit la bande qui la recouvre et on regarde si sa profondeur tombe dans l'intervalle annonce. L'optimum est le meme sur onze sous-ensembles disjoints (bassin ouest, bassin est, moitie nord, moitie sud, chaque tranche de profondeur, chaque tranche de distance au rivage, et les deux campagnes). Ce qui le demontre, c'est que le gain croit avec la pente du fond — 26 % de reduction de l'ecart sur fond plat, 66 % sur pente > 20 % : un biais vertical ameliorerait tout pareillement, du bruit n'aurait pas de direction, seul un decalage horizontal fait cela. L'origine probable est le calage de la vue d'ensemble sur le contour BD TOPO : le trait de cote dessine par le fond de carte Garmin n'est pas celui de la BD TOPO. Consequence a assumer : la POSITION de la couche communautaire est desormais calee sur le leve de 2009, elle n'en est plus independante ; sa PROFONDEUR, elle, le reste.",
  "campaigns": {
   "0-12m": {
    "folder": "Carte_0-12m",

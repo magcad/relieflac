@@ -6,8 +6,8 @@
     "max_m": 314.5,
     "share_within_25m": 0.3219,
     "share_beyond_60m": 0.3784,
-    "share_bounded": 0.9403,
-    "share_blind": 0.0239
+    "share_bounded": 0.9431,
+    "share_blind": 0.0224
   },
   "safety_depth_m": 1.5,
   "presets": {
@@ -90,7 +90,7 @@
       {
         "lon": 1.89965,
         "lat": 45.79602,
-        "z": 650.61
+        "z": 647.18
       },
       {
         "lon": 1.91,

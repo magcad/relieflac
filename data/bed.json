@@ -42,7 +42,7 @@
   },
   "z_range_m_ngf": [
     618.53,
-    655.72
+    653.71
   ],
   "coverage_ratio": 0.9998,
   "smoothing_sigma_m": 15.0,
@@ -65,58 +65,84 @@
     "aggregate_quantile": 0.0,
     "min_decoded_fraction": 0.25,
     "min_shore_distance_m": 0.0,
-    "cells_constrained": 352383,
-    "cells_raised": 54974,
-    "constrained_ha": 881.0,
-    "raised_ha": 137.4,
-    "lake_share_constrained": 0.9403,
-    "max_shallower_m": 19.26,
-    "median_shallower_m": 1.4,
+    "cells_constrained": 353453,
+    "cells_raised": 51234,
+    "constrained_ha": 883.6,
+    "raised_ha": 128.1,
+    "lake_share_constrained": 0.9431,
+    "max_shallower_m": 17.67,
+    "median_shallower_m": 1.36,
     "ha_above": {
-      "0": 137.4,
-      "2": 53.1,
-      "3": 36.0,
-      "5": 17.3,
-      "8": 5.1
+      "0": 128.1,
+      "2": 48.1,
+      "3": 33.0,
+      "5": 15.6,
+      "8": 4.2
+    },
+    "lower_bound": {
+      "enabled": true,
+      "lower_margin_m": 0.5,
+      "lower_guard_radius_m": 25.0,
+      "cells_lowered": 118024,
+      "lowered_ha": 295.1,
+      "dry_recovered_ha_at_648": 49.9,
+      "dry_recovered_ha_at_647": 64.2,
+      "dry_recovered_ha_at_646": 56.0,
+      "median_deeper_m": 2.01,
+      "max_deeper_m": 20.41,
+      "ha_below": {
+        "0": 295.1,
+        "1": 209.2,
+        "2": 147.9,
+        "5": 44.4
+      }
     },
     "shore_fringe": {
       "0-25": {
-        "constrained_ha": 87.2,
-        "raised_ha": 6.2,
-        "share_raised": 0.0709,
-        "median_shallower_m": 2.06
+        "constrained_ha": 89.8,
+        "raised_ha": 6.5,
+        "share_raised": 0.0721,
+        "median_shallower_m": 2.31,
+        "lowered_ha": 64.8,
+        "median_deeper_m": 2.39
       },
       "25-50": {
-        "constrained_ha": 118.0,
-        "raised_ha": 15.5,
-        "share_raised": 0.1315,
-        "median_shallower_m": 1.53
+        "constrained_ha": 118.3,
+        "raised_ha": 15.2,
+        "share_raised": 0.1282,
+        "median_shallower_m": 1.46,
+        "lowered_ha": 57.0,
+        "median_deeper_m": 1.74
       },
       "50-100": {
-        "constrained_ha": 203.9,
-        "raised_ha": 36.7,
-        "share_raised": 0.1801,
-        "median_shallower_m": 1.74
+        "constrained_ha": 202.9,
+        "raised_ha": 32.5,
+        "share_raised": 0.1603,
+        "median_shallower_m": 1.56,
+        "lowered_ha": 78.4,
+        "median_deeper_m": 1.82
       },
       "100+": {
-        "constrained_ha": 471.8,
-        "raised_ha": 79.0,
-        "share_raised": 0.1675,
-        "median_shallower_m": 1.19
+        "constrained_ha": 472.7,
+        "raised_ha": 73.9,
+        "share_raised": 0.1564,
+        "median_shallower_m": 1.18,
+        "lowered_ha": 94.8,
+        "median_deeper_m": 1.93
       }
     },
     "volume_647_hm3": [
       80.63,
-      77.48
+      84.76
     ],
-    "volume_removed_hm3": 3.15
+    "volume_removed_hm3": -4.12
   },
   "shoal_bias": {
     "radius_m": 21.51491703756115,
-    "cells_raised": 35501,
+    "cells_raised": 36269,
     "cells_valid": 374698,
-    "max_shallower_m": 8.23,
-    "mean_shallower_m": 0.825
+    "max_shallower_m": 7.82,
+    "mean_shallower_m": 0.836
   },
   "coverage": {
     "unit": "m",
@@ -126,15 +152,15 @@
     "share_within_25m": 0.3219,
     "share_within_60m": 0.6216,
     "share_beyond_60m": 0.3784,
-    "share_bounded": 0.9403,
-    "share_blind": 0.0239,
+    "share_bounded": 0.9431,
+    "share_blind": 0.0224,
     "file": "coverage.png",
     "channels": {
       "R": "distance en mètres à la sonde mesurée la plus proche, plafonnée à 255",
       "G": "borne de profondeur de la cartographie communautaire Quickdraw, en mètres arrondis au-dessus ; 0 = aucun encadrement",
-      "B": "relèvement appliqué par cette couche, en décimètres ; 0 = aucun"
+      "B": "changement appliqué par cette couche, signé : 128 = aucun, au-dessus elle a relevé le fond, en dessous elle l'a abaissé, par pas de 0,2 m — soit (B - 128) / 5 mètres, de -25,6 à +25,4"
     },
-    "note": "Image RGB, même emprise et même taille que bed.png. Trois états, et non deux : mesuré (R faible), encadré par la communauté Quickdraw (R élevé mais G > 0 — personne n'y a mesuré au décimètre, mais un bateau y est passé et sa bande interdit un haut-fond), interpolé (R élevé et G = 0 — la valeur du modèle ne repose alors sur aucune mesure). G et B rendent la couche communautaire identifiable cellule par cellule."
+    "note": "Image RGB, même emprise et même taille que bed.png. Trois états, et non deux : mesuré (R faible), encadré par la communauté Quickdraw (R élevé mais G > 0 — personne n'y a mesuré au décimètre, mais un bateau y est passé : sa bande interdit un haut-fond, et garantit aussi une hauteur d'eau minimale), interpolé (R élevé et G = 0 — la valeur du modèle ne repose alors sur aucune mesure). G et B rendent la couche communautaire identifiable cellule par cellule."
   },
   "reference_levels": {
     "$comment": "Cote du plan d'eau au moment de chaque levé, en m NGF. C'est ce qui convertit une profondeur en altitude de fond.",

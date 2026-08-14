@@ -9,6 +9,7 @@
  "width": 8806,
  "height": 6913,
  "mpp_merc": 1.0,
+ "z_ac_m_ngf": 647.68,
  "palette": [
   {
    "rgb": [
@@ -101,34 +102,6 @@
    "dmax": 30.0
   }
  ],
- "captures": [
-  "IMG_1143.PNG",
-  "IMG_1146.PNG",
-  "IMG_1156.PNG",
-  "IMG_1154.PNG",
-  "IMG_1164.PNG",
-  "IMG_1158.PNG",
-  "IMG_1159.PNG",
-  "IMG_1162.PNG",
-  "IMG_1147.PNG",
-  "IMG_1151.PNG",
-  "IMG_1155.PNG",
-  "IMG_1157.PNG",
-  "IMG_1163.PNG",
-  "IMG_1168.PNG",
-  "IMG_1149.PNG",
-  "IMG_1150.PNG",
-  "IMG_1160.PNG",
-  "IMG_1170.PNG",
-  "IMG_1152.PNG",
-  "IMG_1165.PNG",
-  "IMG_1166.PNG",
-  "IMG_1169.PNG",
-  "IMG_1153.PNG",
-  "IMG_1161.PNG",
-  "IMG_1167.PNG"
- ],
- "z_ac_m_ngf": 647.68,
  "nodata_rgb": [
   16,
   18,
@@ -139,6 +112,36 @@
   70,
   78
  ],
- "fill_radius_m": 10.0,
- "overlap_agreement": 0.881
+ "position_correction_merc": [
+  18.0,
+  -15.0
+ ],
+ "captures": [
+  "IMG_1143.PNG",
+  "IMG_1146.PNG",
+  "IMG_1147.PNG",
+  "IMG_1149.PNG",
+  "IMG_1150.PNG",
+  "IMG_1151.PNG",
+  "IMG_1152.PNG",
+  "IMG_1153.PNG",
+  "IMG_1154.PNG",
+  "IMG_1155.PNG",
+  "IMG_1156.PNG",
+  "IMG_1157.PNG",
+  "IMG_1158.PNG",
+  "IMG_1159.PNG",
+  "IMG_1160.PNG",
+  "IMG_1161.PNG",
+  "IMG_1162.PNG",
+  "IMG_1163.PNG",
+  "IMG_1164.PNG",
+  "IMG_1165.PNG",
+  "IMG_1166.PNG",
+  "IMG_1167.PNG",
+  "IMG_1168.PNG",
+  "IMG_1169.PNG",
+  "IMG_1170.PNG"
+ ],
+ "overlap_agreement": 0.8815
 }
