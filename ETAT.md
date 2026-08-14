@@ -883,6 +883,17 @@ Leçon : *un état de simulation qui persiste n'est plus une simulation.* Tout r
 mode temporaire écrit dans le stockage doit savoir dire qu'il est temporaire — sans quoi
 c'est le redémarrage, et non l'utilisateur, qui décide de ce qui est vrai.
 
+**Suite, le 15/08/2026 :** l'utilisateur a signalé que le bouton « Revenir à la cote EDF »
+ne remettait rien. Il remettait tout — sauf l'affichage. L'écouteur de changement des
+réglages rafraîchissait le fond, les sondes et les zones, jamais la cote : le bandeau restait
+figé sur la valeur précédente, y compris après une sortie de simulation en règle. Corrigé en
+branchant `refreshLevelUi` sur cet écouteur (elle enchaîne d'elle-même le fond et les
+surcouches), et en faisant confirmer le bouton par un message même quand il n'y avait rien à
+effacer. Ce défaut-là avait survécu au correctif de la veille parce que le banc d'essai
+vérifiait `manualLevel === null` dans le stockage : il passait pendant que l'écran mentait.
+Les vérifications portent maintenant sur le texte du bandeau, et elles échouent bien sur la
+version d'avant.
+
 À noter, et c'est ce qui rend le piège coûteux : **une mesure de terrain prise pendant ce
 temps-là est contaminée**. Le recalage de 2,72 m du lot L6 bis a été mesuré en comparant le
 trait de côte de la carte à celui du terrain ; si la cote affichée était fausse au moment de
@@ -971,6 +982,21 @@ la comparaison, l'écart mesuré l'est aussi, d'autant. La mesure est à refaire
   n'apparaissait qu'**après la première correction**, où le hachurage revenait à deux
   états. Règle : quand une donnée existe en deux exemplaires — le fichier et le tampon
   réécrit — tout canal ajouté à l'un doit l'être à l'autre dans le même geste.
+- **Un réglage remis, un écran qui dit le contraire.** « Revenir à la cote EDF » vidait bien
+  `manualLevel` — le stockage était juste, la carte se recolorait — mais le bandeau gardait
+  la cote précédente : l'écouteur de changement des réglages rafraîchissait le fond, les
+  sondes, les zones, et pas la cote. Le bouton passait donc pour cassé, et la sortie de
+  simulation laissait elle aussi une fausse cote **affichée** alors que l'application n'en
+  tenait plus compte. Le banc d'essai ne l'a pas vu parce qu'il vérifiait le stockage :
+  `settings().manualLevel === null` passait pendant que l'écran mentait. Deux règles depuis :
+  un écouteur de réglages qui rafraîchit une partie de l'écran doit **tout** rafraîchir ou
+  dire pourquoi non ; et un enchaînement se vérifie sur **ce que l'utilisateur lit**, pas sur
+  ce que le stockage contient — les deux nouvelles vérifications échouent bien sur la version
+  d'avant, c'est ce qui en fait des gardes.
+- **Un bouton qui n'a rien à faire ne doit pas se taire.** `set` ne notifie personne si la
+  valeur ne change pas : appuyer sur « Revenir à la cote EDF » alors qu'aucune cote manuelle
+  n'était en place ne déclenchait rien du tout. Indiscernable d'une panne. Un bouton d'action
+  confirme toujours, ne serait-ce que par un message.
 - **Collision de noms dans `build_grid.py`.** `coverage` désignait déjà le taux de
   cellules valides.
 

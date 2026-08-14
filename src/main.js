@@ -759,7 +759,18 @@ function wireSettings() {
 
   $('btn-clear-manual').addEventListener('click', () => {
     s.set('manualLevel', null);
+    // Une cote posée par la simulation laisse un marqueur : la retirer à la main, c'est
+    // aussi sortir de cet état, sinon le démarrage suivant abandonnerait une cote que
+    // l'utilisateur aurait pu saisir entre-temps.
+    if (s.get('manualFromSim')) s.set('manualFromSim', false);
     $('set-manual-level').value = '';
+    // Appelé sans condition : `set` ne notifie personne si la valeur était déjà `null`, et
+    // un bouton qui ne répond pas quand il n'y avait rien à effacer passe pour cassé.
+    refreshLevelUi();
+    const state = currentLevel();
+    toast(state.value == null
+      ? `Cote EDF indisponible — ${state.label}`
+      : `Cote EDF ${state.value.toFixed(2)} m NGF`);
   });
   $('btn-refresh-level').addEventListener('click', async () => {
     await app.level.refresh();
@@ -788,9 +799,13 @@ function wireSettings() {
 
   s.addEventListener('change', (event) => {
     refreshSettingsUi();
-    refreshDepthStyle();
-    refreshProbesOnMap();
-    refreshSimOnMap();
+    // La cote affichée dépend d'un réglage — `manualLevel` — qui change par le champ de
+    // saisie, le bouton « Revenir à la cote EDF », la sortie de simulation, un profil
+    // importé ou une réinitialisation. Sans cette relecture, le bandeau gardait la cote
+    // précédente jusqu'au prochain rafraîchissement automatique : le réglage était bien
+    // remis, l'écran disait le contraire. refreshLevelUi enchaîne le fond et les
+    // surcouches, d'où les trois appels qu'elle remplace ici.
+    refreshLevelUi();
     refreshZonesOnMap();
     applySunMode();
     // Un profil importé ou réinitialisé change `followBoat` sans passer par le bouton.

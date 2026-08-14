@@ -295,6 +295,11 @@ async function run() {
   // les profondeurs. On vérifie donc les deux chemins de sortie, dont celui qui n'en est
   // pas un.
   const settings = () => { try { return JSON.parse(localStorage.getItem('relieflac.settings.v1')) ?? {}; } catch { return {}; } };
+  // Le texte plutôt que le nombre : la cote peut être indisponible sur le poste d'essai,
+  // auquel cas le bandeau affiche « — » et l'on veut quand même savoir qu'il a changé.
+  // Relevé AVANT la simulation : c'est la cote du lac, celle que tout doit retrouver.
+  const coteShown = () => $('cote-value').textContent;
+  const coteEdf = coteShown();
   $('sim-slider').value = '644.95';
   $('sim-slider').dispatchEvent(new Event('input'));
   check('la simulation pilote bien la cote affichée',
@@ -305,10 +310,42 @@ async function run() {
     $('btn-cote').classList.contains('level--manual'),
     $('btn-cote').className);
 
+  const coteSim = coteShown();
   $('btn-sim-exit').click();
   check('sortir de la simulation rend la cote du lac',
     settings().manualLevel === null && settings().manualFromSim === false,
     `cote ${settings().manualLevel}`);
+  // Le réglage remis ne prouve rien : c'est le bandeau que le barreur lit. Il est resté
+  // figé sur la cote de simulation tant que la relecture n'a pas été branchée sur le
+  // changement de réglage — le premier essai de cette suite ne regardait que le stockage,
+  // et il passait pendant que l'écran mentait.
+  check('et le bandeau cesse d\'afficher celle de la simulation',
+    !$('btn-cote').classList.contains('level--manual') && coteShown() !== coteSim,
+    `bandeau ${coteShown()} (simulation ${coteSim})`);
+
+  // -------------------------------------------- retour à la cote EDF depuis les réglages
+  //
+  // Le chemin que suit quelqu'un qui trouve une cote manuelle en place et veut s'en
+  // débarrasser : le champ des Paramètres, puis le bouton d'à côté.
+  group('Retour à la cote EDF');
+  location.hash = '#/parametres';
+  await sleep(60);
+  $('set-manual-level').value = '644.95';
+  $('set-manual-level').dispatchEvent(new Event('change'));
+  check('une cote saisie à la main s\'affiche aussitôt',
+    coteShown() === '644,95' && $('btn-cote').classList.contains('level--manual'),
+    `bandeau ${coteShown()}, classes ${$('btn-cote').className}`);
+
+  $('btn-clear-manual').click();
+  check('« Revenir à la cote EDF » vide le réglage',
+    settings().manualLevel === null, `cote ${settings().manualLevel}`);
+  check('et le bandeau retrouve la cote du lac',
+    coteShown() === coteEdf && !$('btn-cote').classList.contains('level--manual'),
+    `bandeau ${coteShown()}, attendu ${coteEdf}`);
+  check('le champ de saisie est vidé lui aussi',
+    $('set-manual-level').value === '', `« ${$('set-manual-level').value} »`);
+  location.hash = '#/';
+  await sleep(60);
 
   // ------------------------------------------------- bascule de fond bathymétrique
   //
