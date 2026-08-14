@@ -253,16 +253,23 @@ function onPosition(event) {
     value.style.color = color;
     $('quille-value').textContent = depth > 0 ? `${(depth - draft).toFixed(1)} m` : '—';
 
-    // Dire d'où vient le chiffre. Sur près de 38 % du lac il est interpolé entre des
-    // traces distantes de plus de 60 m, et un haut-fond peut s'y cacher entièrement.
+    // Dire d'où vient le chiffre, en trois états et non plus deux. Loin de toute sonde de
+    // 2009, la valeur est une interpolation entre des traces distantes de plus de 60 m, et
+    // un haut-fond peut s'y cacher entièrement — c'est là qu'il faut alerter. Mais là où la
+    // cartographie communautaire est passée, le fond est encadré par la bande qu'elle
+    // donne : ce n'est pas une mesure au décimètre, c'est tout de même un sondeur qui est
+    // passé, et le haut-fond invisible est exclu. On le dit, sans crier.
     const distance = app.bed.soundingDistanceAt(position.lon, position.lat);
     const unsurveyed = Number.isFinite(distance) && distance > app.settings.get('voidRadius_m');
+    const bound = app.bed.communityBoundAt(position.lon, position.lat);
     const label = depth <= 0
       ? 'fond émergé'
       : unsurveyed
-        ? `interpolé — sonde à ${Math.round(distance)} m`
+        ? (bound > 0
+          ? `encadré — communauté ≤ ${bound} m`
+          : `interpolé — sonde à ${Math.round(distance)} m`)
         : 'sous le bateau';
-    const warning = unsurveyed && depth > 0;
+    const warning = unsurveyed && bound === 0 && depth > 0;
     $('prof-label').textContent = label;
     $('prof-label').classList.toggle('is-warning', warning);
     app.lastBigDepth = { value: text, label, color, warning };

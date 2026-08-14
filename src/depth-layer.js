@@ -195,18 +195,28 @@ void main() {
   //
   // Les hachures sont calculées en coordonnées écran : leur pas reste constant quel que
   // soit le zoom, ce qui les distingue nettement du dessin des fonds.
+  //
+  // Trois états depuis l'apport communautaire, et non plus deux. Le canal vert porte la
+  // borne de profondeur Quickdraw : là où elle existe, un bateau est passé et sa bande
+  // interdit un haut-fond. Ce n'est pas une mesure au décimètre — donc on ne fait pas
+  // disparaître la mise en garde — mais ce n'est plus une interpolation entre deux traces
+  // distantes de 150 m. Continuer à crier « non sondé » sur ces zones-là serait trompeur
+  // dans l'autre sens : le hachurage y est donc réduit et dépouillé de son voile magenta.
   if (u_showVoids && u_hasCoverage) {
-    float distance = texture(u_coverage, v_uv).r * 255.0;
+    vec4 reliability = texture(u_coverage, v_uv);
+    float distance = reliability.r * 255.0;
+    float bounded = step(0.5, reliability.g * 255.0);
     float strength = smoothstep(u_voidRadius, u_voidRadius * 2.5, distance);
     if (strength > 0.01) {
-      // Voile magenta « carto » sur toute la zone non sondée : visible même à distance,
+      // Voile magenta « carto » sur la zone vraiment non sondée : visible même à distance,
       // il signale d'un coup d'œil que le fond n'y est pas mesuré. Par-dessus, des
       // hachures blanches plus denses et plus contrastées qu'auparavant.
       vec3 caution = vec3(0.86, 0.16, 0.52);
-      colour.rgb = mix(colour.rgb, caution, strength * 0.22);
+      colour.rgb = mix(colour.rgb, caution, strength * 0.22 * (1.0 - bounded));
       float stripe = fract((gl_FragCoord.x + gl_FragCoord.y) * 0.11);
       float hatch = 1.0 - smoothstep(0.22, 0.34, abs(stripe - 0.5) * 2.0);
-      colour.rgb = mix(colour.rgb, vec3(1.0), hatch * strength * 0.8);
+      colour.rgb = mix(colour.rgb, vec3(1.0),
+                       hatch * strength * mix(0.8, 0.28, bounded));
     }
   }
 
@@ -362,12 +372,17 @@ export class DepthLayer {
   #uploadCoverage() {
     if (!this.hasCoverage || !this.bed.coverage) return;
     const { gl } = this;
-    const { width, height, coverage } = this.bed;
+    const { width, height, coverage, bound } = this.bed;
     const count = width * height;
     const buf = this._covBuffer ?? (this._covBuffer = new Uint8Array(count * 4));
     for (let i = 0; i < count; i += 1) {
       const o = i * 4;
-      buf[o] = buf[o + 1] = buf[o + 2] = coverage[i]; buf[o + 3] = 255;
+      // Rouge = distance à la sonde, qui bouge avec les corrections manuelles ; vert =
+      // borne communautaire, qui n'en dépend pas. Écraser le vert ici, comme le faisait la
+      // version à un seul canal, ramenait le hachurage à deux états dès la première
+      // correction — c'est-à-dire à contretemps du fichier lu au démarrage.
+      buf[o] = coverage[i]; buf[o + 1] = bound ? bound[i] : 0;
+      buf[o + 2] = 0; buf[o + 3] = 255;
     }
     gl.bindTexture(gl.TEXTURE_2D, this.coverageTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, buf);

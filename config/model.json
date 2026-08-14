@@ -17,7 +17,18 @@
       "value_m_ngf": 648.0,
       "confirmed": false,
       "plausible_range_m_ngf": [645.0, 648.8],
-      "note": "Cote du lac le 22/04/2009, jour du levé OFB. NON CONFIRMÉE. Établi que la valeur est <= ~648,8 m NGF (les 460 sondes les moins profondes tombent dans le plan d'eau du LiDAR RGE ALTI, constant à 648,80 m). À caler par étalonnage au sondeur (SPECIFICATION.md § 15)."
+      "note": "Cote du lac le 22/04/2009, jour du levé OFB. NON CONFIRMÉE. Établi que la valeur est <= ~648,8 m NGF (les 460 sondes les moins profondes tombent dans le plan d'eau du LiDAR RGE ALTI, constant à 648,80 m). À caler par étalonnage au sondeur (SPECIFICATION.md § 15).",
+      "solidary_with": "quickdraw",
+      "solidarity_note": "ATTENTION : la cote Quickdraw (647,68) a été MESURÉE par comparaison des isobathes communautaires à ce modèle-ci, donc à cette valeur-ci de Z_2009. Les deux se déplacent ENSEMBLE : confirmer l'une sans corriger l'autre fausse silencieusement le relèvement communautaire, sans aucun signe extérieur. L'énoncé invariant, lui, ne dépend pas de Z_2009 : la surface Quickdraw est 0,32 m sous le plan d'eau du jour du levé OFB.",
+      "confirmation_procedure": "Si Z_2009 est confirmé à une autre valeur V, écrire ici V et là-dessous V - 0.32, puis relancer build_grid.py. Ne jamais toucher à l'une seule."
+    },
+
+    "quickdraw": {
+      "value_m_ngf": 647.68,
+      "confirmed": false,
+      "solidary_with": "ofb2009",
+      "offset_from_ofb2009_m": -0.32,
+      "note": "Cote du plan d'eau à laquelle se rapportent les profondeurs de la cartographie communautaire Quickdraw. Garmin ne publie AUCUNE référence verticale — il existe même un décalage d'affichage réservé aux cartes communautaires, ce qui ne s'inventerait pas si la donnée en avait une. Cette valeur est donc mesurée, sur les frontières de bande, au large (>= 100 m du rivage), médiane des isobathes >= 3 m. Voir data/mesuresEtalonnage/Garmin/ANALYSE.md § 3. Dispersion réelle : sigma robuste de 0,8 à 1,3 m par point — c'est une valeur centrale, PAS une précision ; ne pas en attendre mieux que ±1,5 m localement. Solidaire de ofb2009 : voir solidarity_note ci-dessus."
     },
 
     "rge_alti": {
@@ -42,6 +53,21 @@
       "enabled": true,
       "margin_m": 0.05,
       "$comment": "Fusion du MNT RGE ALTI. Le LiDAR a survolé le lac à 648,80 m NGF : à l'intérieur du contour, tout ce qui dépasse cette cote est du terrain réellement mesuré. Ce sont précisément les hauts-fonds et îlots que le levé de 2009 ne pouvait pas sonder — le bateau ne passe pas dessus — et que la triangulation comblait en les creusant. On retient le maximum entre le modèle interpolé et le MNT : la fusion ne peut que rendre le fond moins profond, jamais plus."
+    },
+    "quickdraw_source": {
+      "enabled": true,
+      "$comment": "Relèvement par la cartographie communautaire Quickdraw (Garmin), décodée depuis des captures d'écran géoréférencées — une mosaïque de bandes de profondeur au mètre. Chaque pixel donne un ENCADREMENT [dmin, dmax], jamais une mesure ponctuelle. On n'utilise que la borne basse de l'altitude, z = max(z_modèle, z_ac - dmax) : la carte ne peut donc que devenir moins profonde, jamais plus, quelle que soit l'erreur résiduelle de calage ou une contribution prise à basse cote. Appliqué APRÈS le lissage, comme terrain_source : un sigma de 15 m étalerait les hauts-fonds et effacerait précisément ce qu'on ajoute. ATTENTION licence : donnée Garmin, usage dérivé, pas de licence ouverte — la couche est identifiable cellule par cellule dans coverage.png (canaux G et B) pour pouvoir être retirée.",
+      "reference_level_key": "quickdraw",
+      "mosaics": [
+        "mesuresEtalonnage/Garmin/mosaique_0-12m.png",
+        "mesuresEtalonnage/Garmin/mosaique_12_30m.png"
+      ],
+      "$comment_mosaics": "Deux campagnes, deux palettes, plages disjointes (0-12 m et 12-30 m) : aucune ne contredit l'autre, la profonde raffine la dernière bande de la fine. En cas de recouvrement, la borne la plus haute gagne, c'est-à-dire le plus petit dmax. PIÈGE SILENCIEUX : les couleurs se recyclent d'une campagne à l'autre — (0,197,255) vaut 12-30 m dans 0-12m et 12-14 m dans 12_30m. Chaque mosaïque porte sa propre palette dans son .json et c'est celle-là qui est lue.",
+      "aggregate_quantile": 0.0,
+      "min_decoded_fraction": 0.25,
+      "min_shore_distance_m": 0.0,
+      "$comment_aggregate": "Une cellule de 5 m couvre ~49 pixels de mosaïque : il faut choisir lequel commande. 0,0 = le plus haut-fond du bloc, 0,5 = la médiane. Retenu 0,0, la valeur prudente, pour deux raisons. D'abord la doctrine : sur ce modèle l'erreur va toujours dans le sens du haut-fond. Ensuite l'effet réel du bruit — l'accord entre captures qui se recouvrent n'est que de 88 % sur la campagne fine, mais le désaccord se loge aux FRONTIÈRES de bande, où un pixel de décalage suffit à changer de couleur. Prendre le minimum revient donc à dilater chaque bande peu profonde d'environ une cellule, exactement ce que shoal_bias fait déjà volontairement à 15 m sur les sondes mesurées. Mesuré sur la seule campagne fine : 0,0 relève 90,1 ha (max 19,3 m), 0,25 en relève 71,1, 0,5 en relève 63,8 ; 0,0 reproduit la prévision publiée au § 6 d'ANALYSE.md. min_decoded_fraction écarte les cellules de bord où quelques pixels seulement sont décodés — sans quoi trois pixels pourraient commander 25 m².",
+      "$comment_shore": "min_shore_distance_m masquerait la frange côtière, où la contrainte de bord place déjà le fond ~1,5 m trop haut (ANALYSE.md § 3), ce qui devrait empêcher le relèvement de s'y déclencher. Vérifié plutôt que supposé, et c'est bien le cas : la frange 0-25 m est la tranche la MOINS relevée de toutes. Rien à masquer, donc 0."
     },
     "shoal_bias": {
       "enabled": true,

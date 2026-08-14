@@ -72,7 +72,8 @@ def main() -> int:
         "lut_max_depth_m": lut_max,
         "coverage": {
             key: coverage.get(key)
-            for key in ("median_m", "max_m", "share_within_25m", "share_beyond_60m")
+            for key in ("median_m", "max_m", "share_within_25m", "share_beyond_60m",
+                        "share_bounded", "share_blind")
         },
         "safety_depth_m": palette["safety_contour"]["draft_m"] + palette["safety_contour"]["margin_m"],
         "presets": presets,

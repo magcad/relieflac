@@ -1,8 +1,10 @@
 # Cartographie communautaire Quickdraw — analyse et calage
 
-Travail du 14 août 2026. **Rien n'est encore intégré au modèle** : ce document et
-les fichiers de ce dossier conservent la méthode, les mesures et les produits
-intermédiaires pour que l'intégration se fasse dans une session dédiée.
+Travail du 14 août 2026. **Intégré au modèle le jour même (lot L5, § 10)** : les
+deux mosaïques sont désormais une source à part entière de `tools/build_grid.py`,
+au même titre que le levé de 2009 et le MNT. Ce document conserve la méthode, les
+mesures et les produits intermédiaires ; ce qui a été décidé et mesuré à
+l'intégration est au § 10.
 
 Point de départ : accès à un compte ActiveCaptain donnant la couche
 **Communauté Quickdraw** sur le lac, alimentée par les pêcheurs qui le
@@ -235,6 +237,16 @@ ressemblance accumulerait les erreurs de proche en proche et ne dirait pas où s
 trouve un pixel. Chaque capture étant calée indépendamment, les recouvrements
 deviennent un contrôle de qualité plutôt que des coutures à masquer.
 
+### La mosaïque profonde
+
+[`mosaique_12_30m.png`](mosaique_12_30m.png) : même emprise, même résolution,
+17 captures sur 17, **326 ha décodés — 35 % du lac**, la part profonde. Les trois
+contrôles qui valident ce calage-là sont au § 0, puisqu'ils portent sur la
+méthode du masque et non sur la mosaïque.
+
+Les deux mosaïques ne se recouvrent pas en profondeur : c'est ce qui permet de
+les fusionner sans arbitrage, au § 10.
+
 ---
 
 ## 6. Effet attendu sur le modèle
@@ -279,9 +291,9 @@ annonce 22,1 m là où la communauté ne permet pas plus de 9,3 m, et localement
 
 ## 7. Ce qui manque, par ordre d'importance
 
-1. ~~La bande 12–30 m ne dit rien.~~ **Réglé** par la campagne `12_30m` du même
-   jour : 17 captures, six bandes de 12 à 30 m. Reste à en produire la mosaïque
-   et à la fusionner avec celle de `0-12m`, les deux plages étant disjointes.
+1. ~~La bande 12–30 m ne dit rien.~~ **Réglé et intégré** : campagne `12_30m`,
+   17 captures, six bandes, mosaïque produite et fusionnée avec celle de `0-12m`
+   dans `build_grid.py`. Elle ajoute 40 ha de fond relevé, dans le bassin ouest.
 2. **12 ha sans capture fine**, en quatre zones :
    45,80844 / 1,85344 (7,5 ha) · 45,79287 / 1,91855 (1,2) ·
    45,80615 / 1,88989 (0,9) · 45,80560 / 1,90600 (0,6).
@@ -308,24 +320,31 @@ annonce 22,1 m là où la communauté ne permet pas plus de 9,3 m, et localement
 
 ## 9. Licence — décision prise le 14/08/2026
 
-L'utilisateur a tranché : **la grille corrigée sera publiée.** Ce qui suppose,
-au moment de l'intégration, et pas après :
+L'utilisateur a tranché : **la grille corrigée sera publiée.** Ce qui supposait,
+au moment de l'intégration et pas après, trois obligations — **honorées le
+14/08/2026, en même temps que le code** :
 
-- la ligne correspondante du tableau des sources, dans `README.md` et `ETAT.md`,
-  doit porter « Communauté Quickdraw (Garmin) — **usage dérivé, pas de licence
-  ouverte** », et non Etalab ou Licence Ouverte comme les autres ;
-- le § 3.5 d'`ETAT.md` doit être réécrit : la piste n'est plus une impasse, la
-  voie retenue est la capture d'écran géoréférencée, et la restriction porte
-  désormais sur la redistribution — que nous faisons, en connaissance de cause ;
-- la couche doit rester **identifiable cellule par cellule** dans la grille, pour
-  pouvoir être retirée d'un seul geste si Garmin le demandait.
+- ✅ la ligne correspondante du tableau des sources porte « Communauté Quickdraw
+  (Garmin / ActiveCaptain) — **usage dérivé, pas de licence ouverte** », et non
+  Etalab ou Licence Ouverte comme les autres. Dans `README.md`, dans `ETAT.md`,
+  au § 12 de `SPECIFICATION.md`, et dans la page « À propos » de l'application
+  elle-même — c'est là que le lecteur la verra ;
+- ✅ le § 3.5 d'`ETAT.md` est réécrit : la piste n'est plus une impasse, la voie
+  retenue est la capture d'écran géoréférencée, et la restriction porte désormais
+  sur la redistribution — que nous faisons, en connaissance de cause ;
+- ✅ la couche est **identifiable cellule par cellule** : `data/coverage.png`
+  porte la borne communautaire dans son canal vert et le relèvement effectivement
+  appliqué dans son canal bleu. Retirer la couche est un seul geste —
+  `grid.quickdraw_source.enabled: false` dans `config/model.json`, puis
+  `build_grid.py` — et les deux canaux disent, sans recalcul, ce qu'elle a changé
+  et de combien.
 
 Les captures d'origine sont versionnées depuis le 14/08/2026 : ce sont les
 données sources d'une mesure, pas des illustrations.
 
 ---
 
-## 10. Reprendre — le lot L5
+## 10. Le lot L5 — fait le 14/08/2026
 
 Refaire les produits, si besoin (le calage est déjà dans `georef_*.json`, ces
 commandes le recalculent — une trentaine de minutes chacune) :
@@ -337,33 +356,80 @@ python tools/qd_georef.py 12_30m --min-ncc 0.50
 python tools/qd_mosaic.py 12_30m --min-ncc 0.50
 ```
 
-Puis l'intégration proprement dite :
+L'intégration, point par point :
 
-1. **fusionner les deux mosaïques.** Les plages sont disjointes : une cellule
-   contrainte par `12_30m` l'est entre 12 et 30 m, une cellule contrainte par
-   `0-12m` l'est entre 0 et 12 m. Aucune ne contredit l'autre ; en cas de
-   recouvrement, la borne la plus haute gagne, comme partout ailleurs ;
-2. **source à part entière dans `tools/build_grid.py`**, pas une retouche après
-   coup — la grille doit rester reproductible depuis les scripts ;
-3. **relèvement seul** : `z = max(z_modèle, 647,68 − dmax)`. Voir § 6 ;
-4. **après le lissage**, comme `terrain_source`, jamais avant : un σ de 15 m
-   étale les hauts-fonds et efface précisément ce qu'on ajoute ;
-5. couche **identifiable cellule par cellule**, pour pouvoir être retirée ;
-6. les trois obligations de licence du § 9, **avant** de déployer ;
-7. reconstruire, `python tools/dump_reference.py`, vérifier `/test/` et
-   `/test/interaction.html`, monter les deux numéros de version, déployer.
+1. ✅ **les deux mosaïques sont fusionnées**, plages disjointes, la borne la plus
+   haute gagnant en cas de recouvrement — c'est-à-dire le plus petit `dmax`.
+   `load_quickdraw_codes` dans `build_grid.py`. Chaque mosaïque est décodée avec
+   **sa** palette, lue dans son propre `.json` : c'est la seule protection contre
+   le piège du § 0 ;
+2. ✅ **source à part entière de `tools/build_grid.py`**, réglée dans
+   `config/model.json` (`grid.quickdraw_source`), et non une retouche après coup ;
+3. ✅ **relèvement seul**, `z = max(z_modèle, 647,68 − dmax)` ;
+4. ✅ **après le lissage**, entre `terrain_source` et `shoal_bias` — trois maxima
+   qui commutent, donc l'ordre entre eux n'a d'effet que sur les statistiques
+   affichées, jamais sur la grille ;
+5. ✅ **identifiable cellule par cellule** : canaux vert et bleu de
+   `coverage.png` (§ 9) ;
+6. ✅ les trois obligations de licence du § 9, honorées avant le déploiement ;
+7. ✅ reconstruit, `dump_reference.py` rejoué, 128 vérifications et 44
+   enchaînements passants, numéros de version montés.
 
-Trois décisions à prendre en connaissance de cause :
+### Ce que ça donne
 
-- **la frange côtière.** Le § 3 dit de l'exclure *pour mesurer*. Pour
-  *corriger*, c'est autre chose : le modèle y est déjà ~1,5 m trop haut, donc le
-  relèvement ne devrait presque jamais se déclencher — à vérifier plutôt qu'à
-  supposer, puis décider si on laisse faire ou si on masque la frange ;
-- **le hachurage du § 2 d'`ETAT.md`.** Il marque aujourd'hui ce qui est à plus
-  de 60 m d'une sonde de 2009. Après intégration, une bonne part de ces zones
-  sera renseignée — mais par un **encadrement**, pas par une mesure ponctuelle.
-  Soit on garde le hachurage et il devient trompeur dans l'autre sens, soit
-  `coverage.png` apprend à distinguer trois états : mesuré, encadré, interpolé ;
-- **`Z_2009`.** Le calage à 647,68 lui est solidaire (§ 3). Si on le confirme un
-  jour, les deux se déplacent ensemble : le noter dans `config/model.json` pour
-  que personne ne corrige l'un en oubliant l'autre.
+| | valeur |
+|---|---|
+| lac encadré | **881 ha — 94,0 %** |
+| fond relevé | **137,4 ha** (> 2 m : 53,1 · > 3 m : 36,0 · > 5 m : 17,3 · > 8 m : 5,1) |
+| relèvement maximal | **19,26 m** |
+| part du lac restant aveugle | **2,4 %**, contre 37,8 % avant |
+| volume à 647 m | 80,63 → **77,48 hm³**, soit 3,15 retirés (3,9 %) |
+
+Le § 6 prévoyait 90,6 ha relevés sur la seule campagne fine ; la mesure faite par
+`build_grid.py` en donne 97,3 dans les mêmes conditions — l'écart vient de ce que
+le relèvement s'applique désormais **avant** `shoal_bias`, sur une grille encore
+un peu plus profonde. La campagne profonde ajoute les 40 ha restants.
+
+### Les trois décisions, prises sur mesure et non sur intuition
+
+**La frange côtière n'est pas masquée.** L'hypothèse était que le modèle y étant
+déjà ~1,5 m trop haut (§ 3), le relèvement ne s'y déclencherait presque jamais.
+Vérifié, et c'est exactement ce qui se passe — la tranche la plus proche du
+rivage est la **moins** relevée de toutes :
+
+| distance au rivage | encadré | relevé | médiane |
+|---|---|---|---|
+| 0–25 m | 87,2 ha | **7,1 %** | 2,06 m |
+| 25–50 m | 118,0 ha | 13,2 % | 1,53 m |
+| 50–100 m | 203,9 ha | 18,0 % | 1,74 m |
+| > 100 m | 471,8 ha | 16,8 % | 1,19 m |
+
+Les 6,2 ha qui se relèvent quand même dans la frange sont d'autant plus
+crédibles : la communauté y dit moins d'eau que le modèle **alors que celui-ci
+est déjà biaisé vers le haut**. Le réglage `min_shore_distance_m` existe et vaut
+0 ; il n'est là que pour rendre la décision révisable.
+
+**Le hachurage apprend un troisième état.** `coverage.png` passe en RGB : rouge =
+distance à la sonde de 2009 (inchangé), vert = borne communautaire, bleu =
+relèvement appliqué. Le shader et la lecture sous le bateau distinguent
+désormais *mesuré*, *encadré* et *interpolé*. Garder deux états aurait rendu le
+hachurage trompeur dans l'autre sens : il crierait « non sondé » sur 94 % du lac.
+L'effacer aurait menti à l'inverse — un encadrement n'est pas une mesure. D'où
+une nuance intermédiaire : hachures atténuées, sans le voile magenta, et
+« encadré — communauté ≤ N m » sans alerte. Détail au § 6.1 bis de la
+spécification.
+
+**`Z_2009` et `z_ac` sont déclarés solidaires.** Les deux cotes figurent
+maintenant côte à côte dans `config/model.json`, chacune pointant sur l'autre,
+avec l'écart invariant (−0,32 m) et la marche à suivre le jour où l'une sera
+confirmée. C'était le seul moyen d'éviter que quelqu'un — nous, dans six mois —
+corrige l'une en oubliant l'autre et fausse le relèvement sans aucun signe
+extérieur.
+
+### Ce qui reste ouvert
+
+Le § 7 n'a pas bougé pour ses points 2 à 4 : 12 ha sans capture fine, les
+étiquettes de sonde chiffrées inexploitées, `IMG_1144` et `IMG_1145` à recaler.
+Et le rendu à l'écran des trois états n'a pas pu être vu par l'assistant — la
+page de test est masquée, MapLibre ne s'y initialise pas. **Cela se valide sur
+l'eau, comme la refonte de l'interface.**

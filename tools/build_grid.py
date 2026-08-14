@@ -28,7 +28,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from pyproj import Transformer
 from scipy.interpolate import LinearNDInterpolator
-from scipy.ndimage import gaussian_filter, grey_dilation
+from scipy.ndimage import distance_transform_edt, gaussian_filter, grey_dilation
 from scipy.spatial import cKDTree
 
 from common import (
@@ -221,6 +221,205 @@ def fuse_terrain(
     }
 
 
+# ------------------------------------- cartographie communautaire Quickdraw
+
+
+def load_quickdraw_codes(paths: list) -> tuple[np.ndarray, list, list]:
+    """Fusionne les mosaïques Quickdraw en une borne de profondeur, au pas de la mosaïque.
+
+    Les deux campagnes couvrent des plages **disjointes** — 0 à 12 m, 12 à 30 m — donc une
+    cellule vue par les deux est décrite deux fois et jamais contredite : la campagne
+    profonde ne fait que raffiner la dernière bande de la fine, qui dit seulement « plus de
+    12 m ». En cas de recouvrement, la borne la plus haute gagne, c'est-à-dire le plus petit
+    `dmax` : la même règle prudente que partout ailleurs.
+
+    Piège de la campagne, et il est silencieux : **les couleurs se recyclent**. (0,197,255)
+    vaut 12–30 m dans « 0-12m » et 12–14 m dans « 12_30m ». Chaque mosaïque porte donc sa
+    propre palette dans son `.json` et c'est celle-là qu'on lit — jamais une constante.
+
+    Le PNG est sans perte et chaque pixel porte la couleur exacte de la palette : la
+    comparaison est une égalité stricte, sans tolérance, ce qui rend impossible de confondre
+    deux bandes voisines.
+
+    Retourne `(codes, table, metas)` : `codes` vaut 0 hors donnée, sinon 1 + l'indice dans
+    `table`, liste croissante des `dmax` distincts des deux palettes.
+    """
+    metas = []
+    for path in paths:
+        with path.with_suffix(".json").open(encoding="utf-8") as fh:
+            metas.append(json.load(fh))
+
+    table = sorted({float(band["dmax"]) for meta in metas for band in meta["palette"]})
+    codes = None
+
+    for path, meta in zip(paths, metas):
+        image = np.array(Image.open(path).convert("RGB"))
+        if codes is None:
+            codes = np.zeros(image.shape[:2], np.uint8)
+        elif image.shape[:2] != codes.shape:
+            raise SystemExit(f"ERREUR : {path.name} n'a pas la taille des autres mosaïques")
+
+        candidate = np.zeros(image.shape[:2], np.uint8)
+        for band in meta["palette"]:
+            red, green, blue = band["rgb"]
+            hit = ((image[..., 0] == red) & (image[..., 1] == green) & (image[..., 2] == blue))
+            candidate[hit] = table.index(float(band["dmax"])) + 1
+
+        # « La borne la plus haute gagne » = le plus petit dmax, 0 valant « rien dit ».
+        better = (candidate > 0) & ((codes == 0) | (candidate < codes))
+        codes[better] = candidate[better]
+        print(f"    {path.name:22s} {meta['width']}×{meta['height']} px · "
+              f"{len(meta['captures'])} captures · accord {meta['overlap_agreement'] * 100:.1f} %")
+
+    return codes, table, metas
+
+
+def quickdraw_dmax(codes, table, mpp, res_merc, shape, quantile, min_decoded):
+    """Ramène la mosaïque au pas de la grille : profondeur maximale admissible par cellule.
+
+    Une cellule de 5 m recouvre une cinquantaine de pixels de mosaïque, et il faut choisir
+    lequel commande. `quantile` = 0 retient le plus haut-fond du bloc, 0,5 la médiane.
+
+    Zéro, donc le minimum, est la valeur retenue. L'accord entre deux captures qui se
+    recouvrent n'est que de 88 %, mais le désaccord se loge aux **frontières** de bande, où
+    un pixel de décalage suffit à changer de couleur : prendre le minimum revient à dilater
+    chaque bande peu profonde d'environ une cellule, ce que `shoal_bias` fait déjà
+    volontairement à 15 m sur les sondes mesurées. Mesuré sur la campagne fine : 90,1 ha
+    relevés au minimum, 71,1 au quantile 0,25, 63,8 à la médiane.
+
+    Les cellules trop peu décodées (bord de mosaïque, trou d'étiquette) sont écartées :
+    trois pixels ne décrivent pas une cellule de 25 m².
+    """
+    height, width = shape
+    rows_m, cols_m = codes.shape
+    col_of = np.minimum((((np.arange(cols_m) + 0.5) * mpp) / res_merc).astype(np.int64), width - 1)
+    row_of = np.minimum((((np.arange(rows_m) + 0.5) * mpp) / res_merc).astype(np.int64), height - 1)
+    ucols, cstarts = np.unique(col_of, return_index=True)
+    urows, rstarts = np.unique(row_of, return_index=True)
+    box = np.ix_(urows, ucols)
+
+    def blocks(mask: np.ndarray) -> np.ndarray:
+        """Somme d'un masque de mosaïque par cellule de grille, en deux réductions."""
+        partial = np.add.reduceat(mask, rstarts, axis=0, dtype=np.int32)
+        partial = np.add.reduceat(partial, cstarts, axis=1)
+        out = np.zeros(shape, np.int32)
+        out[box] = partial
+        return out
+
+    pixels = np.zeros(shape, np.int32)
+    pixels[box] = (np.diff(np.append(rstarts, rows_m))[:, None]
+                   * np.diff(np.append(cstarts, cols_m))[None, :])
+
+    decoded = blocks(codes > 0)
+    needed = np.maximum(quantile * decoded, 1.0)
+
+    dmax = np.full(shape, np.nan, np.float32)
+    cumulative = np.zeros(shape, np.int32)
+    settled = np.zeros(shape, bool)
+    for code, depth in enumerate(table, start=1):
+        cumulative += blocks(codes == code)
+        reached = ~settled & (decoded > 0) & (cumulative >= needed)
+        dmax[reached] = depth
+        settled |= reached
+
+    dmax[decoded < min_decoded * np.maximum(pixels, 1)] = np.nan
+    return dmax
+
+
+def fuse_quickdraw(values, mask, bbox, res_merc, ground_res, z_ac, cfg):
+    """Relève le fond là où la cartographie communautaire interdit d'être si profond.
+
+    Quickdraw enregistre la profondeur lue par des dizaines de sondeurs indépendants, sur
+    des trajets quotidiens de pêche : là où le levé de 2009 n'a qu'une interpolation entre
+    deux traces distantes de 150 m, la communauté est passée. Ce n'est pas une mesure
+    ponctuelle — une bande dit seulement « entre 4 et 6 m » — mais un **encadrement**, et
+    c'est déjà beaucoup là où le modèle ne repose sur rien.
+
+    On n'utilise que la borne basse de l'altitude, `z = max(z_modèle, z_ac - dmax)`, dans le
+    droit fil de la fusion du MNT : la carte ne peut que devenir moins profonde, jamais
+    plus. Une contribution prise en novembre à basse cote, ou une erreur de calage, ne peut
+    donc pas creuser le lac — au pire elle le remplit un peu trop, dans le sens prudent.
+
+    `z_ac` est solidaire de `Z_2009` : il a été mesuré en comparant les isobathes
+    communautaires à ce modèle-ci. Confirmer l'un sans déplacer l'autre fausserait
+    silencieusement ce relèvement (config/model.json, `solidarity_note`).
+    """
+    paths = [DATA_DIR / name for name in cfg["mosaics"]]
+    missing = [p for p in paths if not p.exists()]
+    if missing:
+        print(f"  mosaïque absente : {', '.join(p.name for p in missing)} — "
+              f"lancez tools/qd_georef.py puis tools/qd_mosaic.py", file=sys.stderr)
+        return values, None, {"available": False}
+
+    codes, table, metas = load_quickdraw_codes(paths)
+    mpp = float(metas[0]["mpp_merc"])
+
+    # Une mosaïque décalée d'une emprise ne se voit sur aucune image : elle produit une
+    # carte plausible et fausse. On refuse plutôt que d'y croire.
+    for meta in metas:
+        if max(abs(a - b) for a, b in zip(meta["bbox_3857"], bbox)) > 0.5:
+            raise SystemExit("ERREUR : une mosaïque Quickdraw n'a pas l'emprise de la "
+                             "grille — reconstruire avec tools/qd_mosaic.py")
+        if abs(float(meta["mpp_merc"]) - mpp) > 1e-9:
+            raise SystemExit("ERREUR : les mosaïques n'ont pas la même résolution")
+        if abs(float(meta["z_ac_m_ngf"]) - z_ac) > 1e-6:
+            raise SystemExit(f"ERREUR : la mosaïque annonce z_ac = {meta['z_ac_m_ngf']} "
+                             f"alors que config/model.json dit {z_ac}")
+
+    quantile = float(cfg.get("aggregate_quantile", 0.0))
+    min_decoded = float(cfg.get("min_decoded_fraction", 0.25))
+    dmax = quickdraw_dmax(codes, table, mpp, res_merc, values.shape, quantile, min_decoded)
+
+    # Distance au rivage, pour vérifier plutôt que supposer que la frange côtière ne se
+    # fait pas relever : la contrainte de bord y place déjà le fond ~1,5 m trop haut.
+    shore_m = distance_transform_edt(mask) * ground_res
+    fringe = float(cfg.get("min_shore_distance_m", 0.0))
+    if fringe > 0:
+        dmax[shore_m < fringe] = np.nan
+
+    bound = z_ac - dmax
+    constrained = mask & np.isfinite(bound)
+    raised = constrained & np.isfinite(values) & (bound > values)
+    result = np.where(raised, bound, values)
+
+    cell_ha = ground_res ** 2 / 1e4
+    deltas = (bound - values)[raised]
+    stats = {
+        "available": True,
+        "z_ac_m_ngf": z_ac,
+        "solidary_with": "ofb2009",
+        "mosaics": [p.name for p in paths],
+        "aggregate_quantile": quantile,
+        "min_decoded_fraction": min_decoded,
+        "min_shore_distance_m": fringe,
+        "cells_constrained": int(constrained.sum()),
+        "cells_raised": int(raised.sum()),
+        "constrained_ha": round(float(constrained.sum()) * cell_ha, 1),
+        "raised_ha": round(float(raised.sum()) * cell_ha, 1),
+        "lake_share_constrained": round(float(constrained.sum() / max(mask.sum(), 1)), 4),
+        "max_shallower_m": round(float(deltas.max()), 2) if deltas.size else 0.0,
+        "median_shallower_m": round(float(np.median(deltas)), 2) if deltas.size else 0.0,
+        "ha_above": {f"{t:g}": round(float((deltas > t).sum()) * cell_ha, 1)
+                     for t in (0, 2, 3, 5, 8)},
+        "shore_fringe": {},
+    }
+
+    # Décision du § 10 d'ANALYSE.md : laisser faire la frange ou la masquer. On mesure.
+    for label, low, high in (("0-25", 0, 25), ("25-50", 25, 50),
+                             ("50-100", 50, 100), ("100+", 100, np.inf)):
+        band = constrained & (shore_m >= low) & (shore_m < high)
+        hit = raised & band
+        stats["shore_fringe"][label] = {
+            "constrained_ha": round(float(band.sum()) * cell_ha, 1),
+            "raised_ha": round(float(hit.sum()) * cell_ha, 1),
+            "share_raised": round(float(hit.sum() / max(band.sum(), 1)), 4),
+            "median_shallower_m": (round(float(np.median((bound - values)[hit])), 2)
+                                   if hit.any() else 0.0),
+        }
+
+    return result, {"dmax": dmax, "raise": np.where(raised, bound - values, 0.0)}, stats
+
+
 # --------------------------------------------------------- couverture du levé
 
 
@@ -411,6 +610,39 @@ def main() -> int:
                   f"médiane {terrain_stats['median_shallower_m']:.2f} m, "
                   f"maximum {terrain_stats['max_shallower_m']:.2f} m moins d'eau")
 
+    quickdraw_cfg = grid_cfg.get("quickdraw_source", {})
+    quickdraw_stats = None
+    quickdraw_layer = None
+    if quickdraw_cfg.get("enabled"):
+        z_ac = float(config["reference_levels"][quickdraw_cfg["reference_level_key"]]["value_m_ngf"])
+        print(f"relèvement par la cartographie communautaire Quickdraw (z_ac = {z_ac} m NGF)…")
+        before = values.copy()
+        values, quickdraw_layer, quickdraw_stats = fuse_quickdraw(
+            values, mask, (x0, y0, x1, y1), res_merc, ground_res, z_ac, quickdraw_cfg,
+        )
+        values = np.where(mask, values, np.nan)
+        if quickdraw_stats.get("available"):
+            cell_area = ground_res ** 2
+            volume = [float(np.nansum(np.clip(647.0 - v, 0, None)[mask]) * cell_area / 1e6)
+                      for v in (before, values)]
+            quickdraw_stats["volume_647_hm3"] = [round(v, 2) for v in volume]
+            quickdraw_stats["volume_removed_hm3"] = round(volume[0] - volume[1], 2)
+            print(f"  {quickdraw_stats['constrained_ha']:.0f} ha encadrés "
+                  f"({quickdraw_stats['lake_share_constrained'] * 100:.1f} % du lac) · "
+                  f"{quickdraw_stats['cells_raised']:,} cellules relevées "
+                  f"({quickdraw_stats['raised_ha']:.1f} ha) · "
+                  f"médiane {quickdraw_stats['median_shallower_m']:.2f} m, "
+                  f"maximum {quickdraw_stats['max_shallower_m']:.2f} m moins d'eau")
+            print("    " + " · ".join(f"> {t} m : {ha} ha"
+                                      for t, ha in quickdraw_stats["ha_above"].items()))
+            print(f"    volume à 647 m : {volume[0]:.2f} → {volume[1]:.2f} hm³ "
+                  f"({quickdraw_stats['volume_removed_hm3']:.2f} retirés)")
+            print("    par distance au rivage — part des cellules encadrées qui sont relevées :")
+            for label, band in quickdraw_stats["shore_fringe"].items():
+                print(f"      {label:>7s} m : {band['share_raised'] * 100:5.1f} % de "
+                      f"{band['constrained_ha']:6.1f} ha encadrés · "
+                      f"médiane {band['median_shallower_m']:.2f} m")
+
     shoal_cfg = grid_cfg.get("shoal_bias", {})
     shoal_stats = None
     if shoal_cfg.get("enabled"):
@@ -453,9 +685,39 @@ def main() -> int:
         print(f"  à moins de {limit:3d} m : {(in_lake <= limit).mean() * 100:5.1f} %")
     print(f"  médiane {coverage_stats['median_m']:.0f} m · maximum {coverage_stats['max_m']:.0f} m")
 
-    Image.fromarray(
-        np.where(mask, np.clip(distance_map, 0, 255), 255).astype(np.uint8), mode="L",
-    ).save(DATA_DIR / "coverage.png", optimize=True)
+    # Les trois états de la carte de fiabilité. « Encadré » n'est pas « mesuré » : la
+    # communauté donne un intervalle de profondeur, pas une sonde au décimètre. Mais ce
+    # n'est plus « interpolé » non plus — un bateau y est passé.
+    if quickdraw_layer is not None:
+        bounded = mask & np.isfinite(quickdraw_layer["dmax"])
+        blind = mask & (distance_map > 60) & ~bounded
+        coverage_stats["share_bounded"] = round(float(bounded.sum() / max(mask.sum(), 1)), 4)
+        coverage_stats["share_blind"] = round(float(blind.sum() / max(mask.sum(), 1)), 4)
+        print(f"  encadré par la communauté : {coverage_stats['share_bounded'] * 100:5.1f} % "
+              f"du lac · reste aveugle (> 60 m d'une sonde et sans encadrement) : "
+              f"{coverage_stats['share_blind'] * 100:.1f} %")
+
+    # coverage.png, désormais à trois canaux : la carte de fiabilité doit distinguer trois
+    # états, et non plus deux. Avant l'apport communautaire, une cellule était mesurée ou
+    # interpolée, et la distance à la sonde suffisait à le dire. Une cellule encadrée par
+    # Quickdraw n'est ni l'un ni l'autre : personne n'y a mesuré une profondeur au
+    # décimètre, mais un bateau y est passé et sa bande interdit un haut-fond. Garder le
+    # seul canal de distance rendrait le hachurage trompeur dans l'autre sens — il
+    # crierait « non sondé » sur des zones désormais encadrées.
+    #
+    #   R = distance à la sonde mesurée la plus proche, en m, plafonnée à 255 (inchangé) ;
+    #   G = borne de profondeur communautaire, en m arrondie au-dessus ; 0 = aucune ;
+    #   B = relèvement effectivement appliqué par cette couche, en décimètres.
+    #
+    # G et B sont aussi ce qui rend la couche Quickdraw identifiable cellule par cellule,
+    # donc retirable d'un seul geste — obligation de licence, voir ANALYSE.md § 9.
+    channels = np.zeros((height, width, 3), np.uint8)
+    channels[..., 0] = np.where(mask, np.clip(distance_map, 0, 255), 255).astype(np.uint8)
+    if quickdraw_layer is not None:
+        bound = np.nan_to_num(quickdraw_layer["dmax"], nan=0.0)
+        channels[..., 1] = np.clip(np.ceil(bound), 0, 255).astype(np.uint8)
+        channels[..., 2] = np.clip(np.rint(quickdraw_layer["raise"] * 10), 0, 255).astype(np.uint8)
+    Image.fromarray(channels, mode="RGB").save(DATA_DIR / "coverage.png", optimize=True)
 
     image = encode_terrain_rgb(values, float(encoding["base"]), float(encoding["interval"]))
     png_path = DATA_DIR / "bed.png"
@@ -488,15 +750,24 @@ def main() -> int:
             "coverage_ratio": round(float(coverage), 4),
             "smoothing_sigma_m": grid_cfg["smoothing_sigma_m"],
             "terrain_source": terrain_stats,
+            "quickdraw_source": quickdraw_stats,
             "shoal_bias": shoal_stats,
             "coverage": {
                 **coverage_stats,
                 "file": "coverage.png",
+                "channels": {
+                    "R": "distance en mètres à la sonde mesurée la plus proche, plafonnée à 255",
+                    "G": "borne de profondeur de la cartographie communautaire Quickdraw, en "
+                         "mètres arrondis au-dessus ; 0 = aucun encadrement",
+                    "B": "relèvement appliqué par cette couche, en décimètres ; 0 = aucun",
+                },
                 "note": (
-                    "Image en niveaux de gris, même emprise et même taille que bed.png : "
-                    "distance en mètres à la sonde mesurée la plus proche, plafonnée à 255. "
-                    "Au-delà de quelques dizaines de mètres, la valeur du modèle est "
-                    "interpolée et non mesurée."
+                    "Image RGB, même emprise et même taille que bed.png. Trois états, et non "
+                    "deux : mesuré (R faible), encadré par la communauté Quickdraw (R élevé "
+                    "mais G > 0 — personne n'y a mesuré au décimètre, mais un bateau y est "
+                    "passé et sa bande interdit un haut-fond), interpolé (R élevé et G = 0 — "
+                    "la valeur du modèle ne repose alors sur aucune mesure). G et B rendent "
+                    "la couche communautaire identifiable cellule par cellule."
                 ),
             },
             "reference_levels": config["reference_levels"],

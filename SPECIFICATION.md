@@ -352,6 +352,68 @@ quelques pixels, sur un téléphone qui bouge.
 
 Code : [`src/zones.js`](src/zones.js), tracé câblé dans `src/main.js` (`wireZones`).
 
+### 4.2 quinquies Encadrement par la cartographie communautaire Quickdraw
+
+**Lot L5, livré le 14/08/2026.** Troisième source du modèle, après le levé de 2009 et le
+MNT. Elle attaque le défaut central du § 3.1 bis là où ni l'un ni l'autre ne peuvent rien :
+entre deux transects distants de 150 m, des dizaines de sondeurs de pêcheurs sont passés.
+
+La couche communautaire Quickdraw n'est pas téléchargeable — le format on-device est
+propriétaire et indécodable — mais elle s'**affiche**, et son affichage est une carte de
+bandes : la légende donne l'intervalle exact de chaque couleur et les couleurs sont plates.
+Une capture d'écran géoréférencée est donc décodable sans ambiguïté. Méthode complète,
+calage et mesures : [`data/mesuresEtalonnage/Garmin/ANALYSE.md`](data/mesuresEtalonnage/Garmin/ANALYSE.md).
+
+Ce que la donnée dit, et ce qu'elle ne dit pas : un pixel donne un **encadrement**
+`[dmin, dmax]`, jamais une profondeur au décimètre. Règle appliquée, dans le droit fil de
+la fusion du MNT :
+
+> `z_fond = max(z_modèle, z_ac − dmax)`, avec **`z_ac` = 647,68 m NGF**.
+
+Seule la **borne basse de l'altitude** est utilisée : la carte ne peut donc que devenir
+moins profonde, jamais plus. Une erreur résiduelle de calage, ou une contribution prise en
+novembre à basse cote, ne peut pas creuser le lac — au pire elle le remplit un peu trop,
+c'est-à-dire dans le sens prudent.
+
+Quatre décisions de mise en œuvre, toutes mesurées plutôt que supposées :
+
+- **après le lissage**, comme `terrain_source`. Un σ de 15 m étale les hauts-fonds et
+  effacerait précisément ce qu'on ajoute ;
+- **agrégation au minimum** sur les ~49 pixels de mosaïque que couvre une cellule de 5 m.
+  L'accord entre deux captures qui se recouvrent n'est que de 88 % sur la campagne fine,
+  mais le désaccord se loge aux *frontières* de bande, où un pixel de décalage suffit à
+  changer de couleur : prendre le minimum dilate chaque bande peu profonde d'environ une
+  cellule, ce que le § 4.2 bis fait déjà volontairement à 15 m. Mesuré : le minimum relève
+  90,1 ha sur la seule campagne fine, le quantile 0,25 en relève 71,1, la médiane 63,8 ;
+- **la frange côtière n'est pas masquée.** Le modèle y place déjà le fond ~1,5 m trop haut
+  (artefact de la contrainte de bord, mesuré pour la première fois par cette comparaison),
+  donc le relèvement ne devrait presque jamais s'y déclencher. Vérifié : la tranche 0-25 m
+  du rivage est la **moins** relevée de toutes, 7,1 % de ses cellules encadrées contre 13
+  à 18 % au large. Rien à masquer ;
+- **`z_ac` est solidaire de `Z_2009`** (§ 4.4). Il a été mesuré en comparant les isobathes
+  communautaires à ce modèle-ci, donc à `Z_2009` = 648,0. Confirmer l'un sans déplacer
+  l'autre fausserait ce relèvement sans aucun signe extérieur. L'énoncé invariant, lui, ne
+  dépend de rien : *la surface Quickdraw est 0,32 m sous le plan d'eau du jour du levé
+  OFB*. C'est écrit dans `config/model.json` (`solidarity_note`, `confirmation_procedure`).
+
+Effet mesuré sur la grille publiée :
+
+| | valeur |
+|---|---|
+| lac encadré | **881 ha — 94,0 %** |
+| fond relevé | **137,4 ha**, dont 36,0 ha de plus de 3 m |
+| relèvement maximal | **19,3 m** |
+| part du lac restant aveugle (> 60 m d'une sonde **et** sans encadrement) | **2,4 %**, contre 37,8 % |
+| volume à la cote 647 | 80,63 → **77,48 hm³**, soit 3,15 retirés (3,9 %) |
+
+Le volume retiré est le prix assumé du sens prudent.
+
+**Licence.** La donnée appartient à Garmin et à ses contributeurs, sous CGU interdisant la
+redistribution, sans licence ouverte. La grille dérivée est publiée en connaissance de
+cause (§ 12). La couche reste donc **identifiable cellule par cellule** — canaux G et B de
+`coverage.png`, § 6.1 bis — pour pouvoir être retirée d'un seul geste, et `enabled: false`
+dans `config/model.json` la reconstruit sans elle.
+
 ### 4.3 Format de livraison de la grille
 
 Encodage **Terrain-RGB** (altitude sur 24 bits) dans un PNG, servi statiquement :
@@ -554,10 +616,11 @@ Puisque 37,8 % du lac est à plus de 60 m de toute mesure (§ 3.1 bis) et qu'auc
 n'est possible, l'application doit dire **où elle sait et où elle devine**. Présenter une
 interpolation avec l'aplomb d'une mesure serait la faute la plus grave.
 
-- `build_grid.py` produit `data/coverage.png` : image en niveaux de gris, même emprise et
-  même taille que `bed.png`, où chaque cellule porte la **distance en mètres à la sonde
-  mesurée la plus proche**, plafonnée à 255. Calculée dans le même passage que la grille,
-  donc toujours cohérente avec elle.
+- `build_grid.py` produit `data/coverage.png` : image **RGB**, même emprise et même taille
+  que `bed.png`, calculée dans le même passage que la grille donc toujours cohérente avec
+  elle. `R` = distance en mètres à la sonde mesurée la plus proche, plafonnée à 255 ;
+  `G` = borne de profondeur communautaire, en mètres arrondis au-dessus, 0 = aucune ;
+  `B` = relèvement appliqué par cette couche, en décimètres.
 - Le shader **hachure** les zones au-delà du seuil (défaut 60 m), avec une intensité
   croissante jusqu'à 2,5 fois le seuil. Les hachures sont calculées en coordonnées écran :
   leur pas reste constant au zoom, ce qui les distingue nettement du dessin des fonds.
@@ -566,7 +629,23 @@ interpolation avec l'aplomb d'une mesure serait la faute la plus grave.
   orange, au lieu de « sous le bateau ».
 - Réglage « Hachurer les zones non sondées », actif par défaut.
 
-`BedGrid.soundingDistanceAt()` expose la même donnée au reste de l'application.
+**Trois états depuis le lot L5, et non plus deux.** L'apport communautaire (§ 4.2
+quinquies) crée une situation que la seule distance à une sonde ne sait pas décrire :
+
+| État | Ce que dit la donnée | À l'écran |
+|---|---|---|
+| **mesuré** — `R` sous le seuil | une sonde du levé est là | rien |
+| **encadré** — `R` au-delà, `G > 0` | personne n'y a mesuré au décimètre, mais un sondeur y est passé et sa bande interdit un haut-fond | hachures atténuées (0,28 au lieu de 0,8), **sans** le voile magenta ; « encadré — communauté ≤ N m », sans alerte |
+| **interpolé** — `R` au-delà, `G = 0` | la valeur ne repose sur aucune mesure, un haut-fond peut s'y cacher entièrement | voile magenta + hachures pleines ; « interpolé — sonde à N m » en orange |
+
+Garder deux états rendrait le hachurage trompeur **dans l'autre sens** : il crierait « non
+sondé » sur 94 % du lac désormais encadré. L'effacer complètement mentirait à l'inverse —
+un encadrement n'est pas une mesure. D'où la troisième nuance, plus discrète que la
+première et plus visible que rien.
+
+`BedGrid.soundingDistanceAt()` et `BedGrid.communityBoundAt()` exposent les deux canaux au
+reste de l'application. Une `coverage.png` à un seul canal — les versions antérieures — se
+lit toujours : `G` y vaut 0 partout, ce qui revient à « aucun encadrement ».
 
 ### 6.1 ter Actions destructrices — aucune boîte de dialogue
 
@@ -753,6 +832,7 @@ ReliefLac/
 | **L2 — Paramètres** ✅ | Page palette complète, tirant d'eau, unités (m/km/h ↔ m/nœuds), alarme haut-fond, sonde ponctuelle, export/import de profil | Exigence n°4 satisfaite |
 | **L3 — Hors ligne** | Service Worker, pré-chargement des tuiles, cote manuelle | Fonctionne sans réseau au milieu du lac |
 | **L4 — Calage & densification** | `Z_2009` confirmé par l'étalonnage, **levé multifaisceaux 2011** (§ 3.5), import des logs sondeur (§ 15.4), isobathes étiquetées | Profondeurs validées sondeur en main, couverture complète du lac |
+| **L5 — Encadrement communautaire** ✅ | Mosaïques Quickdraw intégrées à `build_grid.py` comme source à part entière (§ 4.2 quinquies), carte de fiabilité à trois états (§ 6.1 bis) | 94 % du lac encadré, 137 ha de fond relevé jusqu'à 19,3 m, part aveugle ramenée de 37,8 % à 2,4 % |
 
 ---
 
@@ -784,6 +864,7 @@ ReliefLac/
 ## 12. Licences et attributions (à faire figurer dans l'app)
 
 - Bathymétrie : **OFB / Système d'Information sur l'Eau — « Bathymétrie plans d'eau »**, Licence Ouverte 2.0. Protocole Onema/Cemagref (Alleaume et al., 2010).
+- Encadrement des fonds : **Communauté Quickdraw (Garmin / ActiveCaptain)** — **usage dérivé, pas de licence ouverte**. À citer ainsi, et jamais sous Etalab ou Licence Ouverte comme les autres lignes : les CGU de Garmin interdisent la redistribution, et c'est en connaissance de cause que la grille dérivée est publiée (§ 4.2 quinquies, et `data/mesuresEtalonnage/Garmin/ANALYSE.md` § 9). La couche reste identifiable cellule par cellule dans `coverage.png` pour pouvoir être retirée d'un seul geste.
 - Cote du lac : **EDF Hydro — « Ma Rivière et Moi »** (usage informatif, mention de la source ; § 13).
 - Contour du lac et altimétrie : **IGN — BD TOPO® / RGE ALTI®**, Licence Ouverte Etalab 2.0.
 - Fond de carte : **IGN Géoplateforme** et/ou **© contributeurs OpenStreetMap** (ODbL).

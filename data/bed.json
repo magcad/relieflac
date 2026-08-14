@@ -54,12 +54,69 @@
     "max_shallower_m": 16.66,
     "median_shallower_m": 1.38
   },
+  "quickdraw_source": {
+    "available": true,
+    "z_ac_m_ngf": 647.68,
+    "solidary_with": "ofb2009",
+    "mosaics": [
+      "mosaique_0-12m.png",
+      "mosaique_12_30m.png"
+    ],
+    "aggregate_quantile": 0.0,
+    "min_decoded_fraction": 0.25,
+    "min_shore_distance_m": 0.0,
+    "cells_constrained": 352383,
+    "cells_raised": 54974,
+    "constrained_ha": 881.0,
+    "raised_ha": 137.4,
+    "lake_share_constrained": 0.9403,
+    "max_shallower_m": 19.26,
+    "median_shallower_m": 1.4,
+    "ha_above": {
+      "0": 137.4,
+      "2": 53.1,
+      "3": 36.0,
+      "5": 17.3,
+      "8": 5.1
+    },
+    "shore_fringe": {
+      "0-25": {
+        "constrained_ha": 87.2,
+        "raised_ha": 6.2,
+        "share_raised": 0.0709,
+        "median_shallower_m": 2.06
+      },
+      "25-50": {
+        "constrained_ha": 118.0,
+        "raised_ha": 15.5,
+        "share_raised": 0.1315,
+        "median_shallower_m": 1.53
+      },
+      "50-100": {
+        "constrained_ha": 203.9,
+        "raised_ha": 36.7,
+        "share_raised": 0.1801,
+        "median_shallower_m": 1.74
+      },
+      "100+": {
+        "constrained_ha": 471.8,
+        "raised_ha": 79.0,
+        "share_raised": 0.1675,
+        "median_shallower_m": 1.19
+      }
+    },
+    "volume_647_hm3": [
+      80.63,
+      77.48
+    ],
+    "volume_removed_hm3": 3.15
+  },
   "shoal_bias": {
     "radius_m": 21.51491703756115,
-    "cells_raised": 39036,
+    "cells_raised": 35501,
     "cells_valid": 374698,
-    "max_shallower_m": 9.46,
-    "mean_shallower_m": 0.918
+    "max_shallower_m": 8.23,
+    "mean_shallower_m": 0.825
   },
   "coverage": {
     "unit": "m",
@@ -69,8 +126,15 @@
     "share_within_25m": 0.3219,
     "share_within_60m": 0.6216,
     "share_beyond_60m": 0.3784,
+    "share_bounded": 0.9403,
+    "share_blind": 0.0239,
     "file": "coverage.png",
-    "note": "Image en niveaux de gris, même emprise et même taille que bed.png : distance en mètres à la sonde mesurée la plus proche, plafonnée à 255. Au-delà de quelques dizaines de mètres, la valeur du modèle est interpolée et non mesurée."
+    "channels": {
+      "R": "distance en mètres à la sonde mesurée la plus proche, plafonnée à 255",
+      "G": "borne de profondeur de la cartographie communautaire Quickdraw, en mètres arrondis au-dessus ; 0 = aucun encadrement",
+      "B": "relèvement appliqué par cette couche, en décimètres ; 0 = aucun"
+    },
+    "note": "Image RGB, même emprise et même taille que bed.png. Trois états, et non deux : mesuré (R faible), encadré par la communauté Quickdraw (R élevé mais G > 0 — personne n'y a mesuré au décimètre, mais un bateau y est passé et sa bande interdit un haut-fond), interpolé (R élevé et G = 0 — la valeur du modèle ne repose alors sur aucune mesure). G et B rendent la couche communautaire identifiable cellule par cellule."
   },
   "reference_levels": {
     "$comment": "Cote du plan d'eau au moment de chaque levé, en m NGF. C'est ce qui convertit une profondeur en altitude de fond.",
@@ -81,7 +145,17 @@
         645.0,
         648.8
       ],
-      "note": "Cote du lac le 22/04/2009, jour du levé OFB. NON CONFIRMÉE. Établi que la valeur est <= ~648,8 m NGF (les 460 sondes les moins profondes tombent dans le plan d'eau du LiDAR RGE ALTI, constant à 648,80 m). À caler par étalonnage au sondeur (SPECIFICATION.md § 15)."
+      "note": "Cote du lac le 22/04/2009, jour du levé OFB. NON CONFIRMÉE. Établi que la valeur est <= ~648,8 m NGF (les 460 sondes les moins profondes tombent dans le plan d'eau du LiDAR RGE ALTI, constant à 648,80 m). À caler par étalonnage au sondeur (SPECIFICATION.md § 15).",
+      "solidary_with": "quickdraw",
+      "solidarity_note": "ATTENTION : la cote Quickdraw (647,68) a été MESURÉE par comparaison des isobathes communautaires à ce modèle-ci, donc à cette valeur-ci de Z_2009. Les deux se déplacent ENSEMBLE : confirmer l'une sans corriger l'autre fausse silencieusement le relèvement communautaire, sans aucun signe extérieur. L'énoncé invariant, lui, ne dépend pas de Z_2009 : la surface Quickdraw est 0,32 m sous le plan d'eau du jour du levé OFB.",
+      "confirmation_procedure": "Si Z_2009 est confirmé à une autre valeur V, écrire ici V et là-dessous V - 0.32, puis relancer build_grid.py. Ne jamais toucher à l'une seule."
+    },
+    "quickdraw": {
+      "value_m_ngf": 647.68,
+      "confirmed": false,
+      "solidary_with": "ofb2009",
+      "offset_from_ofb2009_m": -0.32,
+      "note": "Cote du plan d'eau à laquelle se rapportent les profondeurs de la cartographie communautaire Quickdraw. Garmin ne publie AUCUNE référence verticale — il existe même un décalage d'affichage réservé aux cartes communautaires, ce qui ne s'inventerait pas si la donnée en avait une. Cette valeur est donc mesurée, sur les frontières de bande, au large (>= 100 m du rivage), médiane des isobathes >= 3 m. Voir data/mesuresEtalonnage/Garmin/ANALYSE.md § 3. Dispersion réelle : sigma robuste de 0,8 à 1,3 m par point — c'est une valeur centrale, PAS une précision ; ne pas en attendre mieux que ±1,5 m localement. Solidaire de ofb2009 : voir solidarity_note ci-dessus."
     },
     "rge_alti": {
       "value_m_ngf": 648.8,

@@ -22,7 +22,7 @@ export function toMercator(lon, lat) {
 }
 
 export class BedGrid {
-  constructor(meta, bitmap, altitudes, alpha, coverage = null, coverageBitmap = null) {
+  constructor(meta, bitmap, altitudes, alpha, coverage = null, coverageBitmap = null, bound = null) {
     this.meta = meta;
     this.bitmap = bitmap;
     // Grille brute du levé 2009 (invariante) et grille de travail affichée : elles ne
@@ -35,6 +35,10 @@ export class BedGrid {
     this.baseCoverage = coverage;
     this.coverage = coverage;
     this.coverageBitmap = coverageBitmap;
+    // Borne de profondeur de la cartographie communautaire, en mètres ; 0 = aucune.
+    // Elle ne bouge pas avec les corrections manuelles : c'est une donnée du fichier, pas
+    // un état de travail. Un relevé manuel rapproche la sonde, il n'efface pas l'encadrement.
+    this.bound = bound;
     [this.x0, this.y0, this.x1, this.y1] = meta.bbox_3857;
     this.width = meta.width;
     this.height = meta.height;
@@ -71,25 +75,34 @@ export class BedGrid {
         : base + (data[o] * 65536 + data[o + 1] * 256 + data[o + 2]) * interval;
     }
 
-    // Carte de couverture : distance à la sonde mesurée la plus proche. Facultative —
-    // l'application reste utilisable sans, elle perd seulement l'indication de fiabilité.
+    // Carte de fiabilité, à trois canaux depuis l'apport communautaire : R = distance à la
+    // sonde mesurée la plus proche, G = borne de profondeur Quickdraw (0 = aucune), B = le
+    // relèvement qu'elle a appliqué. Trois états, donc, et non deux : mesuré, encadré,
+    // interpolé. Une carte à un seul canal — les versions antérieures — se lit toujours :
+    // G y vaut 0 partout, ce qui revient à « aucun encadrement », et l'application retombe
+    // sur son comportement d'avant. Facultative : sans elle, plus aucune mise en garde.
     let coverage = null;
     let coverageBitmap = null;
+    let bound = null;
     try {
       const response = await fetch(`${baseUrl}/data/coverage.png`);
       if (response.ok) {
         coverageBitmap = await createImageBitmap(await response.blob());
         context.clearRect(0, 0, meta.width, meta.height);
         context.drawImage(coverageBitmap, 0, 0);
-        const grey = context.getImageData(0, 0, meta.width, meta.height).data;
+        const channels = context.getImageData(0, 0, meta.width, meta.height).data;
         coverage = new Uint8Array(count);
-        for (let i = 0; i < count; i += 1) coverage[i] = grey[i * 4];
+        bound = new Uint8Array(count);
+        for (let i = 0; i < count; i += 1) {
+          coverage[i] = channels[i * 4];
+          bound[i] = channels[i * 4 + 1];
+        }
       }
     } catch {
       // Sans couverture, on n'affiche simplement aucune mise en garde.
     }
 
-    return new BedGrid(meta, bitmap, altitudes, alpha, coverage, coverageBitmap);
+    return new BedGrid(meta, bitmap, altitudes, alpha, coverage, coverageBitmap, bound);
   }
 
   /** Indice de cellule contenant ce point, ou -1 hors emprise. */
@@ -166,6 +179,21 @@ export class BedGrid {
     if (!this.coverage) return NaN;
     const index = this.indexAt(lon, lat);
     return index < 0 ? NaN : this.coverage[index];
+  }
+
+  /**
+   * Borne de profondeur donnée par la cartographie communautaire, en mètres — 0 si la
+   * communauté n'est jamais passée là.
+   *
+   * Ce n'est pas une mesure : une bande dit « entre 4 et 6 m », et on n'en retient que la
+   * borne basse de l'altitude. Mais entre deux traces du levé de 2009 distantes de 150 m,
+   * savoir que le fond n'est pas plus bas que ça vaut mieux qu'une interpolation. C'est le
+   * troisième état de la carte de fiabilité : ni mesuré, ni inconnu — encadré.
+   */
+  communityBoundAt(lon, lat) {
+    if (!this.bound) return 0;
+    const index = this.indexAt(lon, lat);
+    return index < 0 ? 0 : this.bound[index];
   }
 
   /**

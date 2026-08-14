@@ -33,6 +33,19 @@ function near(a, b, tolerance) {
   return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= tolerance;
 }
 
+/** Centre d'une cellule de la grille, en lon/lat — l'inverse de `BedGrid.indexAt`. */
+function cellCentre(bed, index) {
+  const col = index % bed.width;
+  const row = Math.floor(index / bed.width);
+  const mx = bed.x0 + ((col + 0.5) / bed.width) * (bed.x1 - bed.x0);
+  const my = bed.y1 - ((row + 0.5) / bed.height) * (bed.y1 - bed.y0);
+  const circumference = 40075016.685578488;
+  return [
+    (mx / circumference) * 360,
+    (Math.atan(Math.exp((my / (circumference / 2)) * Math.PI)) * 2 - Math.PI / 2) * (180 / Math.PI),
+  ];
+}
+
 function hexAt(lut, depth, lutMax) {
   const index = lutIndex(depth, lutMax) * 4;
   return `#${[0, 1, 2].map((i) => lut[index + i].toString(16).padStart(2, '0')).join('')}`;
@@ -94,6 +107,42 @@ export async function run(base = '..') {
     check('distance nulle sur une trace du levé',
       bed.soundingDistanceAt(1.87132, 45.79328) <= 6,
       `${bed.soundingDistanceAt(1.87132, 45.79328)} m`);
+  }
+
+  // Troisième état de la carte de fiabilité : l'encadrement communautaire Quickdraw.
+  // Ni mesuré, ni inconnu — un sondeur est passé, sa bande borne la profondeur.
+  const community = bed.meta.quickdraw_source;
+  check('borne communautaire chargée', bed.bound instanceof Uint8Array,
+    bed.bound ? `${bed.bound.length} cellules` : 'absente');
+  if (bed.bound && community && community.available) {
+    const inLake = [];
+    for (let i = 0; i < bed.bound.length; i += 1) {
+      if (Number.isFinite(bed.baseAltitudes[i])) inLake.push(i);
+    }
+    const bounded = inLake.filter((i) => bed.bound[i] > 0).length / inLake.length;
+    check('part du lac encadrée par la communauté conforme au calcul Python',
+      Math.abs(bounded - reference.coverage.share_bounded) < 0.01,
+      `${(bounded * 100).toFixed(1)} % · attendu ${(reference.coverage.share_bounded * 100).toFixed(1)} %`);
+
+    // L'invariant de toute la couche, et le seul qui compte : la grille publiée ne doit
+    // nulle part être plus profonde que ce que la communauté autorise. Il tient sur chaque
+    // cellule encadrée, puisque le relèvement est un maximum et que rien, ensuite, ne
+    // creuse. Un calage qui aurait glissé d'une emprise le ferait tomber en masse.
+    const zAc = community.z_ac_m_ngf;
+    const violations = inLake.filter(
+      (i) => bed.bound[i] > 0 && bed.baseAltitudes[i] < zAc - bed.bound[i] - 0.02,
+    );
+    check('aucune cellule plus profonde que la borne communautaire',
+      violations.length === 0,
+      violations.length
+        ? `${violations.length} cellules, pire ${Math.min(...violations.map(
+          (i) => bed.baseAltitudes[i] - (zAc - bed.bound[i]))).toFixed(2)} m`
+        : `${inLake.filter((i) => bed.bound[i] > 0).length} cellules encadrées vérifiées`);
+
+    const raised = inLake.find((i) => bed.bound[i] > 0);
+    check('lecture de la borne au point', bed.bound[raised] > 0
+      && bed.communityBoundAt(...cellCentre(bed, raised)) === bed.bound[raised],
+      `${bed.bound[raised]} m`);
   }
 
   // --- correction manuelle de la carte (« 2009 corrigée ») --------------------

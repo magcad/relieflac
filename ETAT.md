@@ -1,8 +1,8 @@
 # État du projet — reprise de session
 
-**Dernière mise à jour** : 13 août 2026
+**Dernière mise à jour** : 14 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 124 contrôles, tous passants
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 128 contrôles, tous passants
 **Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 44 gestes, tous passants
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
@@ -26,7 +26,7 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L2** | Page Paramètres | ✅ livrée avec L1 |
 | **L3** | Hors ligne — Service Worker, pré-chargement des tuiles | ⬜ à faire |
 | **L4** | Calage `Z_2009` confirmé, import des logs sondeur, isobathes étiquetées | 🟡 en cours |
-| **L5** | Intégrer les mosaïques Quickdraw à `build_grid.py`, reconstruire, déployer | ⬜ à faire — deux campagnes calées, voir § 3.5 |
+| **L5** | Intégrer les mosaïques Quickdraw à `build_grid.py`, reconstruire, déployer | ✅ terminé le 14/08/2026 — voir § 3.5 |
 
 Mode **« Sonde »** (saisie manuelle) livré le 11/08/2026 : le sondeur du bord est un
 **Eagle** monochrome sans enregistrement ni GPS — on relève la profondeur à la main. Un
@@ -172,12 +172,45 @@ d'importance :
 3. **La contrainte de bord est chiffrée** : le modèle place le fond ~1,5 m trop haut dans
    la frange côtière. Sens prudent, mais mesuré pour la première fois.
 
-**Rien n'est intégré à la grille** : c'est la tâche suivante, volontairement laissée à une
-session dédiée. Tout est conservé —
-[`data/mesuresEtalonnage/Garmin/ANALYSE.md`](data/mesuresEtalonnage/Garmin/ANALYSE.md)
-(méthode, mesures, protocole de capture, décision de licence), `georef.json` (le calage,
-une trentaine de minutes de calcul à ne pas refaire), `mosaique.png` (le raster de bandes,
-relu à l'identique), et les outils `tools/qd_georef.py` / `tools/qd_mosaic.py`.
+**Lot L5 — l'encadrement communautaire est dans la grille** (14/08/2026). La campagne
+profonde a été calée à son tour (17/17, échelles groupées à 0,84 %, accord 97 % sur les
+recouvrements), sa mosaïque produite, et les deux sont devenues une **source à part entière
+de `build_grid.py`** — `grid.quickdraw_source` dans `config/model.json`, pas une retouche
+après coup. Règle appliquée, après le lissage comme la fusion du MNT :
+`z_fond = max(z_modèle, 647,68 − dmax)`. Seule la borne basse de l'altitude sert, donc la
+carte ne peut que devenir **moins profonde**, jamais plus, quelle que soit l'erreur de
+calage résiduelle.
+
+| | valeur |
+|---|---|
+| lac encadré | **881 ha — 94,0 %** |
+| fond relevé | **137,4 ha**, dont 36,0 de plus de 3 m, maximum **19,3 m** |
+| part du lac restant aveugle | **2,4 %**, contre 37,8 % |
+| volume à 647 m | 80,63 → **77,48 hm³** — 3,15 retirés, prix assumé du sens prudent |
+
+Trois décisions prises **sur mesure et non sur intuition** :
+
+1. **La frange côtière n'est pas masquée.** On soupçonnait que le modèle y étant déjà
+   ~1,5 m trop haut, le relèvement ne s'y déclencherait guère. Vérifié : la tranche 0-25 m
+   du rivage est la **moins** relevée de toutes, 7,1 % de ses cellules encadrées contre 13
+   à 18 % au large. Les 6,2 ha qui se relèvent quand même n'en sont que plus crédibles.
+2. **La carte de fiabilité apprend un troisième état.** `coverage.png` passe en RGB :
+   rouge = distance à la sonde de 2009, vert = borne communautaire, bleu = relèvement
+   appliqué. Le shader et la lecture sous le bateau distinguent désormais *mesuré*,
+   *encadré* et *interpolé*. Garder deux états rendait le hachurage trompeur dans l'autre
+   sens — il aurait crié « non sondé » sur 94 % du lac ; l'effacer aurait menti à
+   l'inverse, un encadrement n'étant pas une mesure. D'où une nuance intermédiaire :
+   hachures atténuées, sans voile magenta, et « encadré — communauté ≤ N m » sans alerte.
+3. **`Z_2009` et `z_ac` sont déclarés solidaires** dans `config/model.json`, chacun
+   pointant sur l'autre, avec l'écart invariant (−0,32 m) et la marche à suivre le jour où
+   l'un sera confirmé (§ 3.2). Sans quoi quelqu'un — nous, dans six mois — corrigerait
+   l'un en oubliant l'autre, et fausserait le relèvement sans aucun signe extérieur.
+
+Le canal bleu rend la couche **retirable d'un seul geste** : `quickdraw_source.enabled` à
+`false` reconstruit la grille sans elle, et les deux canaux disent, sans recalcul, ce
+qu'elle avait changé et de combien. C'est l'obligation de licence du § 3.5, honorée en même
+temps que le code et non après. **Ce que ça donne à l'écran n'a pas pu être vu par
+l'assistant** — page masquée, MapLibre ne s'initialise pas : cela se valide sur l'eau.
 
 **Banc d'essai des enchaînements** (13/08/2026) : `test/interaction.html`. Il démarre la
 **vraie** application avec une carte factice ([`test/stub-map.js`](test/stub-map.js))
@@ -227,11 +260,23 @@ IGN (plan d'eau à 648,80 m NGF).
 zones au-delà du seuil sont hachurées, et la profondeur sous le bateau annonce
 « interpolé — sonde à N m ». Voir `data/coverage.png` et § 4.2 bis de la spécification.
 
-**Confirmé par une source indépendante le 14/08/2026.** La cartographie communautaire
-Quickdraw (§ 3.5) dit le fond plus haut que le modèle sur **90,6 ha**, dont 25,6 ha de plus
-de 3 m et jusqu'à 19,3 m. 46 % de ces cellules sont à plus de 60 m d'une sonde de 2009,
-contre 37,8 % sur l'ensemble du lac : le défaut est bien là où le levé ne voit rien, et
-c'est mesuré, plus seulement déduit.
+**Confirmé par une source indépendante, puis largement comblé, le 14/08/2026.** La
+cartographie communautaire Quickdraw (§ 3.5) dit le fond plus haut que le modèle sur
+**137,4 ha**, dont 36,0 ha de plus de 3 m et jusqu'à 19,3 m. Le défaut est bien là où le
+levé ne voit rien — c'est mesuré, plus seulement déduit — et il est désormais **corrigé
+dans la grille publiée** (lot L5).
+
+Le tableau ci-dessus reste vrai : il décrit le levé de 2009, qui n'a pas changé. Ce qui a
+changé est la part du lac où **aucune** source ne dit rien :
+
+| | avant | après |
+|---|---|---|
+| mesuré à moins de 60 m d'une sonde, ou encadré par la communauté | 62,2 % | **97,6 %** |
+| **aveugle** | **37,8 %** | **2,4 %** |
+
+*Encadré n'est pas mesuré* : la communauté donne une bande (« entre 4 et 6 m »), pas une
+profondeur au décimètre. C'est pourquoi la carte distingue maintenant trois états et non
+deux — voir § 6.1 bis de la spécification.
 
 ---
 
@@ -270,6 +315,14 @@ isolable tant que l'échelle du sondeur n'est pas réglée.
 Une fois la valeur stabilisée : la reporter dans `config/model.json`
 (`reference_levels.ofb2009.value_m_ngf`), passer `confirmed` à `true`, relancer
 `build_grid.py`, et remettre le décalage d'étalonnage à zéro dans l'application.
+
+**Et ne pas oublier `z_ac`.** La cote Quickdraw de 647,68 m (§ 3.5) a été mesurée en
+comparant les isobathes communautaires à ce modèle-ci, donc à `Z_2009` = 648,0. Les deux
+sont **solidaires** : les corriger séparément fausse le relèvement communautaire sans aucun
+signe extérieur. L'énoncé invariant, lui, ne dépend de rien — *la surface Quickdraw est
+0,32 m sous le plan d'eau du jour du levé OFB*. La règle et la marche à suivre sont écrites
+dans `config/model.json` (`solidary_with`, `solidarity_note`, `confirmation_procedure`),
+là où on les lira au moment de changer la valeur.
 
 ### 3.2 bis Le sondeur Eagle sous-lit d'environ 10 % — **tranché le 14/08/2026**
 
@@ -333,22 +386,24 @@ Résolue par le levé 2011 (§ 3.1), ou par des traces de sondeur horodatées (�
 
 ### 3.5 Traces de sondeur
 
-**Piste Garmin rouverte le 14/08/2026, par un autre chemin.** Le format on-device
-(`ContoursLog.svy` + grilles propriétaires) reste indécodable par tout outil public, et
-c'est sans importance : la couche communautaire s'exploite par **capture d'écran
-géoréférencée**. La légende donne l'intervalle exact de chaque couleur et les couleurs sont
-plates, donc une capture est une carte de bandes décodable sans ambiguïté.
+**Piste Garmin rouverte le 14/08/2026, par un autre chemin, et intégrée le jour même.** Le
+format on-device (`ContoursLog.svy` + grilles propriétaires) reste indécodable par tout
+outil public, et c'est sans importance : la couche communautaire s'exploite par **capture
+d'écran géoréférencée**. La légende donne l'intervalle exact de chaque couleur et les
+couleurs sont plates, donc une capture est une carte de bandes décodable sans ambiguïté.
+Ce n'est donc plus une impasse : c'est la troisième source du modèle.
 
-Fait, non intégré, en **deux campagnes** — un dossier de captures et une palette chacune,
-déclarées dans `data/mesuresEtalonnage/Garmin/palettes.json` :
+Fait, **intégré à la grille**, en **deux campagnes** — un dossier de captures et une
+palette chacune, déclarées dans `data/mesuresEtalonnage/Garmin/palettes.json` :
 
 | Campagne | Captures | Plage | Ce qu'elle apporte |
 |---|---|---|---|
 | `0-12m` | 27 | 0 à 12 m, 10 bandes | 25 calées à NCC 0,95–0,99, mosaïque 8 806 × 6 913 px à 1 m/px, **93,6 % du lac** décodé — contre 62,2 % à moins de 60 m d'une sonde en 2009 |
-| `12_30m` | 17 | 12 à 30 m, 6 bandes | comble le seul angle mort de la première : sa bande 12–30 m ne contraignait rien, donc tout le bassin ouest était muet |
+| `12_30m` | 17 | 12 à 30 m, 6 bandes | comble le seul angle mort de la première : sa bande 12–30 m ne contraignait rien, donc tout le bassin ouest était muet. 17/17 calées, échelles groupées à 0,84 %, accord 97,0 %, 326 ha décodés |
 
-Cote de référence mesurée : **647,68 m NGF**. Effet attendu de la seule campagne `0-12m` :
-90,6 ha relevés, dont 25,6 ha de plus de 3 m, jusqu'à 19,3 m.
+Cote de référence mesurée : **647,68 m NGF**, solidaire de `Z_2009` (§ 3.2). Effet obtenu
+sur la grille publiée : **137,4 ha relevés**, dont 36,0 de plus de 3 m, jusqu'à 19,3 m —
+dont 40 ha apportés par la seule campagne profonde.
 
 **Piège de conception** : les couleurs se recyclent d'une campagne à l'autre. `(0,197,255)`
 vaut 12–30 m dans `0-12m` et 12–14 m dans `12_30m`. Décoder avec la mauvaise palette produit
@@ -359,13 +414,21 @@ Méthode, mesures, produits et protocole de capture :
 [`data/mesuresEtalonnage/Garmin/ANALYSE.md`](data/mesuresEtalonnage/Garmin/ANALYSE.md),
 outils `tools/qd_georef.py` et `tools/qd_mosaic.py`.
 
-**Ce qui n'a pas changé, et qui a été tranché** : la donnée appartient à Garmin et à sa
-communauté, sous CGU interdisant la redistribution, sans licence ouverte. L'utilisateur a
-décidé le 14/08/2026 de **publier quand même la grille corrigée**. Trois obligations en
-découlent, à honorer au moment de l'intégration et non après : la ligne de source doit
-porter « usage dérivé, pas de licence ouverte » et non Etalab ; le présent § doit être
-réécrit en conséquence ; et la couche doit rester identifiable cellule par cellule, pour
-pouvoir être retirée d'un seul geste.
+**La licence, tranchée puis honorée** : la donnée appartient à Garmin et à sa communauté,
+sous CGU interdisant la redistribution, sans licence ouverte. L'utilisateur a décidé le
+14/08/2026 de **publier quand même la grille dérivée**. Les trois obligations qui en
+découlaient sont remplies, en même temps que le code et non après :
+
+- la ligne de source porte « Communauté Quickdraw (Garmin / ActiveCaptain) — **usage
+  dérivé, pas de licence ouverte** », dans `README.md`, au § 7 ci-dessous, au § 12 de la
+  spécification, et dans la page « À propos » de l'application — c'est là que le lecteur la
+  verra ;
+- le présent § est réécrit : la piste n'est plus une impasse, la voie retenue est la
+  capture d'écran géoréférencée, et la restriction porte sur la redistribution — que nous
+  faisons, en connaissance de cause ;
+- la couche est **identifiable cellule par cellule** dans `data/coverage.png` (canal vert :
+  la borne ; canal bleu : le relèvement appliqué), donc retirable d'un seul geste —
+  `quickdraw_source.enabled: false`, puis `build_grid.py`.
 
 Voie complémentaire, inchangée : **saisie manuelle** (§ L4 ci-dessus, `src/probes.js`), le
 sondeur du bord étant un Eagle sans export. Ces points-là sont librement rediffusables.
@@ -481,13 +544,20 @@ python tools/fetch_lake_polygon.py      # IGN BD TOPO → data/lake.geojson
 python tools/fetch_rge_alti.py          # IGN RGE ALTI → data/rge_alti.npy (non versionné)
 python tools/build_shore_constraint.py  # → data/shore_constraint.csv
 python tools/fetch_level.py             # EDF → data/level.json + level-history.json
+python tools/qd_georef.py 0-12m         # captures Quickdraw → georef_0-12m.json (~30 min)
+python tools/qd_mosaic.py 0-12m         # → mosaique_0-12m.png
+python tools/qd_georef.py 12_30m --min-ncc 0.50   # campagne profonde (~30 min)
+python tools/qd_mosaic.py 12_30m --min-ncc 0.50
 python tools/build_grid.py              # tout → data/bed.png, bed.json, coverage.png
 python tools/dump_reference.py          # → test/reference.json, requis par les tests
 python tools/preview_grid.py            # contrôle visuel → data/preview.png
 ```
 
 `data/rge_alti.npy` (4,9 Mo) n'est pas versionné : `fetch_rge_alti.py` le retélécharge.
-`build_grid.py` échoue proprement sans lui, en signalant quoi lancer.
+`build_grid.py` échoue proprement sans lui, en signalant quoi lancer. Les quatre étapes
+`qd_*` sont facultatives — leurs produits sont versionnés — et le **nom de campagne y est
+obligatoire** : les couleurs se recyclent d'une palette à l'autre, et décoder avec la
+mauvaise donne une carte fausse sans aucun signe extérieur (§ 3.5).
 
 ### Outils de diagnostic
 
@@ -500,7 +570,7 @@ python tools/preview_grid.py            # contrôle visuel → data/preview.png
 
 ### Vérifications
 
-Ouvrir `/test/`. 124 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 128 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
 simulation**, **forme de la correction (plateau, fondu, indépendance à l'ordre) et zones
@@ -576,6 +646,9 @@ base relative (`<base href="../">`), y compris pour les clés de sa carte d'impo
 | Correction manuelle | Plateau + fondu, recouvrements fusionnés | Une mesure de haut-fond dit « au moins ça, sur une surface », pas « une pointe » ; et la carte ne doit pas dépendre de l'ordre de saisie |
 | Rayon d'une correction | Attaché au relevé, pas au réglage | Comme l'immersion : c'est l'étendue sur laquelle son auteur a jugé sa mesure représentative |
 | Zones émergées | Locales, jamais synchronisées | Une interprétation n'a pas à voyager dans un fichier de mesures |
+| Encadrement communautaire | Relèvement seul, `max(z_modèle, 647,68 − dmax)` | On n'utilise que la borne basse de l'altitude : une erreur de calage ou une contribution prise à basse cote ne peut alors que remplir le lac, jamais le creuser |
+| Agrégation des bandes Quickdraw | Le minimum du bloc de 5 m, pas la médiane | Le désaccord entre captures se loge aux frontières de bande : prendre le minimum dilate le haut-fond d'une cellule, ce que la généralisation fait déjà volontairement à 15 m |
+| Carte de fiabilité | Trois états — mesuré, encadré, interpolé | Un encadrement n'est pas une mesure, mais ce n'est plus une interpolation : les deux mensonges opposés sont également graves |
 | Décalage d'étalonnage | Appliqué **seulement** sous le plan d'eau LiDAR | Au-dessus, la grille vient du MNT : ce sont des altitudes absolues |
 | Dépendances | MapLibre vendorisé en `.js` | La vérification stricte du type MIME rejette `.mjs` sur certains serveurs |
 | Build | Aucun — modules ES natifs | Le code lu est le code exécuté ; rien à casser entre les deux |
@@ -659,6 +732,14 @@ base relative (`<base href="../">`), y compris pour les clés de sa carte d'impo
   à sa valeur de départ dans une page masquée — donc la mesure de position depuis le banc
   d'essai lisait l'ancien emplacement et donnait un correctif pour mort. Sur un geste qui
   doit être franc, pas d'animation.
+- **Un canal ajouté à une texture, et un écrivain resté sourd.** `coverage.png` porte
+  désormais trois grandeurs au lieu d'une. Le chargement les lisait bien, mais
+  `#uploadCoverage` — appelé à chaque correction manuelle pour renvoyer la texture au GPU —
+  recopiait toujours la distance dans les trois canaux, écrasant la borne communautaire. Le
+  défaut ne se voyait pas au démarrage, puisque la texture initiale vient du fichier : il
+  n'apparaissait qu'**après la première correction**, où le hachurage revenait à deux
+  états. Règle : quand une donnée existe en deux exemplaires — le fichier et le tampon
+  réécrit — tout canal ajouté à l'un doit l'être à l'autre dans le même geste.
 - **Collision de noms dans `build_grid.py`.** `coverage` désignait déjà le taux de
   cellules valides.
 
@@ -669,6 +750,7 @@ base relative (`<base href="../">`), y compris pour les clés de sa carte d'impo
 | Donnée | Source | Licence |
 |---|---|---|
 | Bathymétrie | [OFB — Bathymétrie plans d'eau](https://data.eaufrance.fr/jdd/c31746f7-311a-41c7-b995-6cb78a2ddc25), levé du 22/04/2009, entité `L0115203` | Licence Ouverte 2.0 |
+| Encadrement des fonds | Communauté **Quickdraw** (Garmin / ActiveCaptain), 42 captures calées sur 44 | **usage dérivé, pas de licence ouverte** — voir § 3.5 |
 | Cote du lac | EDF — `https://mariviereetmoi.edf.fr/api/v5/practicabilities/31856100` | usage informatif, sans CORS |
 | Contour | IGN BD TOPO® V3, WFS `data.geopf.fr`, `CQL_FILTER=toponyme LIKE '%Vassivi%'` | Etalab 2.0 |
 | Altimétrie | IGN RGE ALTI®, WMS BIL float32 `ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES` | Etalab 2.0 |
