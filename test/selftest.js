@@ -539,6 +539,21 @@ export async function run(base = '..') {
   check('haut-fond émergé : le modèle le noyait sous 17 m',
     near(shoal.modelDepth, 17.0, 1e-9));
 
+  // Le trait de côte : profondeur nulle, rien d'immergé. C'est la mesure de fond la plus
+  // directe qui existe — le fond y est à la cote du lac, sans instrument entre les deux —
+  // et c'est celle qu'on relève à pied pour caler la carte communautaire. L'immersion y
+  // était retranchée comme pour une sonde en pleine eau : 30 cm d'erreur systématique, sur
+  // les points mêmes qui servent à établir le recalage.
+  const waterline = makeProbe({
+    position: { lon: 1.87, lat: 45.79, accuracy: 8 },
+    level: 647.0, levelSource: 'live', sounderDepth: 0, transducerDepth: 0.3, modelBedZ: 645.0,
+  });
+  check('trait de côte : le fond est à la cote du lac, immersion ignorée',
+    near(waterline.bedZ, 647.0, 1e-9), `${waterline.bedZ}`);
+  check('et l\'écart au modèle donne le recalage cherché',
+    near(waterline.bedZ - waterline.modelBedZ, 2.0, 1e-9),
+    `${waterline.bedZ - waterline.modelBedZ}`);
+
   probes.update(entry.id, { sounderDepth: -0.4 });
   check('correction en haut-fond émergé : immersion neutralisée',
     near(probes.get(entry.id).bedZ, 647.4, 1e-9), `${probes.get(entry.id).bedZ}`);

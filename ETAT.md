@@ -993,6 +993,22 @@ la comparaison, l'écart mesuré l'est aussi, d'autant. La mesure est à refaire
   dire pourquoi non ; et un enchaînement se vérifie sur **ce que l'utilisateur lit**, pas sur
   ce que le stockage contient — les deux nouvelles vérifications échouent bien sur la version
   d'avant, c'est ce qui en fait des gardes.
+- **Le zéro du trait de côte.** La règle « pas d'immersion retranchée quand rien n'est
+  immergé » avait été écrite pour les hauts-fonds découverts, donc pour les **profondeurs
+  négatives** : `sounderDepth < 0`. Le trait de côte, lui, se relève à zéro — rien d'immergé
+  non plus — et retombait dans le cas général : fond annoncé 30 cm trop bas. Or c'est le
+  point de mesure le plus direct qui existe (le fond y est à la cote du lac, sans instrument
+  entre les deux), donc précisément celui qu'on va relever à pied pour établir un recalage :
+  l'erreur se serait transportée telle quelle dans l'offset. Corrigé en `<= 0` le 15/08/2026,
+  avant la campagne. Leçon : *une règle écrite pour un cas limite doit être relue quand un
+  second cas limite apparaît* — ici les deux façons de n'avoir rien dans l'eau.
+- **Une étiquette qui se tait là où elle compte.** Sous le bateau, `fond émergé` remplaçait
+  toute mention de la source dès que la profondeur passait sous zéro. C'est exactement où
+  l'on se tient pour caler la carte communautaire — et le recalage ne déplace QUE les
+  cellules encadrées par une bande. Sans distinction affichée, impossible de savoir sur le
+  terrain si le point relevé mesure le décalage cherché ou le terrain LiDAR, qui est absolu
+  et tirerait la médiane vers zéro. L'étiquette dit maintenant `fond émergé — bande ≤ X m`
+  ou `fond émergé — hors bande`.
 - **Un bouton qui n'a rien à faire ne doit pas se taire.** `set` ne notifie personne si la
   valeur ne change pas : appuyer sur « Revenir à la cote EDF » alors qu'aucune cote manuelle
   n'était en place ne déclenchait rien du tout. Indiscernable d'une panne. Un bouton d'action

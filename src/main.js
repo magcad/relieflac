@@ -296,8 +296,13 @@ function onPosition(event) {
     const unsurveyed = Number.isFinite(distance) && distance > app.settings.get('voidRadius_m');
     const bound = app.bed.communityBoundAt(position.lon, position.lat);
     const community = app.bed.source === 'quickdraw';
+    // Sur l'émergé, dire d'où vient l'altitude n'est pas un détail d'affichage : le recalage
+    // de la carte communautaire ne déplace QUE les cellules encadrées par une bande. Debout
+    // sur la rive, c'est la seule façon de savoir si le point qu'on relève mesure le décalage
+    // cherché — ou le terrain LiDAR, qui est absolu et ne bouge pas, et qui tirerait la
+    // médiane vers zéro sans que rien ne le signale.
     const label = depth <= 0
-      ? 'fond émergé'
+      ? (bound > 0 ? `fond émergé — bande ≤ ${bound} m` : 'fond émergé — hors bande')
       : community
         ? (bound > 0 ? `communauté — bande ≤ ${bound} m` : 'communauté — hors bande')
         : unsurveyed

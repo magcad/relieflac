@@ -206,14 +206,20 @@ export function makeProbe({
  * haut-fond émergé, relevé à pied, il n'y a pas de sonde du tout : la retrancher
  * enfoncerait le point de sa valeur — 30 cm d'erreur systématique, toujours dans le sens
  * dangereux (fond annoncé plus bas qu'il n'est), et sur les seuls points qui comptent
- * vraiment pour la sécurité. D'où la règle, énoncée ici une fois pour toutes.
+ * vraiment pour la sécurité. D'où la règle, énoncée ici une fois pour toutes — **zéro
+ * compris** : le trait de côte se relève à pied lui aussi, et rien n'y est immergé.
  *
  * L'immersion configurée reste stockée telle quelle dans le relevé : neutralisée au
  * calcul et non à l'enregistrement, elle revient d'elle-même si la saisie est corrigée
  * plus tard en une profondeur positive.
  */
 export function bedAltitude(level, sounderDepth, transducerDepth) {
-  const immersion = sounderDepth < 0 ? 0 : (transducerDepth ?? 0);
+  // Zéro compris : sur le trait de côte, rien n'est immergé non plus. Relever la ligne d'eau
+  // à pied — la mesure la plus directe qui soit, puisque le fond y est à la cote du lac par
+  // définition — donnait sinon un fond 30 cm trop bas, et faussait d'autant tout recalage
+  // établi sur ces points. La borne est bien `<= 0` : c'est le sondeur, et non la valeur,
+  // qui rend un zéro douteux (voir tools/import_soundings.py, qui écarte les logs à zéro).
+  const immersion = sounderDepth <= 0 ? 0 : (transducerDepth ?? 0);
   return level - sounderDepth - immersion;
 }
 
