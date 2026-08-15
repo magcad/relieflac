@@ -1002,6 +1002,16 @@ la comparaison, l'écart mesuré l'est aussi, d'autant. La mesure est à refaire
   l'erreur se serait transportée telle quelle dans l'offset. Corrigé en `<= 0` le 15/08/2026,
   avant la campagne. Leçon : *une règle écrite pour un cas limite doit être relue quand un
   second cas limite apparaît* — ici les deux façons de n'avoir rien dans l'eau.
+- **Le zéro refusé à la saisie.** Pire encore que le précédent, et trouvé en vérifiant
+  celui-ci : `readDepthInput` rejetait purement et simplement la valeur `0`
+  (`value === 0 → null`), avec pour tout message « Saisissez la profondeur lue au sondeur ».
+  La règle venait des logs de sondeur, où un zéro signe un décrochage de l'instrument — elle
+  y reste, dans `tools/import_soundings.py`. Mais une valeur **tapée à la main** par
+  quelqu'un qui regarde le fond n'est pas un décrochage : zéro veut dire trait de côte. La
+  campagne à pied du 15/08/2026 aurait été impossible, sans autre explication qu'un message
+  parlant d'un sondeur qu'on n'avait pas en main. Leçon : *un garde-fou hérité d'un
+  instrument ne s'applique pas à un humain.* Vérifier d'où vient une règle avant de la
+  laisser filtrer une saisie manuelle.
 - **Une étiquette qui se tait là où elle compte.** Sous le bateau, `fond émergé` remplaçait
   toute mention de la source dès que la profondeur passait sous zéro. C'est exactement où
   l'on se tient pour caler la carte communautaire — et le recalage ne déplace QUE les

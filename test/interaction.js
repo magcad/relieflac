@@ -135,6 +135,22 @@ async function run() {
     `${probes().at(-1)?.fixSource}`);
   check('le repère de visée est retiré une fois la sonde posée', map.pin === null);
 
+  // Le trait de côte se relève à zéro. Le champ refusait cette valeur — héritée de la règle
+  // des logs de sondeur, où un zéro signe un décrochage de l'instrument : la campagne à pied
+  // était donc impossible, sans autre message qu'un « saisissez la profondeur ». Le fond
+  // relevé doit tomber exactement sur la cote du moment, immersion du transducteur comprise
+  // (rien n'est immergé sur la ligne d'eau).
+  fire('pinpoint', lngLat);
+  $('cap-input').value = '0';
+  $('cap-input').dispatchEvent(new Event('input'));
+  $('btn-capture').click();
+  const shore = probes().at(-1);
+  check('une sonde à zéro — le trait de côte — est acceptée',
+    shore?.sounderDepth === 0, `${probes().length} sonde(s), dernière à ${shore?.sounderDepth}`);
+  check('et son fond tombe sur la cote du lac, sans retrancher l\'immersion',
+    shore != null && Math.abs(shore.bedZ - shore.level) < 1e-9,
+    `fond ${shore?.bedZ} pour une cote de ${shore?.level}`);
+
   // -------------------------------------------- suppression par la barre de saisie
   group('Suppression depuis la barre de saisie');
   const target = probes().at(-1);

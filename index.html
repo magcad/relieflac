@@ -617,6 +617,14 @@
         se distinguent du fond colorié, qui reste interpolé. Exportez-les pour les intégrer
         durablement au modèle (<code>tools/import_soundings.py</code>).
       </p>
+      <p class="hint">
+        Trois valeurs, trois situations : <strong>positive</strong>, la profondeur sous la
+        flottaison (l'immersion de la sonde est retranchée) ; <strong>zéro</strong>, le trait
+        de côte relevé à pied — le fond y est à la cote du lac, c'est la mesure la plus
+        directe qui soit ; <strong>négative</strong>, la hauteur d'un fond découvert
+        au-dessus de l'eau. Dans les deux derniers cas rien n'est immergé, et l'immersion
+        n'est pas retranchée.
+      </p>
       <label class="row">
         <span>Immersion de la sonde (m)</span>
         <input type="number" id="set-transducer" min="0" max="2" step="0.05">

@@ -1364,11 +1364,21 @@ function recordProbe() {
  * Les bornes ne servent qu'à intercepter la faute de frappe : le lac plafonne à 31 m, et
  * une rive découverte de plus de 10 m au-dessus de l'étiage n'est plus un haut-fond.
  */
+/**
+ * Profondeur saisie à la main, ou `null` si le champ ne porte rien d'exploitable.
+ *
+ * Le zéro est ACCEPTÉ, contrairement aux logs de sondeur où il signe un décrochage de
+ * l'instrument (`tools/import_soundings.py` l'écarte, et doit continuer). Ici la valeur est
+ * tapée par quelqu'un qui regarde le fond : zéro veut dire trait de côte — le fond affleure
+ * la surface — et c'est la mesure la plus directe qui soit, puisqu'elle donne l'altitude du
+ * fond sans instrument, à la cote du lac près. La refuser rendait impossible le relevé de la
+ * ligne d'eau à pied, c'est-à-dire la seule campagne capable d'établir un recalage de datum.
+ */
 function readDepthInput(id) {
   const raw = $(id).value.trim();
   if (raw === '') return null;
   const value = Number(raw);
-  if (!Number.isFinite(value) || value === 0 || value < -10 || value > 60) return null;
+  if (!Number.isFinite(value) || value < -10 || value > 60) return null;
   return value;
 }
 
