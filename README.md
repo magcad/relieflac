@@ -14,7 +14,7 @@ sous le bateau — recalculée en continu à partir de la cote du lac pilotée p
 |---|---|
 | Reprendre le travail | [ETAT.md](ETAT.md) |
 | Spécification complète | [SPECIFICATION.md](SPECIFICATION.md) |
-| Vérifications | [/test/](https://magcad.github.io/relieflac/test/) — 175 contrôles · [/test/interaction.html](https://magcad.github.io/relieflac/test/interaction.html) — 83 enchaînements |
+| Vérifications | [/test/](https://magcad.github.io/relieflac/test/) — 182 contrôles · [/test/interaction.html](https://magcad.github.io/relieflac/test/interaction.html) — 83 enchaînements |
 
 ---
 
@@ -182,6 +182,7 @@ python tools/qd_georef.py 12_30m --min-ncc 0.50   # campagne profonde (~30 min)
 python tools/qd_mosaic.py 12_30m --min-ncc 0.50
 python tools/build_grid.py              # tout → data/bed.png, bed.json, coverage.png
 python tools/build_grid_quickdraw.py    # fond communautaire seul → data/bed_quickdraw.*
+python tools/build_lake_outline.py      # silhouette des vignettes → src/lake-outline.js
 python tools/dump_reference.py          # → test/reference.json, requis par les tests
 ```
 
@@ -212,7 +213,7 @@ vendor/                     MapLibre GL JS 6.3, vendorisé en .js
 config/                     model.json (calage, grille) · palette.json (couleurs)
 tools/                      chaîne de préparation et outils de diagnostic
 data/                       grille, couverture, sondes, cote — versionnés
-test/                       175 vérifications (dont le shader rendu hors MapLibre)
+test/                       182 vérifications (dont le shader rendu hors MapLibre)
                             et 83 enchaînements de l'interface
 .github/workflows/          relevé horaire de la cote, reconstruction du modèle
 ```

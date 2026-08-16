@@ -26,6 +26,8 @@ import { applyPaletteOverride, bandLimits, buildLut, LUT_SIZE, lutIndex } from '
 import { Probes, makeProbe } from '../src/probes.js';
 import { SimPoints } from '../src/sim.js';
 import { Soundings } from '../src/soundings.js';
+import { LAKE_OUTLINE } from '../src/lake-outline.js';
+import { projectPoint, thumbKey, thumbSvg } from '../src/thumb.js';
 import { closeRing, dedupeRing, groundAltitude, ringArea, Zones } from '../src/zones.js';
 import { runShaderChecks } from './shader.js';
 
@@ -735,6 +737,51 @@ export async function run(base = '..') {
     cutRoute.done.length === 3 && cutRoute.todo.length === 2
     && cutRoute.todo[0][0] === cutRoute.done[2][0] && cutRoute.todo[0][1] === cutRoute.done[2][1]
     && near(distanceMeters(cutRoute.done[2][0], cutRoute.done[2][1], navP(140, 0)[0], navP(140, 0)[1]), 0, 0.5));
+
+  // --- vignettes de trajets ---------------------------------------------------
+  // Module pur : c'est tout l'intérêt de sortir la géométrie du DOM. Ce qui est vérifié ici
+  // n'est pas l'apparence mais l'invariant qui fait la vignette utile — le cadrage sur le
+  // LAC, jamais sur le trajet — et la clé de cache, qui doit changer quand un trajet
+  // partagé est retouché sous le même identifiant.
+  const box = LAKE_OUTLINE.box;
+  const lakeBounds = LAKE_OUTLINE.bounds;
+  check('silhouette : chemin fermé, dans sa boîte',
+    LAKE_OUTLINE.path.startsWith('M') && LAKE_OUTLINE.path.endsWith('Z')
+    && box.width === 1000 && box.height > 0);
+  const corners = [
+    projectPoint(lakeBounds.west, lakeBounds.north),
+    projectPoint(lakeBounds.east, lakeBounds.south),
+  ];
+  check('projection : l’emprise remplit exactement la boîte',
+    near(corners[0][0], 0, 1e-6) && near(corners[0][1], 0, 1e-6)
+    && near(corners[1][0], box.width, 1e-6) && near(corners[1][1], box.height, 1e-6));
+
+  // Deux trajets courts, l'un au nord-ouest, l'autre au sud-est : cadrés sur le lac, ils
+  // tombent dans des coins opposés. Cadrés sur eux-mêmes, ils seraient superposables — et
+  // c'est justement le défaut que la vignette existe pour éviter.
+  const nw = [[lakeBounds.west + 0.004, lakeBounds.north - 0.003], [lakeBounds.west + 0.008, lakeBounds.north - 0.006]];
+  const se = [[lakeBounds.east - 0.008, lakeBounds.south + 0.006], [lakeBounds.east - 0.004, lakeBounds.south + 0.003]];
+  const [nwX, nwY] = projectPoint(nw[0][0], nw[0][1]);
+  const [seX, seY] = projectPoint(se[0][0], se[0][1]);
+  check('vignette : deux trajets voisins ne se cadrent pas pareil',
+    nwX < box.width * 0.3 && nwY < box.height * 0.3
+    && seX > box.width * 0.7 && seY > box.height * 0.7,
+    `nord-ouest (${nwX.toFixed(0)}, ${nwY.toFixed(0)}), sud-est (${seX.toFixed(0)}, ${seY.toFixed(0)})`);
+  const svg = thumbSvg(nw, { label: 'Trajet <essai> & "cie"' });
+  check('vignette : SVG complet, silhouette et tracé',
+    svg.startsWith('<svg') && svg.endsWith('</svg>')
+    && svg.includes('thumb__lake') && svg.includes('thumb__route')
+    && svg.includes('thumb__start') && svg.includes('thumb__end'));
+  check('vignette : le libellé est échappé',
+    svg.includes('Trajet &lt;essai&gt; &amp; &quot;cie&quot;') && !svg.includes('<essai>'));
+  check('vignette : un trajet vide ne trace rien, et ne casse rien',
+    !thumbSvg([]).includes('thumb__route') && thumbSvg([]).includes('thumb__lake'));
+
+  // Le piège du partage : le voisin retouche SON trajet, l'identifiant ne bouge pas, seul
+  // l'horodatage change. Sur `id` seul, sa vignette resterait celle d'avant pour toujours.
+  check('vignette : la clé de cache suit l’horodatage, pas le seul identifiant',
+    thumbKey({ id: 'a', at: '2026-08-16T10:00:00Z' }) !== thumbKey({ id: 'a', at: '2026-08-16T11:00:00Z' })
+    && thumbKey({ id: 'a', at: 'x' }) === thumbKey({ id: 'a', at: 'x' }));
 
   // --- sondes de 2009 ---------------------------------------------------------
   const soundings = await Soundings.load(base);

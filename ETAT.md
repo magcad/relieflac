@@ -2,7 +2,7 @@
 
 **Dernière mise à jour** : 16 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 175 contrôles, **tous au
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 182 contrôles, **tous au
 vert**
 **Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 83 gestes,
 **tous au vert**
@@ -40,10 +40,10 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L11** | **Historique** des sorties : chaque navigation Go laisse sa trace, sa distance et sa durée, revues sur la carte | ✅ terminé le 16/08/2026 (v2026-08-16.5) — voir § 1 |
 | **L12** | Retour de la **première sortie en Navigation** : ré-accrochage après raccourci, chevrons et portion parcourue, commandes de carte en Go, **trajets et sorties partagés** | ✅ terminé le 16/08/2026 (v2026-08-16.6) — voir § 1 |
 | **L13** | Les deux bancs remis au vert — et, dessous, **les traits de palier qui n'étaient jamais tracés** | ✅ terminé le 16/08/2026 (v2026-08-16.8) — voir § 1 |
-| **L14** | Mode Navigation refondu : **la liste des trajets devient le mode**, avec une **vignette** par trajet (silhouette du lac + tracé) | 🟡 spécifié le 16/08/2026, à développer — voir § 1 |
+| **L14** | Mode Navigation refondu : **la liste des trajets devient le mode**, avec une **vignette** par trajet (silhouette du lac + tracé) | ✅ terminé le 16/08/2026 (v2026-08-16.9) — voir § 1 |
 
-**Lot L14 — la liste des trajets devient le mode** (spécifié le 16/08/2026 avec
-l'utilisateur, **pas encore développé**). Le panneau Navigation portait trois tuiles (Go,
+**Lot L14 — la liste des trajets devient le mode** (16/08/2026, v2026-08-16.9). Ce qui a été
+fait, et pourquoi. Le panneau Navigation portait trois tuiles (Go,
 Trajet, Historique) **et** la liste des trajets, où chaque ligne sait déjà lancer, éditer et
 supprimer. Les tuiles Go et Trajet faisaient donc double emploi avec la liste. Le symptôme
 était dans le code : `startGoFromMenu` ne sait pas faire son travail seul — il essaie le
@@ -95,11 +95,42 @@ deux traits). Ce qui identifie un trajet, c'est **où** il est sur le lac.
 **regénérées à chaque `replaceAll`**, et surtout ne pas être mises en cache sur le seul
 identifiant : un trajet partagé peut changer sous le même `id`. Clé de cache = `id` + `at`.
 
+C'est ce qui a été fait : `thumbKey(route)` vaut `id@at`, la fusion conserve l'horodatage du
+propriétaire (`syncRoutes` recopie `r.at`), et `replaceAll` émet `change`, sur quoi
+`refreshRoutePicker` redessine — la vignette du voisin suit donc sa retouche sans que rien
+ne la rafraîchisse explicitement. **Vérifié de bout en bout** : un point retiré à un trajet
+puis enregistré, et la vignette de la liste passe de trois sommets à deux.
+
 **Aperçu avant de lancer**, sans ajouter d'appui sur le chemin critique : au démarrage de Go,
 la carte cadre le trajet entier une seconde et demie, puis glisse vers la vue de barre —
 « Quitter » reste là si ce n'était pas le bon. Et `✎` ouvre l'éditeur, qui dessine le trajet
 avec ses points de passage : c'est le chemin « regarder de près », il existe déjà. **Pas
 d'appui long** pour prévisualiser : rien ne le signale, personne ne le découvre.
+
+**Ce que la réalisation a ajouté à la spécification** :
+- `tools/build_lake_outline.py` décime les 4 435 sommets de `data/lake.geojson` à 300, par
+  Douglas-Peucker **itératif** (la récursion déborde la pile sur 3 553 sommets d'un seul
+  anneau) et à tolérance cherchée par dichotomie : c'est le nombre de sommets qu'on vise, la
+  tolérance n'en est que le moyen. Sortie : `src/lake-outline.js`, 4,2 Ko, importé
+  statiquement — pas de `fetch`, donc pas de vignette qui arrive après la liste.
+- Les anneaux intérieurs (les îles) sont dans le même chemin, rendu en `fill-rule: evenodd` :
+  elles se creusent d'elles-mêmes, sans second chemin ni second remplissage.
+- La boîte normalisée **voyage avec le chemin** (`box`, `bounds` dans le module généré) :
+  `src/thumb.js` projette les trajets avec la même formule sans qu'aucune valeur ne soit
+  recopiée d'un fichier à l'autre. Un contrôle du banc vérifie que les coins de l'emprise
+  tombent exactement sur les coins de la boîte.
+- Épaisseur de trait en **pixels d'écran** (`vector-effect: non-scaling-stroke`) et non en
+  unités de la boîte : c'est ce qui garantit qu'un parcours court reste visible quel que soit
+  le facteur d'échelle, sans avoir à raisonner sur le rapport viewBox/affichage.
+- Les couleurs vivent dans `app.css` (`thumb__lake`, `thumb__route`, `thumb__start`,
+  `thumb__end`) et non dans le SVG : le mode plein soleil les reprend comme le reste — il
+  épaissit le tracé plutôt que de le blanchir, car blanc sur silhouette blanchie disparaît.
+- `previewRoute` (dans `src/map.js`) remet le tangage à zéro avant de cadrer : un `fitBounds`
+  sur une vue inclinée cadre la projection au sol, pas ce qu'on voit. Le retour à la caméra
+  de barre est armé par `setTimeout` et **contrôle que la navigation est toujours la même**
+  avant d'agir — quitter pendant l'aperçu ne doit pas ramener une caméra de chasse.
+- « Nouveau trajet » entre dans le constructeur **et** ouvre le tracé : c'est ce que le
+  libellé promet, là où l'ancienne tuile « Trajet » n'ouvrait qu'une liste de plus.
 
 **Lot L13 — les traits de palier n'étaient jamais tracés** (16/08/2026, v2026-08-16.8).
 Neuf points de contrôle échouaient — un au banc du dépôt, huit au banc d'enchaînements. Le
@@ -1104,7 +1135,7 @@ mauvaise donne une carte fausse sans aucun signe extérieur (§ 3.5).
 
 ### Vérifications
 
-Ouvrir `/test/`. 175 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 182 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
 simulation**, **forme de la correction (plateau, fondu, indépendance à l'ordre) et zones

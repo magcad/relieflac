@@ -969,6 +969,53 @@ l'eau, le HUD ne doit jamais être encombré par un geste commencé dans un autr
   seul fichier aurait obligé à télécharger la saison entière pour en consulter une, et à la
   réécrire en entier pour en ajouter une.
 
+### 6.6 bis Le mode Navigation *est* la liste des trajets (L14, 16/08/2026)
+
+Le panneau portait trois tuiles — Go, Trajet, Historique — **et** la liste des trajets, dont
+chaque ligne savait déjà lancer, éditer et supprimer. Go et Trajet faisaient double emploi
+avec elle, et le code le disait : « Go » ne savait pas faire son travail seul (il essayait le
+dernier trajet, puis le trajet unique, puis renonçait en rouvrant la liste). Un bouton qui,
+dans le cas général, ne fait qu'ouvrir une liste est un détour.
+
+**« Navigation » répond à « quel trajet ? », et la réponse est une liste.** Go et Trajet ne
+sont pas des objets, ce sont des verbes : la liste devient le mode.
+
+- **La ligne entière lance la navigation** — plus de petit ▶ à viser depuis un ponton. `✎`
+  ouvre l'éditeur.
+- **Aucune suppression dans une liste.** Une commande destructrice dans un catalogue qu'on
+  fait défiler, avec des doigts mouillés et des trajets qui se multiplient, est un piège. Elle
+  vit dans l'éditeur, à double appui, et là seulement.
+- **Deux boutons d'action compacts** au-dessus du catalogue : « Nouveau trajet » (qui entre
+  dans le constructeur *et* ouvre le tracé) et « Historique » — l'historique est un autre
+  objet, des sorties et non des trajets, il garde son entrée sans peser autant.
+- **Le dernier trajet suivi est épinglé en tête**, avec une mention discrète : repartir en un
+  appui sur le trajet habituel était le seul bénéfice réel de l'ancien bouton Go.
+
+**Vignettes.** Le texte seul ne discrimine pas : « Tour du lac » et « Tour du lac bis » se
+ressemblent, et une miniature du seul tracé ne ferait pas mieux (deux allers-retours donnent
+deux traits). Ce qui identifie un trajet, c'est **où** il est sur le lac. Chaque ligne porte
+donc une silhouette du lac avec son tracé, **normalisée sur l'emprise du LAC et jamais sur
+celle du trajet** — c'est tout le mécanisme : cadrer sur le trajet ferait remplir sa vignette
+à chacun, et ils se ressembleraient de nouveau. Conséquence assumée : un petit parcours
+devient un pâté de quelques pixels, et c'est sa **position** qui renseigne.
+
+La silhouette est **préparée hors ligne** (`tools/build_lake_outline.py` → `src/lake-outline.js`,
+300 sommets, 4,2 Ko) et non tirée de `data/lake.geojson` (385 Ko, 4 435 sommets, lu par les
+seuls outils Python) : l'application colle une chaîne de caractères, elle ne calcule aucune
+géométrie de rivage. Le rendu est un module **pur** (`src/thumb.js`, points → chaîne SVG),
+donc vérifiable au banc sans DOM, et réutilisable pour l'Historique. Rien de tout cela ne
+transite par la synchronisation : tout se dessine chez le client.
+
+**Une vignette se refait quand son trajet change**, y compris sous le même identifiant : un
+trajet partagé est retouché par son propriétaire et nous revient par la synchronisation,
+après le premier rendu de la liste. La clé de cache est donc `id` + horodatage, jamais `id`
+seul.
+
+**Aperçu avant de lancer, sans appui supplémentaire** : au départ d'une navigation, la carte
+cadre le trajet entier une seconde et demie, à plat, puis passe à la vue de barre — « Quitter »
+reste là si ce n'était pas le bon. Pas d'appui long pour prévisualiser : rien ne le signale,
+personne ne le découvre.
+
 ---
 
 ## 7. Structure du dépôt

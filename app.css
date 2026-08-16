@@ -450,27 +450,60 @@ a { color: var(--accent); }
 .soon p { margin: 0; font-size: .82rem; line-height: 1.3; }
 .soon strong { color: var(--text); }
 
+/* Actions du mode Navigation : des boutons, pas des tuiles. Le catalogue de trajets est
+   l'objet du mode ; créer et consulter l'historique sont des à-côtés, ils pèsent moins. */
+.navacts { display: flex; gap: .5rem; margin-bottom: .6rem; }
+.navacts__btn {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: .4rem;
+  min-height: 40px; padding: .4rem .6rem; border-radius: var(--r-sm); cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
+  font-size: .8rem; font-weight: 600;
+}
+.navacts__btn .ico { width: 18px; height: 18px; color: var(--muted); }
+.navacts__btn--new { border-color: var(--m-nav); color: var(--m-nav); }
+.navacts__btn--new .ico { color: var(--m-nav); }
+
 /* Liste de trajets, dans le menu Navigation comme dans le constructeur. */
-.routelist { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; max-height: 40vh; overflow-y: auto; }
+.routelist { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; max-height: 46vh; overflow-y: auto; }
 .routelist:empty { display: none; }
 .routelist li {
-  display: flex; align-items: center; gap: .5rem;
-  padding: .5rem .6rem; border-radius: var(--r-sm);
+  display: flex; align-items: center; gap: .4rem;
+  padding: .35rem .4rem; border-radius: var(--r-sm);
   background: var(--surface-2); border: 1px solid var(--line);
 }
-.routelist .route__name { flex: 1; min-width: 0; font-size: .82rem; font-weight: 600; }
-.routelist .route__stat { display: block; font-size: .68rem; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
-.routelist .route__go {
-  flex: none; display: grid; place-items: center; min-width: 44px; height: 34px; padding: 0 .5rem;
-  border-radius: var(--r-sm); cursor: pointer; font-size: .8rem; font-weight: 700;
-  background: color-mix(in srgb, var(--m-nav) 22%, var(--surface-3));
-  border: 1px solid var(--m-nav); color: var(--m-nav);
+/* Le dernier trajet suivi, épinglé en tête : repartir d'un appui sur le trajet habituel. */
+.routelist li.is-last { border-color: color-mix(in srgb, var(--m-nav) 55%, var(--line)); }
+/* Toute la ligne est la commande — pas de petit ▶ à viser depuis un ponton. */
+.routelist .route__open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: .55rem;
+  padding: .2rem .2rem; background: none; border: 0; cursor: pointer;
+  color: var(--text); text-align: left; font: inherit;
 }
-.routelist button:not(.route__go) {
-  flex: none; min-width: 30px; height: 30px; border-radius: var(--r-sm); cursor: pointer;
+.routelist .route__text { min-width: 0; }
+.routelist .route__name { display: block; font-size: .82rem; font-weight: 600; }
+.routelist .route__badge {
+  font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--m-nav); border: 1px solid color-mix(in srgb, var(--m-nav) 50%, transparent);
+  border-radius: 999px; padding: .05rem .3rem; white-space: nowrap;
+}
+.routelist .route__stat { display: block; font-size: .68rem; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.routelist .route__edit {
+  flex: none; min-width: 34px; height: 34px; border-radius: var(--r-sm); cursor: pointer;
   background: var(--surface-3); border: 1px solid var(--line); color: var(--muted); font-size: 1rem;
 }
-.routelist .route__del { color: #ffb4b4; border-color: #6b2b2b; }
+
+/* Vignette : silhouette du lac en gris sourd, tracé en bleu de navigation, départ et
+   arrivée pointés. Cadrée sur le lac entier — c'est la POSITION du parcours qui distingue
+   deux trajets, et un cadrage sur le trajet les ferait tous se ressembler. */
+.route__thumb {
+  flex: none; width: 64px; height: 50px; display: block;
+  border-radius: 4px; background: var(--surface-3); border: 1px solid var(--line);
+}
+.route__thumb .thumb { width: 100%; height: 100%; display: block; }
+.thumb__lake { fill: color-mix(in srgb, var(--muted) 34%, transparent); }
+.thumb__route { stroke: var(--m-nav); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.thumb__start { fill: #3ddc84; }
+.thumb__end { fill: var(--m-nav); }
 
 /* ------------------------------------------------------------ plein soleil
 
@@ -526,6 +559,13 @@ body.is-sun .depth-under__label { opacity: 1; }
 body.is-sun .depth-under { text-shadow: 0 2px 3px #000, 0 0 6px #000, 0 0 18px #000; }
 /* L'état actif garde le fond noir : le plan IGN est presque blanc, et une pastille
    blanche s'y noierait. C'est le noir qui tranche sur la carte, l'accent qui signale. */
+/* Vignettes : au soleil, un gris à 34 % ne se voit plus, et un trait de 1,6 px non plus. */
+body.is-sun .thumb__lake { fill: #ffffff4d; }
+/* Le tracé garde le bleu de navigation : blanc sur silhouette blanchie, il s'y perdrait —
+   c'est l'épaisseur qu'on augmente, pas le contraste de teinte. */
+body.is-sun .thumb__route { stroke-width: 2.4; }
+body.is-sun .route__thumb { border-width: 2px; }
+
 body.is-sun .rail__btn.is-on,
 body.is-sun .tile.is-on { border-width: 3px; }
 body.is-sun .tile.is-on { background: #000; }

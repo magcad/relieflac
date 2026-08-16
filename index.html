@@ -474,27 +474,24 @@
         </div>
       </div>
 
-      <!-- Mode Navigation : choisir un trajet et le suivre. -->
+      <!-- Mode Navigation : la LISTE DES TRAJETS *est* le mode (L14). « Navigation » répond
+           à « quel trajet ? », et la réponse est une liste : toucher une ligne lance la
+           navigation. Les anciennes tuiles Go et Trajet faisaient double emploi avec elle —
+           Go et Trajet ne sont pas des objets, ce sont des verbes, d'où deux boutons
+           d'action discrets au-dessus du catalogue. -->
       <div class="modepane modepane--nav" id="pane-nav" data-pane="nav" hidden>
-        <div class="sheet__grid">
-          <button class="tile" id="btn-go" type="button">
-            <svg class="ico ico--tile" aria-hidden="true"><use href="#i-nav"/></svg>
-            <span class="tile__label">Go</span>
-            <span class="tile__sub">suivre un trajet</span>
+        <div class="navacts">
+          <button class="navacts__btn navacts__btn--new" id="btn-nav-new" type="button">
+            <svg class="ico" aria-hidden="true"><use href="#i-route"/></svg>
+            <span>Nouveau trajet</span>
           </button>
-          <button class="tile" id="btn-trajet" type="button">
-            <svg class="ico ico--tile" aria-hidden="true"><use href="#i-route"/></svg>
-            <span class="tile__label">Trajet</span>
-            <span class="tile__sub">construire</span>
-          </button>
-          <button class="tile" id="btn-hist" type="button">
-            <svg class="ico ico--tile" aria-hidden="true"><use href="#i-history"/></svg>
-            <span class="tile__label">Historique</span>
-            <span class="tile__sub">sorties passées</span>
+          <button class="navacts__btn" id="btn-nav-hist" type="button">
+            <svg class="ico" aria-hidden="true"><use href="#i-history"/></svg>
+            <span>Historique</span>
           </button>
         </div>
         <p class="modepane__hint" id="nav-hint">Vos trajets enregistrés :</p>
-        <ol class="routelist" id="route-picker"></ol>
+        <ol class="routelist routelist--pick" id="route-picker"></ol>
       </div>
 
       <!-- Mode Pêche : à spécifier. Le bouton existe, la fonction viendra. -->

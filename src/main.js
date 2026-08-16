@@ -19,6 +19,7 @@ import {
   CRUISE_KMH, estimatedDuration, formatDistance, formatDuration, Routes, routeLength,
 } from './routes.js';
 import { angleDelta, navSolution } from './nav.js';
+import { thumbKey, thumbSvg } from './thumb.js';
 import { hasTrack, tripDistance, Trips, tripDuration, tripLabel } from './trips.js';
 import { SimPoints } from './sim.js';
 import { CorrectionsSync, getToken, RoutesSync, setToken, TripsSync } from './sync.js';
@@ -2870,7 +2871,7 @@ function wireMenu() {
   // chaque tuile, quel que soit l'ordre dans lequel les modules ont été câblés. Les segments
   // de mode, eux, ne referment pas la feuille — ils font naviguer à l'intérieur.
   sheet.querySelector('.sheet__panel').addEventListener('click', (event) => {
-    if (event.target.closest('.tile, .sheet__link, .route__go')) open(false);
+    if (event.target.closest('.tile, .sheet__link, .route__open, .navacts__btn')) open(false);
   });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !sheet.hidden) open(false);
@@ -2917,7 +2918,13 @@ function closeSheet() {
  * ne croie jamais tracer une route quand on relève un fond.
  */
 function wireRoutes() {
-  $('btn-trajet').addEventListener('click', () => (app.routeMode ? exitRouteMode() : enterRouteMode()));
+  // « Nouveau trajet » entre dans le constructeur ET ouvre le tracé : c'est ce que le
+  // libellé promet. L'ancienne tuile « Trajet » n'ouvrait qu'une liste de plus.
+  $('btn-nav-new').addEventListener('click', () => {
+    closeSheet();
+    if (!app.routeMode) enterRouteMode();
+    startRouteDraft();
+  });
   $('btn-route-exit').addEventListener('click', exitRouteMode);
   $('btn-route-new').addEventListener('click', startRouteDraft);
   $('btn-route-undo').addEventListener('click', undoRouteVertex);
@@ -3069,7 +3076,6 @@ function refreshRoutePanel() {
   const listing = app.routeMode && !tracing;
 
   $('route').hidden = !app.routeMode;
-  $('btn-trajet').classList.toggle('is-on', app.routeMode);
   app.lakeMap.setRouteMode(app.routeMode);
   if (!app.routeMode) { app.lakeMap.clearRouteDraft(); stackBottomBars(); return; }
 
@@ -3102,68 +3108,108 @@ function refreshRoutePanel() {
       : 'Aucun trajet. « ✚ Nouveau trajet » pour commencer.';
     $('route-meta').textContent = '';
     app.lakeMap.clearRouteDraft();
-    fillRouteList($('route-list'), false);
+    fillRouteList($('route-list'), 'edit');
   }
   stackBottomBars();
 }
 
-/** Liste des trajets enregistrés, dans le menu Navigation. */
+/** Liste des trajets enregistrés, dans le menu Navigation — c'est le mode lui-même. */
 function refreshRoutePicker() {
   const list = $('route-picker');
   if (!list) return;
   $('nav-hint').textContent = app.routes.count
-    ? 'Vos trajets enregistrés :'
-    : 'Aucun trajet. Construisez-en un avec « Trajet ».';
-  fillRouteList(list, true);
+    ? 'Touchez un trajet pour le suivre.'
+    : 'Aucun trajet. « Nouveau trajet » pour en tracer un.';
+  fillRouteList(list, 'go');
 }
 
 /**
- * Peuple une liste de trajets. `primaryGo` ajoute le bouton ▶ de lancement direct — c'est le
- * cas du menu Navigation ; le constructeur, lui, propose édition et suppression.
+ * Vignettes déjà calculées. La clé porte l'horodatage et pas seulement l'identifiant : un
+ * trajet partagé change SOUS LE MÊME `id` quand son propriétaire le retouche, et il nous
+ * arrive par `syncRoutes()` après le premier rendu de la liste. Sur `id` seul, la vignette
+ * du voisin resterait celle d'avant, indéfiniment.
  */
-function fillRouteList(el, primaryGo) {
-  el.replaceChildren(...app.routes.records.slice().reverse().map((r) => {
+const thumbCache = new Map();
+
+function routeThumb(r) {
+  const key = thumbKey(r);
+  let svg = thumbCache.get(key);
+  if (svg === undefined) {
+    svg = thumbSvg(r.points, { label: `Aperçu du trajet ${r.name}` });
+    // Le cache suit les trajets, pas la session : au-delà, on oublie les plus anciennes
+    // entrées, qui sont les versions périmées des trajets retouchés.
+    if (thumbCache.size > 80) thumbCache.delete(thumbCache.keys().next().value);
+    thumbCache.set(key, svg);
+  }
+  return svg;
+}
+
+/**
+ * Peuple une liste de trajets. Deux emplois, une seule mise en page :
+ * - `'go'`, dans le menu Navigation : **toute la ligne lance la navigation** — plus de petit
+ *   ▶ à viser sur un ponton — et `✎` ouvre l'éditeur ;
+ * - `'edit'`, dans le constructeur : la ligne ouvre l'édition du trajet.
+ *
+ * Aucune suppression ici, dans aucun des deux : une commande destructrice dans une liste
+ * qu'on fait défiler, avec des trajets qui se multiplient et des doigts mouillés, est un
+ * piège. Elle vit dans l'éditeur (`btn-route-del`, à double appui), et là seulement.
+ */
+function fillRouteList(el, mode) {
+  const lastId = mode === 'go' ? loadLastRoute() : null;
+  const records = app.routes.records.slice().reverse();
+  // Le dernier trajet suivi passe en tête : repartir en un appui sur le trajet habituel est
+  // exactement le service que rendait l'ancien bouton « Go ».
+  records.sort((a, b) => Number(b.id === lastId) - Number(a.id === lastId));
+
+  el.replaceChildren(...records.map((r) => {
     const len = routeLength(r.points);
     const li = document.createElement('li');
+    if (r.id === lastId) li.classList.add('is-last');
 
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'route__open';
+    open.title = mode === 'go' ? `Naviguer « ${r.name} »` : `Modifier « ${r.name} »`;
+
+    // La vignette : silhouette du lac et tracé, cadrés sur le LAC. C'est la position du
+    // parcours qui distingue deux trajets, jamais leur forme rapportée à eux-mêmes.
+    const thumb = document.createElement('span');
+    thumb.className = 'route__thumb';
+    thumb.innerHTML = routeThumb(r);
+    open.append(thumb);
+
+    const text = document.createElement('span');
+    text.className = 'route__text';
     const name = document.createElement('span');
     name.className = 'route__name';
     name.textContent = r.name;
+    if (r.id === lastId) {
+      const badge = document.createElement('span');
+      badge.className = 'route__badge';
+      badge.textContent = 'dernier suivi';
+      name.append(' ', badge);
+    }
     const stat = document.createElement('span');
     stat.className = 'route__stat';
     stat.textContent = `${r.points.length} pts · ${formatDistance(len)} · ~${formatDuration(estimatedDuration(len))}`;
-    name.append(stat);
-    li.append(name);
+    text.append(name, stat);
+    open.append(text);
 
-    if (primaryGo) {
-      const go = document.createElement('button');
-      go.type = 'button';
-      go.className = 'route__go';
-      go.textContent = '▶';
-      go.title = `Naviguer « ${r.name} »`;
-      go.addEventListener('click', () => startGo(r.id));
-      li.append(go);
-    }
-
-    const edit = document.createElement('button');
-    edit.type = 'button';
-    edit.textContent = '✎';
-    edit.title = 'Modifier ce trajet';
-    edit.addEventListener('click', () => { if (primaryGo) closeSheet(); editRoute(r.id); });
-
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'route__del';
-    del.textContent = '✕';
-    del.title = 'Supprimer ce trajet';
-    del.addEventListener('click', () => {
-      if (app.go.active && app.go.routeId === r.id) exitGo();
-      if (app.editingRouteId === r.id) { app.editingRouteId = null; app.routeTracing = false; app.routeDraft = []; }
-      app.routes.remove(r.id);
-      toast('Trajet supprimé');
+    open.addEventListener('click', () => {
+      if (mode === 'go') { startGo(r.id); return; }
+      editRoute(r.id);
     });
+    li.append(open);
 
-    li.append(edit, del);
+    if (mode === 'go') {
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'route__edit';
+      edit.textContent = '✎';
+      edit.title = `Modifier « ${r.name} »`;
+      edit.addEventListener('click', () => { closeSheet(); editRoute(r.id); });
+      li.append(edit);
+    }
     return li;
   }));
 }
@@ -3178,9 +3224,10 @@ const XTE_SHOW_M = 8;
 const MIN_TRACK_SPACING_M = 4;
 /** En deçà, une navigation ne laisse pas de sortie : un essai à quai n'a rien parcouru. */
 const MIN_TRIP_M = 50;
+/** Durée de l'aperçu du trajet au départ, avant la vue de barre (ms). */
+const GO_PREVIEW_MS = 1500;
 
 function wireGo() {
-  $('btn-go').addEventListener('click', startGoFromMenu);
   $('btn-go-exit').addEventListener('click', exitGo);
   // Zoom et recentrage : le rail est masqué en navigation, mais dézoomer pour voir la
   // suite du trajet puis revenir au cadrage de barre reste un geste courant.
@@ -3218,20 +3265,6 @@ function finishTrip() {
   pushPendingTrips().catch(() => { /* réessayé au prochain démarrage */ });
 }
 
-/** « Go » depuis la tuile : reprend le dernier trajet suivi, ou laisse choisir dans la liste. */
-function startGoFromMenu() {
-  if (!app.routes.count) {
-    toast('Créez d’abord un trajet dans « Trajet »');
-    enterRouteMode();
-    return;
-  }
-  const last = loadLastRoute();
-  if (last && app.routes.get(last)) { startGo(last); return; }
-  if (app.routes.count === 1) { startGo(app.routes.records[0].id); return; }
-  toast('Choisissez un trajet dans la liste ci-dessous');
-  setMenuMode('nav');
-}
-
 function startGo(routeId) {
   const route = app.routes.get(routeId);
   if (!route || route.points.length < 1) { toast('Trajet introuvable'); return; }
@@ -3262,22 +3295,32 @@ function startGo(routeId) {
   $('go-speed-unit').textContent = app.settings.get('speedUnit') === 'kn' ? 'nds' : 'km/h';
   buildGoTicks();
 
-  // Caméra de chasse : suivi et cap en haut forcés (sans toucher aux réglages), fond atténué.
   app.lakeMap.setGoMode(true);
-  app.lakeMap.setFollow(true);
-  app.lakeMap.setTrackUp(true);
   ensureCompass();
-  // À défaut de position GPS (essai sur ordinateur), on cadre au moins sur le trajet.
-  if (!app.geo?.position) app.lakeMap.map.jumpTo({ center: route.points[0] });
-  app.lakeMap.setVisibleWidth(170); // avant l'inclinaison : la mesure de largeur y est juste
-  // Zoom de travail retenu : c'est celui que le bouton « recentrer » rendra après qu'on
-  // aura dézoomé pour regarder la suite du trajet.
-  app.go.navZoom = app.lakeMap.getZoom();
-  app.lakeMap.enterNavCam(55);
   app.lakeMap.setBasemapDim(true);
   app.goDepthOpacity = app.settings.get('opacity');
   app.depthLayer.setStyle({ opacity: Math.min(app.goDepthOpacity, 0.32) });
   app.lakeMap.setRoute(route.points);
+
+  // Aperçu : le trajet entier, à plat, le temps de reconnaître où il mène — puis la vue de
+  // barre. C'est la vérification « est-ce bien celui-là ? » sans un appui de plus sur le
+  // chemin critique, et « Quitter » reste là si ce n'était pas le bon.
+  app.lakeMap.previewRoute(route.points);
+  window.setTimeout(() => {
+    // Le trajet a pu être quitté ou changé pendant l'aperçu : ne pas ramener la caméra de
+    // navigation sur une navigation qui n'est plus.
+    if (!app.go.active || app.go.routeId !== routeId) return;
+    // Caméra de chasse : suivi et cap en haut forcés, sans toucher aux réglages.
+    app.lakeMap.setFollow(true);
+    app.lakeMap.setTrackUp(true);
+    // À défaut de position GPS (essai sur ordinateur), on cadre au moins sur le trajet.
+    if (!app.geo?.position) app.lakeMap.map.jumpTo({ center: route.points[0] });
+    app.lakeMap.setVisibleWidth(170); // avant l'inclinaison : la mesure de largeur y est juste
+    // Zoom de travail retenu : c'est celui que le bouton « recentrer » rendra après qu'on
+    // aura dézoomé pour regarder la suite du trajet.
+    app.go.navZoom = app.lakeMap.getZoom();
+    app.lakeMap.enterNavCam(55);
+  }, GO_PREVIEW_MS);
 
   toast(`Navigation : ${route.name}`, 3000);
   if (app.geo?.position) updateGoHud(app.geo.position);
@@ -3487,7 +3530,10 @@ function loadLastRoute() {
  * a rien à barrer : on regarde ce qui a déjà été fait.
  */
 function wireHist() {
-  $('btn-hist').addEventListener('click', () => (app.histMode ? exitHistMode() : enterHistMode()));
+  $('btn-nav-hist').addEventListener('click', () => {
+    closeSheet();
+    if (app.histMode) exitHistMode(); else enterHistMode();
+  });
   $('btn-hist-exit').addEventListener('click', exitHistMode);
   app.trips.addEventListener('change', () => { if (app.histMode) refreshHistPanel(); });
 }
@@ -3544,7 +3590,6 @@ function reviewTrip(id) {
 
 function refreshHistPanel() {
   $('hist').hidden = !app.histMode;
-  $('btn-hist').classList.toggle('is-on', app.histMode);
   if (!app.histMode) { stackBottomBars(); return; }
 
   const n = app.trips.count;

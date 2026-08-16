@@ -990,6 +990,19 @@ export class LakeMap extends EventTarget {
     this.map.fitBounds([[w, s], [e, n]], { padding: 56, maxZoom: 16, duration: 600 });
   }
 
+  /**
+   * Cadre le trajet entier, à plat, au départ d'une navigation : l'aperçu qui répond à
+   * « est-ce bien celui-là ? ». La caméra de barre prend le relais ensuite (`enterNavCam`),
+   * d'où le tangage remis à zéro ici — un `fitBounds` sur une vue inclinée cadre la
+   * projection au sol, pas ce qu'on voit.
+   */
+  previewRoute(points) {
+    const coords = points.map((p) => [p[0], p[1]]);
+    this.map.setPitch(0);
+    if (coords.length >= 2) this.#fitTo(coords);
+    else if (coords.length === 1) this.map.jumpTo({ center: coords[0] });
+  }
+
   /** En mode construction, le clic pose un point de passage au lieu de sonder. */
   setRouteMode(active) {
     this.routeMode = Boolean(active);
