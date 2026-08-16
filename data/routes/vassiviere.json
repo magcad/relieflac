@@ -1,12 +1,12 @@
 {
   "schema": "relieflac.routes/1",
   "waterbody": "vassiviere",
-  "updated_at": "2026-08-16T18:32:25.871Z",
+  "updated_at": "2026-08-16T18:40:53.745Z",
   "routes": [
     {
       "id": "f0cdb997-161c-4bf5-8597-1ee757fee201",
-      "name": "Pêche",
-      "at": "2026-08-16T12:51:34.326Z",
+      "name": "Pêche Alex",
+      "at": "2026-08-16T18:40:52.233Z",
       "points": [
         [
           1.899929584536011,
