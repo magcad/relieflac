@@ -28,6 +28,15 @@
   --danger: #f4514c;
   --sand: #d9b478;
 
+  /* Une couleur par mode. Elle n'habille pas : elle empêche de confondre les métiers de
+     l'application d'un coup d'œil — vert pour la carte, bleu pour la navigation, jaune pour
+     la pêche, rouge pour le ski, cyan (la couleur d'habillage) pour les réglages. */
+  --m-carte: #34d399;
+  --m-nav: #4c8dff;
+  --m-peche: #f2c744;
+  --m-ski: #f4514c;
+  --m-param: #35c2ff;
+
   /* Verre : le fond translucide des surfaces posées sur la carte. En plein soleil, les
      deux jetons basculent en noir franc et flou nul — d'où l'absence de règle par
      composant plus bas. */
@@ -381,6 +390,83 @@ a { color: var(--accent); }
   font-size: .78rem; text-decoration: none;
 }
 
+/* ------------------------------------------------------- barre de modes
+
+   Cinq segments, chacun sa couleur. Le mode actif se remplit de sa teinte ; les autres
+   restent sourds. C'est le repère qui dit, avant même de lire une tuile, dans quel métier
+   de l'application on se trouve. `--m` porte la couleur du mode courant, relayée aux tuiles
+   du corps pour que l'accent suive la barre. */
+.modes {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: .3rem;
+  margin: .1rem 0 .7rem;
+}
+.mode {
+  display: grid; justify-items: center; align-content: center; gap: .18rem;
+  min-height: 58px; padding: .4rem .15rem; cursor: pointer; text-align: center;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md);
+  color: var(--muted); --m: var(--muted);
+}
+.mode span { font-size: .58rem; font-weight: 600; line-height: 1.1; letter-spacing: -.01em; }
+.mode .ico { width: 22px; height: 22px; color: var(--m); }
+.mode--carte { --m: var(--m-carte); }
+.mode--nav   { --m: var(--m-nav); }
+.mode--peche { --m: var(--m-peche); }
+.mode--ski   { --m: var(--m-ski); }
+.mode--param { --m: var(--m-param); }
+.mode.is-on {
+  color: var(--m); border-color: var(--m);
+  background: color-mix(in srgb, var(--m) 16%, var(--surface-2));
+  box-shadow: inset 0 0 0 1px var(--m);
+}
+.mode.is-on .ico { color: var(--m); }
+
+/* Corps d'un mode : un seul visible à la fois. Un liseré haut à la couleur du mode le
+   rattache à son segment sans avoir à relire lequel est allumé. */
+.modepane { --m: var(--accent); }
+.modepane[hidden] { display: none; }
+.modepane--carte { --m: var(--m-carte); }
+.modepane--nav   { --m: var(--m-nav); }
+.modepane--param { --m: var(--m-param); }
+.modepane .tile .ico { color: var(--m); }
+.modepane .tile.is-on { border-color: var(--m); background: color-mix(in srgb, var(--m) 20%, var(--surface-2)); }
+.modepane .tile.is-on .tile__label { color: var(--m); }
+.modepane__hint { margin: .8rem 0 .45rem; font-size: .72rem; color: var(--muted); }
+
+.tile--wide { grid-column: 1 / -1; }
+.tile--wide.tile { padding: .9rem .6rem; }
+
+/* Modes encore à écrire : le bouton existe, on le dit sans prétendre qu'il agit. */
+.soon {
+  display: flex; align-items: center; gap: .7rem;
+  padding: 1rem .9rem; border-radius: var(--r-md);
+  background: var(--surface-2); border: 1px dashed var(--line-strong); color: var(--muted);
+}
+.soon .ico { width: 30px; height: 30px; color: var(--m); flex: none; }
+.soon p { margin: 0; font-size: .82rem; line-height: 1.3; }
+.soon strong { color: var(--text); }
+
+/* Liste de trajets, dans le menu Navigation comme dans le constructeur. */
+.routelist { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; max-height: 40vh; overflow-y: auto; }
+.routelist:empty { display: none; }
+.routelist li {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .5rem .6rem; border-radius: var(--r-sm);
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.routelist .route__name { flex: 1; min-width: 0; font-size: .82rem; font-weight: 600; }
+.routelist .route__stat { display: block; font-size: .68rem; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.routelist .route__go {
+  flex: none; display: grid; place-items: center; min-width: 44px; height: 34px; padding: 0 .5rem;
+  border-radius: var(--r-sm); cursor: pointer; font-size: .8rem; font-weight: 700;
+  background: color-mix(in srgb, var(--m-nav) 22%, var(--surface-3));
+  border: 1px solid var(--m-nav); color: var(--m-nav);
+}
+.routelist button:not(.route__go) {
+  flex: none; min-width: 30px; height: 30px; border-radius: var(--r-sm); cursor: pointer;
+  background: var(--surface-3); border: 1px solid var(--line); color: var(--muted); font-size: 1rem;
+}
+.routelist .route__del { color: #ffb4b4; border-color: #6b2b2b; }
+
 /* ------------------------------------------------------------ plein soleil
 
    Aucune API du web ne commande la luminosité de la dalle. En plein soleil, celle-ci
@@ -730,6 +816,46 @@ button.is-arming {
 .zone__btns { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .55rem; }
 .zone__btns .sim__reset { flex: 1; min-width: 6.5rem; }
 
+/* ------------------------------------------------------- constructeur de trajet
+
+   Même silhouette que les panneaux de zone et d'étiage — on pose une intention sur la
+   carte — mais en bleu de navigation. Les points de passage se listent dans le panneau
+   lui-même, jamais tributaires d'un toucher réussi sur un point de quelques pixels. */
+.route {
+  position: absolute; left: .6rem; right: .6rem; z-index: 6;
+  bottom: calc(var(--dock) + .5rem); max-width: 26rem; margin: 0 auto;
+  padding: .7rem .8rem .8rem; border-radius: var(--r-lg);
+  background: var(--glass-2); border: 1px solid color-mix(in srgb, var(--m-nav) 55%, transparent);
+  box-shadow: var(--shadow); backdrop-filter: var(--blur);
+  max-height: calc(100dvh - var(--strip) - var(--dock) - 1rem); overflow-y: auto;
+}
+.route[hidden] { display: none; }
+.route__title { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--m-nav); }
+.route__hint { margin: .35rem 0 .5rem; font-size: .74rem; color: var(--muted); }
+.route .routelist { margin-bottom: .5rem; }
+.route__field { display: flex; align-items: center; gap: .5rem; font-size: .72rem; color: var(--muted); margin: .1rem 0 .2rem; }
+.route__field[hidden] { display: none; }
+.route__field input {
+  flex: 1; min-width: 0; padding: .45rem .55rem;
+  background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--r-sm);
+  color: var(--text); font-size: .9rem;
+}
+.route__meta { margin: .35rem 0 0; font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.route__btns { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .55rem; }
+.route__btns .sim__reset { flex: 1; min-width: 6rem; }
+#btn-route-go { color: var(--m-nav); border-color: color-mix(in srgb, var(--m-nav) 55%, transparent); font-weight: 700; }
+
+/* Point de passage posé sur la carte : pastille bleue numérotée, départ et arrivée marqués. */
+.wpt-mark {
+  display: grid; place-items: center; width: 24px; height: 24px;
+  background: var(--m-nav); border: 2px solid #04101f; border-radius: 50%;
+  color: #04101f; font-size: .72rem; font-weight: 800; font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 4px #0009; cursor: pointer;
+}
+.wpt-mark.is-start { background: #a7f3c0; }
+.wpt-mark.is-end { background: #ffd9a8; border-radius: 6px 6px 50% 50%; }
+.wpt-mark.is-editing { outline: 2px solid #fff; outline-offset: 1px; }
+
 /* ---------------------------------------------------- éditeur de couleurs */
 
 .editor { margin: .6rem 0 0; }
@@ -935,3 +1061,136 @@ legend { padding: 0 .4rem; color: var(--muted); font-size: .78rem; text-transfor
 .maplibregl-ctrl-attrib { font-size: .65rem; }
 .maplibregl-ctrl-bottom-left { margin-bottom: calc(var(--dock) + .2rem); }
 .maplibregl-ctrl-bottom-right { margin-bottom: calc(var(--dock) + .2rem); margin-right: 3.7rem; }
+
+/* ==================================================================== mode Go
+
+   La navigation le long d'un trajet, en plein écran. La carte, inclinée et assombrie, passe
+   au second plan ; ce qui compte remonte au premier : la VITESSE et le CAP à tenir. Tout le
+   HUD est en bleu de navigation pour qu'on sache, sans le lire, dans quel mode on est. */
+
+.go { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
+.go[hidden] { display: none; }
+.go > * { pointer-events: auto; }
+
+/* Pendant Go, la chrome de la carte s'efface : dock, rail, panneaux. Le bandeau de cap
+   reste — il porte la boussole, et le mode y pose son repère de cap cible. */
+body.mode-go .dock,
+body.mode-go .rail,
+body.mode-go .capture,
+body.mode-go .sim,
+body.mode-go .zone,
+body.mode-go .route,
+body.mode-go .maplibregl-ctrl-bottom-left { display: none !important; }
+body.mode-go .navstrip { border-bottom-color: color-mix(in srgb, var(--m-nav) 45%, transparent); }
+
+.go__exit {
+  position: absolute; top: calc(var(--strip) + .5rem); left: .6rem;
+  display: inline-flex; align-items: center; gap: .3rem;
+  padding: .45rem .7rem .45rem .55rem; border-radius: var(--r-pill); cursor: pointer;
+  background: var(--glass-2); border: 1px solid var(--line); color: var(--text);
+  backdrop-filter: var(--blur); font-size: .82rem; font-weight: 600; box-shadow: var(--shadow);
+}
+.go__exit .ico { width: 18px; height: 18px; }
+
+/* Carte d'objectif : prochain point de passage, sa distance, et ce qu'il reste du trajet. */
+.go__target {
+  position: absolute; top: calc(var(--strip) + .5rem); left: 50%; transform: translateX(-50%);
+  min-width: 11rem; max-width: 72vw; text-align: center;
+  padding: .5rem .9rem; border-radius: var(--r-md);
+  background: var(--glass-2); border: 1px solid color-mix(in srgb, var(--m-nav) 50%, transparent);
+  backdrop-filter: var(--blur); box-shadow: var(--shadow);
+}
+.go__target-top { display: flex; align-items: baseline; justify-content: center; gap: .5rem; }
+.go__wp { font-size: .72rem; font-weight: 700; letter-spacing: .04em; color: var(--m-nav); text-transform: uppercase; }
+.go__dist { font-size: 1.5rem; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.go__remain { display: block; font-size: .68rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: .1rem; }
+.go__xte { display: block; font-size: .72rem; font-weight: 700; margin-top: .15rem; }
+.go__xte[hidden] { display: none; }
+.go__xte.is-left { color: #ffd27a; }
+.go__xte.is-right { color: #ffd27a; }
+
+/* Barre de progression, juste au-dessus du HUD du bas. */
+.go__progress {
+  position: absolute; left: .8rem; right: .8rem; bottom: calc(var(--go-hud-h, 128px) + var(--safe-bottom) + .5rem);
+  height: 4px; border-radius: var(--r-pill); overflow: hidden;
+  background: #ffffff1f;
+}
+.go__progress-bar { display: block; height: 100%; width: 0%; border-radius: inherit;
+  background: linear-gradient(90deg, var(--m-nav), #a9d4ff); transition: width .4s ease; }
+
+/* HUD du bas : vitesse à gauche, gouverne à droite. Bord à bord, gros chiffres. */
+.go__hud {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem;
+  padding: .6rem 1rem calc(.8rem + var(--safe-bottom));
+  background: linear-gradient(#080c1000, #080c10cc 40%, #080c10f4);
+}
+.go__speed { display: grid; align-items: baseline; grid-template-columns: auto auto; gap: 0 .3rem; }
+.go__speed-num {
+  font-size: 4.2rem; font-weight: 800; line-height: .85; letter-spacing: -.045em;
+  font-variant-numeric: tabular-nums; color: #fff;
+  text-shadow: 0 1px 2px #000a;
+}
+.go__speed-unit { font-size: 1rem; font-weight: 600; color: var(--muted); }
+
+/* Aiguille de gouverne : un cadran boussole, une flèche vers le cap cible. Comme la carte
+   est en « cap en haut », le haut du cadran EST l'étrave : la flèche penche à gauche pour
+   dire « viens à gauche », à droite pour l'inverse. Verte quand on est dans l'axe. */
+.go__steer { display: flex; align-items: center; gap: .55rem; }
+.go__dial { width: 92px; height: 92px; flex: none; overflow: visible; }
+.go__dial-ring { fill: #0b1220cc; stroke: color-mix(in srgb, var(--m-nav) 60%, transparent); stroke-width: 2; }
+.go__dial-ticks line { stroke: #ffffff55; stroke-width: 1.4; }
+.go__dial-ahead { fill: #ffffffcc; }
+.go__dial-arrow { transition: transform .18s ease; transform-box: view-box; transform-origin: 0 0; }
+.go__dial-arrow path { fill: var(--m-nav); stroke: #eaf4ff; stroke-width: 1.2; stroke-linejoin: round; }
+.go__dial.is-oncourse .go__dial-arrow path { fill: var(--ok); }
+.go__dial.is-idle .go__dial-arrow { opacity: .25; }
+.go__dial-hub { fill: #eaf4ff; }
+.go__steer-read { display: grid; gap: .1rem; text-align: right; min-width: 4.6rem; }
+.go__cap { font-size: 1.5rem; font-weight: 750; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.go__turn { font-size: .72rem; font-weight: 600; color: var(--muted); }
+.go__turn.is-oncourse { color: var(--ok); }
+.go__turn.is-turn { color: var(--m-nav); }
+
+/* Repère de cap cible sur le ruban de la boussole, actif en mode Go seulement. */
+.compass__target {
+  position: absolute; top: 2px; left: 50%; z-index: 3; width: 0; height: 0;
+  display: none; pointer-events: none;
+}
+body.mode-go .compass__target { display: block; }
+.compass__target::before {
+  content: ''; position: absolute; left: -7px; top: 0;
+  border-left: 7px solid transparent; border-right: 7px solid transparent;
+  border-top: 9px solid var(--m-nav);
+  filter: drop-shadow(0 1px 2px #000a);
+}
+
+.go__arrived {
+  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+  display: grid; gap: .25rem; justify-items: center; text-align: center;
+  padding: 1rem 1.4rem; border-radius: var(--r-lg);
+  background: var(--glass-2); border: 1px solid var(--ok);
+  backdrop-filter: var(--blur); box-shadow: var(--shadow);
+}
+.go__arrived[hidden] { display: none; }
+.go__arrived strong { font-size: 1.2rem; color: var(--ok); }
+.go__arrived span { font-size: .8rem; color: var(--muted); }
+
+/* Prochaine porte à franchir : anneau bleu qui bat, posé sur le point de passage visé. */
+.go-gate {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 3px solid var(--m-nav); background: color-mix(in srgb, var(--m-nav) 22%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--m-nav) 70%, transparent);
+  animation: gate-pulse 1.3s ease-in-out infinite;
+}
+@keyframes gate-pulse {
+  50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--m-nav) 22%, transparent),
+        0 0 16px color-mix(in srgb, var(--m-nav) 80%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .go-gate { animation: none; } }
+
+/* Plein soleil : le HUD de Go garde ses contrastes forts et sa couleur de cap. */
+body.is-sun .go__exit,
+body.is-sun .go__target { border-width: 2px; }
+body.is-sun .go__hud { background: linear-gradient(#0000, #000 42%); }
+body.is-sun .go__speed-num { text-shadow: 0 2px 3px #000, 0 0 8px #000; }

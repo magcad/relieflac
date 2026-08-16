@@ -121,6 +121,46 @@
           stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/>
   </symbol>
 
+  <!-- Mode Navigation / « Go » : la flèche du traceur, l'étrave qui file vers un cap. -->
+  <symbol id="i-nav" viewBox="0 0 24 24">
+    <path d="M12 2.6 20.4 20.4 12 16.2 3.6 20.4Z"
+          stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"
+          fill="currentColor" fill-opacity=".18"/>
+  </symbol>
+
+  <!-- Mode Pêche : le poisson. -->
+  <symbol id="i-fish" viewBox="0 0 24 24">
+    <path d="M3.2 12c3-4.4 8.2-6 12.4-4.2 2.6 1.1 4.2 2.9 5.2 4.2-1 1.3-2.6 3.1-5.2 4.2C11.4 18 6.2 16.4 3.2 12Z"
+          stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/>
+    <path d="M3.2 12 6.6 9.2 6.6 14.8Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/>
+    <circle cx="16.4" cy="10.4" r="1" fill="currentColor"/>
+  </symbol>
+
+  <!-- Mode Ski nautique : le sillage, et le skieur tiré derrière. -->
+  <symbol id="i-ski" viewBox="0 0 24 24">
+    <path d="M2.4 18.4c2 0 2-1.6 4-1.6s2 1.6 4 1.6 2-1.6 4-1.6 2 1.6 4 1.6"
+          stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+    <circle cx="15.2" cy="5.4" r="1.9" stroke="currentColor" stroke-width="1.5" fill="none"/>
+    <path d="M4.4 13.2 12.4 10.2M13.6 8.2l1.4-1M14 12.4l1.2-3.4 3 2.2"
+          stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </symbol>
+
+  <!-- Historique : la flèche qui remonte le temps sur le cadran. -->
+  <symbol id="i-history" viewBox="0 0 24 24">
+    <path d="M4.4 12a7.6 7.6 0 1 0 2.4-5.5"
+          stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"/>
+    <path d="M4.2 4.2v3.1h3.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M12 8v4.4l3 1.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </symbol>
+
+  <!-- Point de passage : le fanion planté sur la route. -->
+  <symbol id="i-flag" viewBox="0 0 24 24">
+    <path d="M6.6 21V3.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M6.6 4.2h11l-2.6 3.8 2.6 3.8h-11Z"
+          stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"
+          fill="currentColor" fill-opacity=".2"/>
+  </symbol>
+
   <symbol id="i-sliders" viewBox="0 0 24 24">
     <g stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none">
       <path d="M3.4 7h9.2M17.4 7h3.2M3.4 17h3.2M11.4 17h9.2M3.4 12h13.2M21.4 12h-.8"/>
@@ -176,6 +216,8 @@
       <div class="compass__fade compass__fade--r"></div>
     </div>
     <div class="compass__pointer"></div>
+    <!-- Repère de cap cible : n'apparaît qu'en mode Go, sur le cap du prochain point. -->
+    <div class="compass__target" id="compass-target"></div>
     <div class="compass__hud">
       <span class="compass__deg" id="compass-deg">•••</span>
     </div>
@@ -361,52 +403,209 @@
   </footer>
 
   <!--
-    Feuille « Outils ». Tout ce qui ne se touche pas en barrant : les trois modes de
-    correction, le fond de carte, et l'accès aux autres écrans. Chaque tuile porte un
-    libellé — c'est ce qui permet de se passer d'emojis dont ▲ et ◎ n'étaient de toute
-    façon lisibles par personne.
+    Menu principal, en modes. L'application ne fait plus qu'une chose à la fois : on choisit
+    d'abord un mode (une couleur, un métier), puis son action. La barre de modes en haut de
+    la feuille dit toujours où l'on est ; le corps ne montre que les actions de ce mode-là.
+
+    Carte = vert (l'outil de fond, celui d'aujourd'hui) · Navigation = bleu · Pêche = jaune ·
+    Ski nautique = rouge · Réglages = cyan (la couleur de l'habillage). La couleur n'est pas
+    décorative : c'est ce qui empêche de croire qu'on relève une sonde alors qu'on trace une
+    route, sur un écran qu'on regarde une seconde entre deux vagues.
   -->
   <div class="sheet" id="sheet" hidden>
     <div class="sheet__scrim" id="sheet-scrim"></div>
-    <div class="sheet__panel" role="dialog" aria-modal="true" aria-label="Outils et réglages">
+    <div class="sheet__panel" role="dialog" aria-modal="true" aria-label="Menu principal">
       <div class="sheet__grip"></div>
+
+      <div class="modes" id="modes" role="tablist" aria-label="Modes de l'application">
+        <button class="mode mode--carte is-on" id="mode-carte" data-mode="carte"
+                type="button" role="tab" aria-selected="true">
+          <svg class="ico" aria-hidden="true"><use href="#i-layers"/></svg>
+          <span>Carte</span>
+        </button>
+        <button class="mode mode--nav" id="mode-nav" data-mode="nav"
+                type="button" role="tab" aria-selected="false">
+          <svg class="ico" aria-hidden="true"><use href="#i-nav"/></svg>
+          <span>Navigation</span>
+        </button>
+        <button class="mode mode--peche" id="mode-peche" data-mode="peche"
+                type="button" role="tab" aria-selected="false">
+          <svg class="ico" aria-hidden="true"><use href="#i-fish"/></svg>
+          <span>Pêche</span>
+        </button>
+        <button class="mode mode--ski" id="mode-ski" data-mode="ski"
+                type="button" role="tab" aria-selected="false">
+          <svg class="ico" aria-hidden="true"><use href="#i-ski"/></svg>
+          <span>Ski&nbsp;nautique</span>
+        </button>
+        <button class="mode mode--param" id="mode-param" data-mode="param"
+                type="button" role="tab" aria-selected="false">
+          <svg class="ico" aria-hidden="true"><use href="#i-sliders"/></svg>
+          <span>Réglages</span>
+        </button>
+      </div>
+
       <p class="sheet__level" id="sheet-level"></p>
-      <div class="sheet__grid">
-        <button class="tile" id="btn-saisie" type="button">
-          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-probe"/></svg>
-          <span class="tile__label">Relever</span>
-          <span class="tile__sub">une sonde</span>
-        </button>
-        <button class="tile" id="btn-zone" type="button" aria-pressed="false">
-          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-island"/></svg>
-          <span class="tile__label">Zone émergée</span>
-          <span class="tile__sub">tracer un îlot</span>
-        </button>
-        <button class="tile" id="btn-sim" type="button">
-          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-tide"/></svg>
-          <span class="tile__label">Étiage</span>
-          <span class="tile__sub">&amp; relevés</span>
-        </button>
-        <button class="tile" id="btn-fond" type="button">
-          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-layers"/></svg>
-          <span class="tile__label">Fond de carte</span>
-          <span class="tile__sub" id="fond-label">Plan IGN</span>
-        </button>
-        <button class="tile" id="btn-trajet" type="button">
-          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-route"/></svg>
-          <span class="tile__label">Trajet</span>
-          <span class="tile__sub">bientôt</span>
-        </button>
-        <a class="tile" href="#/parametres">
+
+      <!-- Mode Carte : l'outil de fond, les gestes d'aujourd'hui, inchangés. -->
+      <div class="modepane modepane--carte" id="pane-carte" data-pane="carte">
+        <div class="sheet__grid">
+          <button class="tile" id="btn-saisie" type="button">
+            <svg class="ico ico--tile" aria-hidden="true"><use href="#i-probe"/></svg>
+            <span class="tile__label">Relever point</span>
+            <span class="tile__sub">une sonde</span>
+          </button>
+          <button class="tile" id="btn-zone" type="button" aria-pressed="false">
+            <svg class="ico ico--tile" aria-hidden="true"><use href="#i-island"/></svg>
+            <span class="tile__label">Relever zone</span>
+            <span class="tile__sub">tracer un îlot</span>
+          </button>
+          <button class="tile" id="btn-sim" type="button">
+            <svg class="ico ico--tile" aria-hidden="true"><use href="#i-tide"/></svg>
+            <span class="tile__label">Étiage</span>
+            <span class="tile__sub">&amp; relevés</span>
+          </button>
+          <button class="tile" id="btn-fond" type="button">
+            <svg class="ico ico--tile" aria-hidden="true"><use href="#i-layers"/></svg>
+            <span class="tile__label">Fond carte</span>
+            <span class="tile__sub" id="fond-label">Plan IGN</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Mode Navigation : choisir un trajet et le suivre. -->
+      <div class="modepane modepane--nav" id="pane-nav" data-pane="nav" hidden>
+        <div class="sheet__grid">
+          <button class="tile" id="btn-go" type="button">
+            <svg class="ico ico--tile" aria-hidden="true"><use href="#i-nav"/></svg>
+            <span class="tile__label">Go</span>
+            <span class="tile__sub">suivre un trajet</span>
+          </button>
+          <button class="tile" id="btn-trajet" type="button">
+            <svg class="ico ico--tile" aria-hidden="true"><use href="#i-route"/></svg>
+            <span class="tile__label">Trajet</span>
+            <span class="tile__sub">construire</span>
+          </button>
+          <button class="tile" id="btn-hist" type="button">
+            <svg class="ico ico--tile" aria-hidden="true"><use href="#i-history"/></svg>
+            <span class="tile__label">Historique</span>
+            <span class="tile__sub">bientôt</span>
+          </button>
+        </div>
+        <p class="modepane__hint" id="nav-hint">Vos trajets enregistrés :</p>
+        <ol class="routelist" id="route-picker"></ol>
+      </div>
+
+      <!-- Mode Pêche : à spécifier. Le bouton existe, la fonction viendra. -->
+      <div class="modepane modepane--soon" id="pane-peche" data-pane="peche" hidden>
+        <div class="soon">
+          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-fish"/></svg>
+          <p><strong>Mode Pêche</strong><br>Postes, marques et sondes à venir.</p>
+        </div>
+      </div>
+
+      <!-- Mode Ski nautique : à spécifier. Le bouton existe, la fonction viendra. -->
+      <div class="modepane modepane--soon" id="pane-ski" data-pane="ski" hidden>
+        <div class="soon">
+          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-ski"/></svg>
+          <p><strong>Mode Ski nautique</strong><br>Slaloms et parcours chronométrés à venir.</p>
+        </div>
+      </div>
+
+      <!-- Réglages : l'ancien écran des paramètres, remonté au niveau des modes. -->
+      <div class="modepane modepane--param" id="pane-param" data-pane="param" hidden>
+        <a class="tile tile--wide" href="#/parametres">
           <svg class="ico ico--tile" aria-hidden="true"><use href="#i-sliders"/></svg>
-          <span class="tile__label">Paramètres</span>
-          <span class="tile__sub">couleurs, bateau</span>
+          <span class="tile__label">Ouvrir les paramètres</span>
+          <span class="tile__sub">bateau, couleurs, cote, partage</span>
+        </a>
+        <a class="sheet__link" href="#/a-propos">
+          <svg class="ico" aria-hidden="true"><use href="#i-info"/></svg>
+          À propos, sources et limites du modèle
         </a>
       </div>
-      <a class="sheet__link" href="#/a-propos">
-        <svg class="ico" aria-hidden="true"><use href="#i-info"/></svg>
-        À propos, sources et limites du modèle
-      </a>
+    </div>
+  </div>
+
+  <!-- Constructeur de trajet : mêmes gestes que le tracé de zone, en bleu de navigation.
+       On pose des points de passage sur la carte, on nomme, on enregistre. -->
+  <div class="route" id="route" hidden>
+    <div class="sim__head">
+      <span class="route__title" id="route-title">Trajet</span>
+      <button class="sim__close" id="btn-route-exit" type="button" aria-label="Quitter le constructeur de trajet">
+        <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg>
+      </button>
+    </div>
+    <p class="route__hint" id="route-hint">Touchez la carte pour poser les points de passage.</p>
+    <ol class="routelist" id="route-list"></ol>
+    <label class="route__field" id="route-name-box" hidden>
+      <span>Nom</span>
+      <input type="text" id="route-name" maxlength="40" placeholder="Trajet sans nom" autocomplete="off">
+    </label>
+    <p class="route__meta" id="route-meta"></p>
+    <div class="route__btns">
+      <button class="sim__reset" id="btn-route-new" type="button">✚ Nouveau trajet</button>
+      <button class="sim__reset" id="btn-route-undo" type="button" hidden>↶ Point</button>
+      <button class="sim__reset" id="btn-route-save" type="button" hidden>✓ Enregistrer</button>
+      <button class="sim__reset" id="btn-route-cancel" type="button" hidden>✕ Annuler</button>
+      <button class="sim__reset" id="btn-route-go" type="button" hidden>▶ Go</button>
+      <button class="sim__reset sim__reset--danger" id="btn-route-del" type="button" hidden>Supprimer</button>
+    </div>
+  </div>
+
+  <!--
+    Mode Go : la navigation le long d'un trajet, en plein écran.
+
+    Ici le fond n'est plus le sujet : la carte bascule en vue inclinée (chase-cam),
+    s'assombrit, et la route s'allume comme une piste de drone — corridor lumineux, chevrons
+    dans le sens de la marche, prochaine porte qui pulse. Ce qu'on met en avant, ce sont la
+    VITESSE et le CAP à tenir : gros compteur, et aiguille de gouverne qui dit d'un coup
+    d'œil « tout droit », « viens à gauche », « viens à droite ».
+  -->
+  <div class="go" id="go" hidden>
+    <button class="go__exit" id="btn-go-exit" type="button">
+      <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg>
+      <span>Quitter</span>
+    </button>
+
+    <!-- Objectif : prochain point, distance, et ce qu'il reste. -->
+    <div class="go__target">
+      <div class="go__target-top">
+        <span class="go__wp" id="go-wp">WP —</span>
+        <span class="go__dist" id="go-dist">—</span>
+      </div>
+      <span class="go__remain" id="go-remain"></span>
+      <span class="go__xte" id="go-xte" hidden></span>
+    </div>
+
+    <div class="go__progress"><span class="go__progress-bar" id="go-progress"></span></div>
+
+    <!-- Barre du bas : vitesse à gauche, gouverne à droite. -->
+    <div class="go__hud">
+      <div class="go__speed">
+        <span class="go__speed-num" id="go-speed">—</span>
+        <span class="go__speed-unit" id="go-speed-unit">km/h</span>
+      </div>
+      <div class="go__steer">
+        <svg class="go__dial" viewBox="-50 -50 100 100" role="img" aria-label="Cap à tenir">
+          <circle class="go__dial-ring" cx="0" cy="0" r="42"/>
+          <g class="go__dial-ticks" id="go-ticks"></g>
+          <path class="go__dial-ahead" d="M0-48 4-40-4-40Z"/>
+          <g id="go-arrow" class="go__dial-arrow">
+            <path d="M0-34 9-14 0-20-9-14Z"/>
+          </g>
+          <circle class="go__dial-hub" cx="0" cy="0" r="3.4"/>
+        </svg>
+        <div class="go__steer-read">
+          <span class="go__cap" id="go-cap">—°</span>
+          <span class="go__turn" id="go-turn">cap GPS en attente</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="go__arrived" id="go-arrived" hidden>
+      <strong>Arrivé à destination</strong>
+      <span id="go-arrived-detail"></span>
     </div>
   </div>
 

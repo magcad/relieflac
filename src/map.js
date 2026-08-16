@@ -75,6 +75,9 @@ function circlePolygon(lon, lat, radiusMeters, sides = 64) {
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
 
+/** Bleu de navigation : la couleur du mode, celle de la route et de son corridor. */
+const ROUTE_COLOR = '#4c8dff';
+
 /**
  * Plafond de finesse de rendu.
  *
@@ -173,10 +176,15 @@ export class LakeMap extends EventTarget {
     // teste même pas les contours — une zone couvre parfois un hectare, et l'ouvrir en
     // édition au moindre toucher rendrait la lecture de profondeur inaccessible dessus.
     this.map.on('click', (event) => {
+      if (this.goMode) return; // en navigation, la carte ne se touche pas
       if (this.zoneMode) {
         this.dispatchEvent(new CustomEvent('zonevertex', {
           detail: { lngLat: event.lngLat, zoneId: this.#zoneAt(event.point) },
         }));
+        return;
+      }
+      if (this.routeMode) {
+        this.dispatchEvent(new CustomEvent('routevertex', { detail: event.lngLat }));
         return;
       }
       this.dispatchEvent(new CustomEvent('probe', { detail: event.lngLat }));
@@ -191,6 +199,7 @@ export class LakeMap extends EventTarget {
      */
     this.map.on('contextmenu', (event) => {
       event.preventDefault?.();
+      if (this.goMode || this.routeMode) return; // route et navigation gèrent la carte autrement
       if (this.tracing) { this.dispatchEvent(new CustomEvent('zoneclose')); return; }
       this.dispatchEvent(new CustomEvent('pinpoint', { detail: event.lngLat }));
     });
@@ -306,6 +315,75 @@ export class LakeMap extends EventTarget {
       type: 'line',
       source: 'precision',
       paint: { 'line-color': '#4db3ff', 'line-width': 1, 'line-opacity': 0.7 },
+    });
+
+    // Trajet suivi (mode Go) et trajet en construction. Deux sources : la route active,
+    // dessinée en corridor lumineux façon piste de drone, et le brouillon du constructeur,
+    // en pointillé. Les points de passage restent des marqueurs HTML (setRouteWaypoints) —
+    // pas de couche symbole chiffrée, faute de serveur de glyphes hors ligne.
+    this.#addChevronImage();
+    map.addSource('route', { type: 'geojson', data: EMPTY });
+    map.addLayer({
+      id: 'route-glow',
+      type: 'line',
+      source: 'route',
+      layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' },
+      paint: {
+        'line-color': ROUTE_COLOR,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 12, 10, 16, 26, 19, 40],
+        'line-blur': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 16],
+        'line-opacity': 0.32,
+      },
+    });
+    map.addLayer({
+      id: 'route-line',
+      type: 'line',
+      source: 'route',
+      layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' },
+      paint: {
+        'line-color': ROUTE_COLOR,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 12, 3, 16, 6, 19, 9],
+        'line-opacity': 0.95,
+      },
+    });
+    // Trait clair pointillé, animé (voir #startFlow) : donne le sens de la marche, comme le
+    // fil lumineux qui « coule » sur une piste de drone.
+    map.addLayer({
+      id: 'route-flow',
+      type: 'line',
+      source: 'route',
+      layout: { 'line-cap': 'butt', visibility: 'none' },
+      paint: {
+        'line-color': '#eaf4ff',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 12, 1.6, 16, 3.2],
+        'line-opacity': 0.9,
+        'line-dasharray': [0, 4, 3],
+      },
+    });
+    map.addLayer({
+      id: 'route-chevrons',
+      type: 'symbol',
+      source: 'route',
+      layout: {
+        visibility: 'none',
+        'symbol-placement': 'line',
+        'symbol-spacing': 44,
+        'icon-image': 'route-chevron',
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.5, 16, 0.85],
+        'icon-rotation-alignment': 'map',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+    });
+
+    // Brouillon du constructeur : ligne pointillée bleue (les sommets sont des marqueurs HTML).
+    map.addSource('route-draft', { type: 'geojson', data: EMPTY });
+    map.addLayer({
+      id: 'route-draft-line',
+      type: 'line',
+      source: 'route-draft',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': ROUTE_COLOR, 'line-width': 2.5, 'line-dasharray': [2, 2], 'line-opacity': 0.9 },
     });
 
     const element = document.createElement('div');
@@ -674,5 +752,157 @@ export class LakeMap extends EventTarget {
   clearTrail() {
     this.trail = [];
     this.map.getSource('trace').setData(EMPTY);
+  }
+
+  // ------------------------------------------------------------------ trajets
+
+  /** Chevron dessiné sur un canvas et versé en image de la carte, pour la couche symbole. */
+  #addChevronImage() {
+    if (this.map.hasImage?.('route-chevron')) return;
+    const size = 28;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const g = canvas.getContext('2d');
+    g.strokeStyle = '#eaf4ff';
+    g.lineWidth = 4.5;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    // Le chevron pointe vers le HAUT du canvas : la couche symbole l'aligne ensuite sur le
+    // sens de la ligne, si bien qu'il indique la marche.
+    g.beginPath();
+    g.moveTo(7, 18);
+    g.lineTo(size / 2, 9);
+    g.lineTo(size - 7, 18);
+    g.stroke();
+    const { data } = g.getImageData(0, 0, size, size);
+    try {
+      this.map.addImage('route-chevron', { width: size, height: size, data }, { pixelRatio: 2 });
+    } catch { /* déjà présente (style rechargé) : sans conséquence */ }
+  }
+
+  #showRouteLayers(on) {
+    for (const id of ['route-glow', 'route-line', 'route-flow', 'route-chevrons']) {
+      this.map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+    }
+  }
+
+  #renderWaypointMarkers(field, points, { active }) {
+    if (!this[field]) this[field] = [];
+    for (const m of this[field]) m.remove();
+    const last = points.length - 1;
+    this[field] = points.map((p, i) => {
+      const el = document.createElement('div');
+      el.className = 'wpt-mark';
+      if (i === 0) el.classList.add('is-start');
+      else if (i === last) el.classList.add('is-end');
+      if (p.editing) el.classList.add('is-editing');
+      el.textContent = i === 0 ? '⚑' : i === last ? '◎' : String(i + 1);
+      el.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.dispatchEvent(new CustomEvent('wptselect', { detail: { index: i, active } }));
+      });
+      return new Marker({ element: el, anchor: 'center' })
+        .setLngLat([p.lon ?? p[0], p.lat ?? p[1]]).addTo(this.map);
+    });
+  }
+
+  /** Trajet actif (aperçu / navigation) : corridor lumineux + chevrons + points de passage. */
+  setRoute(points, { waypoints = true } = {}) {
+    const coords = points.map((p) => [p.lon ?? p[0], p.lat ?? p[1]]);
+    this.map.getSource('route').setData(coords.length >= 2
+      ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }
+      : EMPTY);
+    this.#showRouteLayers(coords.length >= 2);
+    this.#renderWaypointMarkers('routeMarkers', waypoints ? points : [], { active: true });
+  }
+
+  clearRoute() {
+    this.map.getSource('route')?.setData(EMPTY);
+    this.#showRouteLayers(false);
+    this.#renderWaypointMarkers('routeMarkers', [], { active: true });
+  }
+
+  /** Trajet en construction : ligne pointillée + sommets numérotés (marqueurs HTML). */
+  setRouteDraft(points, { editingIndex = -1 } = {}) {
+    const coords = points.map((p) => [p[0], p[1]]);
+    this.map.getSource('route-draft').setData(coords.length >= 2
+      ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }
+      : EMPTY);
+    const marks = coords.map((c, i) => ({ 0: c[0], 1: c[1], editing: i === editingIndex }));
+    this.#renderWaypointMarkers('draftMarkers', marks, { active: false });
+  }
+
+  clearRouteDraft() {
+    this.map.getSource('route-draft')?.setData(EMPTY);
+    this.#renderWaypointMarkers('draftMarkers', [], { active: false });
+  }
+
+  /** En mode construction, le clic pose un point de passage au lieu de sonder. */
+  setRouteMode(active) {
+    this.routeMode = Boolean(active);
+    this.map.getCanvas().style.cursor = this.routeMode ? 'crosshair' : '';
+  }
+
+  // ----------------------------------------------------------- navigation (Go)
+
+  /** En navigation, la carte ne répond plus au toucher : on la regarde, on ne la touche pas. */
+  setGoMode(active) {
+    this.goMode = Boolean(active);
+  }
+
+  /**
+   * Caméra de navigation : vue inclinée façon chase-cam. Le pas de tangage est appliqué net
+   * (`setPitch`), et non animé : la boucle de suivi commande centre, cap et zoom par
+   * `jumpTo`, qui ne touche pas au tangage — un `easeTo` concurrent serait annulé image après
+   * image et donnerait un pompage.
+   */
+  enterNavCam(pitch = 55) {
+    this.map.setPitch(pitch);
+    this.#startFlow();
+  }
+
+  exitNavCam() {
+    this.#stopFlow();
+    this.map.setPitch(0);
+  }
+
+  /** Atténue le fond de carte : en navigation, la route passe devant, le fond recule. */
+  setBasemapDim(on) {
+    Object.keys(BASEMAPS).forEach((key) => {
+      try { this.map.setPaintProperty(`fond-${key}`, 'raster-opacity', on ? 0.5 : 1); } catch { /* couche absente */ }
+    });
+  }
+
+  /**
+   * Fait « couler » le fil clair le long de la route, comme la piste lumineuse d'un drone.
+   * On fait défiler le motif de pointillés — MapLibre n'a pas de décalage de tirets — à
+   * cadence modérée : le rendu est de toute façon suspendu quand la page est masquée.
+   */
+  #startFlow() {
+    if (this.flowTimer) return;
+    const seq = [
+      [0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5],
+      [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0], [0, 0.5, 3, 3.5],
+    ];
+    let i = 0;
+    this.flowTimer = setInterval(() => {
+      i = (i + 1) % seq.length;
+      try { this.map.setPaintProperty('route-flow', 'line-dasharray', seq[i]); } catch { /* */ }
+    }, 90);
+  }
+
+  #stopFlow() {
+    if (this.flowTimer) { clearInterval(this.flowTimer); this.flowTimer = null; }
+  }
+
+  /** Prochaine « porte » à franchir : anneau qui pulse sur le point de passage visé. */
+  setGate(lngLat) {
+    if (!lngLat) { this.gateMarker?.remove(); this.gateMarker = null; return; }
+    if (!this.gateMarker) {
+      const el = document.createElement('div');
+      el.className = 'go-gate';
+      this.gateMarker = new Marker({ element: el, anchor: 'center' });
+    }
+    this.gateMarker.setLngLat([lngLat[0], lngLat[1]]).addTo(this.map);
   }
 }

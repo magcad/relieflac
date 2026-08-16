@@ -15,6 +15,10 @@ import { Compass } from './compass.js';
 import { LakeMap } from './map.js';
 import { applyPaletteOverride, bandColors, bandLimits, buildLut, depthColor, hexToVec4, legendEntries } from './palette.js';
 import { Probes, makeProbe } from './probes.js';
+import {
+  CRUISE_KMH, estimatedDuration, formatDistance, formatDuration, Routes, routeLength,
+} from './routes.js';
+import { angleDelta, navSolution } from './nav.js';
 import { SimPoints } from './sim.js';
 import { CorrectionsSync, getToken, setToken } from './sync.js';
 import { Soundings } from './soundings.js';
@@ -48,6 +52,14 @@ const app = {
   lastBigDepth: null,
   wakeLock: null, wakeState: 'lost', wakePending: false, wakeWarned: false,
   sync: null, syncPushTimer: null, suppressPush: false,
+  // Trajets de navigation. Le constructeur a trois états, comme les zones : panneau ouvert
+  // (`routeMode`), tracé en cours (`routeTracing`), trajet repris pour réglage (`editingRouteId`).
+  routes: null,
+  routeMode: false, routeTracing: false, routeDraft: [], editingRouteId: null,
+  // Menu à modes : quel métier de l'application est affiché dans la feuille.
+  menuMode: 'carte',
+  // Mode Go : navigation le long d'un trajet. `fromIndex` = dernier point de passage franchi.
+  go: { active: false, routeId: null, points: null, fromIndex: 0, arrived: false },
 };
 
 // ---------------------------------------------------------------- démarrage
@@ -82,6 +94,7 @@ async function boot() {
     app.probes = new Probes();
     app.sim = new SimPoints();
     app.zones = new Zones();
+    app.routes = new Routes();
     app.compass = new Compass();
     app.level = new Level('.');
     app.levelHistory = new LevelHistory('.');
@@ -131,7 +144,9 @@ async function boot() {
     wireMap();
     wireBigDepth();
     wireSync();
-    wireTools();
+    wireMenu();
+    wireRoutes();
+    wireGo();
     wireQuickNav();
     route();
 
@@ -143,6 +158,7 @@ async function boot() {
     refreshSimOnMap();
     refreshZonesUi();
     refreshZonesOnMap();
+    refreshRoutePicker();
     refreshCaptureUi();
     applyBigDepthMode();
     applySunMode();
@@ -369,6 +385,9 @@ function onPosition(event) {
   setGpsState(position.accuracy);
 
   updateAlarm(depth);
+
+  // En navigation, la position nourrit aussi le HUD : cap à tenir, distances, avancement.
+  if (app.go.active) updateGoHud(position);
 }
 
 function onGeoStatus(event) {
@@ -1196,7 +1215,8 @@ function wireProbes() {
   // navigation seule. Fermer annule aussi une correction en cours.
   $('btn-saisie').addEventListener('click', () => {
     app.captureOpen = !app.captureOpen;
-    if (!app.captureOpen) { clearPin(); if (app.editingProbeId) endProbeEdit(); }
+    if (app.captureOpen) { if (app.go.active) exitGo(); if (app.routeMode) exitRouteMode(); }
+    else { clearPin(); if (app.editingProbeId) endProbeEdit(); }
     refreshCaptureUi();
   });
 
@@ -1258,7 +1278,7 @@ function refreshCaptureUi() {
 function stackBottomBars() {
   const resized = fitChartToRoom();
   let offset = 0;
-  for (const id of ['sim', 'zone', 'capture']) {
+  for (const id of ['sim', 'zone', 'route', 'capture']) {
     const element = $(id);
     if (element.hidden) continue;
     element.style.bottom = offset
@@ -1820,6 +1840,8 @@ function updateHeading(heading, source) {
   // Le cap ne s'écrit plus qu'à un seul endroit : le ruban et sa pastille de degrés. La
   // tuile qui le répétait dans le dock ne faisait que rétrécir les deux valeurs voisines.
   scheduleMapHeading();
+  // En navigation, le cap pilote l'aiguille de gouverne et le repère de cap cible.
+  if (app.go.active) updateGoSteer();
 }
 
 // La boussole émet à haute fréquence ; on ne fait tourner la carte qu'une fois par image
@@ -2088,6 +2110,8 @@ function applyBedDatum(announce = false) {
 }
 
 function enterSim() {
+  if (app.go.active) exitGo();
+  if (app.routeMode) exitRouteMode();
   app.simMode = true;
   // Cote réelle du moment, référence des écarts ; et réglage manuel d'avant la simulation,
   // à restaurer en sortie pour ne pas détourner durablement l'affichage.
@@ -2314,6 +2338,8 @@ function wireZones() {
  * tracer sont deux intentions ; elles ont maintenant deux états et deux boutons.
  */
 function enterZoneMode() {
+  if (app.go.active) exitGo();
+  if (app.routeMode) exitRouteMode();
   app.zoneMode = true;
   app.zoneTracing = false;
   app.zoneDraft = [];
@@ -2616,6 +2642,7 @@ function wireMap() {
   // Faire glisser la carte coupe le suivi : sinon l'écran ramène le bateau au centre
   // à chaque relevé GPS et il devient impossible de regarder devant soi.
   app.lakeMap.addEventListener('userpan', () => {
+    if (app.go.active) return; // en navigation, le suivi est verrouillé
     if (!app.settings.get('followBoat')) return;
     app.settings.set('followBoat', false);
     refreshCameraUi();
@@ -2667,42 +2694,546 @@ function refreshBasemapUi() {
   $('fond-label').textContent = plan ? 'Plan IGN' : 'Photo aérienne';
 }
 
-// ------------------------------------------------------------- feuille d'outils
+// ---------------------------------------------------------------- menu à modes
 
 /**
- * Feuille « Outils » : tout ce qui ne se touche pas en barrant.
+ * Menu principal, organisé en modes. La feuille porte en haut une barre de cinq segments —
+ * un par métier de l'application, chacun sa couleur — et son corps ne montre que les actions
+ * du mode choisi. C'est ce qui empêche de confondre les modes sur un écran qu'on regarde une
+ * seconde entre deux vagues : la couleur dit le métier avant même qu'on lise une tuile.
  *
- * Les cinq icônes de l'ancienne barre du haut et les deux FAB d'édition partageaient
- * l'écran avec la carte en permanence pour des gestes qui ne servent pas une fois par
- * heure. Ils sont ici, derrière un bouton, avec un libellé — ce qui règle du même coup la
- * lisibilité des glyphes ▲ et ◎, que personne ne savait interpréter.
- *
- * La feuille se referme sur tout ce qui agit : ouvrir un mode de correction, c'est vouloir
- * la carte, pas rester devant un menu.
+ * La feuille se referme sur tout ce qui agit : ouvrir un outil, c'est vouloir la carte, pas
+ * rester devant un menu.
  */
-function wireTools() {
+function wireMenu() {
   const sheet = $('sheet');
   const open = (on) => {
     sheet.hidden = !on;
     $('btn-menu').setAttribute('aria-expanded', String(on));
   };
 
-  // « Trajet » remplace l'étalonnage du sondeur, retiré : la place est prise, la fonction
-  // reste à écrire. Une tuile morte vaut mieux qu'une tuile qui ment sur ce qu'elle fait.
-  $('btn-trajet').addEventListener('click', () => {
-    toast('Trajet : enregistrement de la route parcourue — pas encore disponible', 4000);
+  $('modes').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-mode]');
+    if (button) setMenuMode(button.dataset.mode);
   });
 
-  $('btn-menu').addEventListener('click', () => open(sheet.hidden));
+  $('btn-menu').addEventListener('click', () => {
+    open(sheet.hidden);
+    if (!sheet.hidden) setMenuMode(app.menuMode); // rouvre sur le dernier mode consulté
+  });
   $('sheet-scrim').addEventListener('click', () => open(false));
   // Écoute posée sur le conteneur : elle se déclenche après les gestionnaires propres à
-  // chaque tuile, quel que soit l'ordre dans lequel les modules ont été câblés.
+  // chaque tuile, quel que soit l'ordre dans lequel les modules ont été câblés. Les segments
+  // de mode, eux, ne referment pas la feuille — ils font naviguer à l'intérieur.
   sheet.querySelector('.sheet__panel').addEventListener('click', (event) => {
-    if (event.target.closest('.tile, .sheet__link')) open(false);
+    if (event.target.closest('.tile, .sheet__link, .route__go')) open(false);
   });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !sheet.hidden) open(false);
   });
+
+  setMenuMode('carte');
+}
+
+/** Bascule la barre de modes et n'affiche que le corps du mode choisi. */
+function setMenuMode(mode) {
+  app.menuMode = mode;
+  for (const button of document.querySelectorAll('#modes .mode')) {
+    const on = button.dataset.mode === mode;
+    button.classList.toggle('is-on', on);
+    button.setAttribute('aria-selected', String(on));
+  }
+  for (const pane of document.querySelectorAll('.modepane')) {
+    pane.hidden = pane.dataset.pane !== mode;
+  }
+  if (mode === 'nav') refreshRoutePicker();
+}
+
+/** Referme la feuille du menu sans la rouvrir : appelé depuis les listes qu'elle porte. */
+function closeSheet() {
+  $('sheet').hidden = true;
+  $('btn-menu')?.setAttribute('aria-expanded', 'false');
+}
+
+// ------------------------------------------------------ constructeur de trajet
+
+/**
+ * Trajet : mêmes trois états que les zones — panneau ouvert, tracé en cours, trajet repris
+ * pour édition — parce que c'est le même geste, poser une suite de points sur la carte. Le
+ * bleu de navigation le distingue du beige des zones et de l'ambre de l'étiage, pour qu'on
+ * ne croie jamais tracer une route quand on relève un fond.
+ */
+function wireRoutes() {
+  $('btn-trajet').addEventListener('click', () => (app.routeMode ? exitRouteMode() : enterRouteMode()));
+  $('btn-route-exit').addEventListener('click', exitRouteMode);
+  $('btn-route-new').addEventListener('click', startRouteDraft);
+  $('btn-route-undo').addEventListener('click', undoRouteVertex);
+  $('btn-route-cancel').addEventListener('click', cancelRouteDraft);
+  $('btn-route-save').addEventListener('click', () => { saveRoute(); });
+  $('btn-route-go').addEventListener('click', goFromDraft);
+  wireArmed('btn-route-del', 'Confirmer ?', deleteSelectedRoute);
+
+  app.lakeMap.addEventListener('routevertex', (event) => addRouteVertex(event.detail));
+  // Toucher un sommet du brouillon le retire — l'édition la plus directe qui soit.
+  app.lakeMap.addEventListener('wptselect', (event) => {
+    const { index, active } = event.detail;
+    if (!active && app.routeMode && app.routeTracing) removeRouteVertex(index);
+  });
+
+  app.routes.addEventListener('change', () => {
+    refreshRoutePicker();
+    if (app.routeMode) refreshRoutePanel();
+  });
+}
+
+function enterRouteMode() {
+  if (app.go.active) exitGo();
+  if (app.simMode) exitSim();
+  if (app.zoneMode) exitZoneMode();
+  app.captureOpen = false;
+  clearPin();
+  if (app.editingProbeId) endProbeEdit();
+  refreshCaptureUi();
+
+  app.routeMode = true;
+  app.routeTracing = false;
+  app.routeDraft = [];
+  app.editingRouteId = null;
+  refreshRoutePanel();
+  refreshRoutePicker();
+  toast(app.routes.count
+    ? 'Reprenez un trajet, ou « ✚ Nouveau trajet »'
+    : 'Aucun trajet : « ✚ Nouveau trajet » pour en construire un', 4000);
+}
+
+function exitRouteMode() {
+  app.routeMode = false;
+  app.routeTracing = false;
+  app.routeDraft = [];
+  app.editingRouteId = null;
+  disarmAll();
+  refreshRoutePanel();
+  refreshCaptureUi();
+}
+
+function startRouteDraft() {
+  app.routeTracing = true;
+  app.routeDraft = [];
+  app.editingRouteId = null;
+  $('route-name').value = '';
+  refreshRoutePanel();
+  toast('Touchez la carte pour poser les points de passage', 4000);
+}
+
+function editRoute(id) {
+  const route = app.routes.get(id);
+  if (!route) return;
+  if (app.go.active) exitGo();
+  app.routeMode = true;
+  app.routeTracing = true;
+  app.editingRouteId = id;
+  app.routeDraft = route.points.map((p) => [p[0], p[1]]);
+  $('route-name').value = route.name;
+  refreshRoutePanel();
+  toast('Édition : ajoutez des points, ou enregistrez', 4000);
+}
+
+function addRouteVertex(lngLat) {
+  if (!app.routeTracing) return; // hors tracé, un toucher ne pose rien
+  app.routeDraft.push([lngLat.lng, lngLat.lat]);
+  refreshRoutePanel();
+}
+
+function undoRouteVertex() {
+  app.routeDraft.pop();
+  refreshRoutePanel();
+}
+
+function removeRouteVertex(index) {
+  app.routeDraft.splice(index, 1);
+  refreshRoutePanel();
+}
+
+function cancelRouteDraft() {
+  app.routeTracing = false;
+  app.editingRouteId = null;
+  app.routeDraft = [];
+  refreshRoutePanel();
+}
+
+/** Enregistre le brouillon (nouveau trajet, ou mise à jour d'un existant). Rend l'id. */
+function saveRoute() {
+  const points = app.routeDraft;
+  if (points.length < 2) { toast('Il faut au moins 2 points de passage'); return null; }
+  const name = $('route-name').value.trim();
+  let id;
+  if (app.editingRouteId) {
+    app.routes.update(app.editingRouteId, { name: name || app.routes.get(app.editingRouteId)?.name, points });
+    id = app.editingRouteId;
+    toast('Trajet mis à jour');
+  } else {
+    const entry = app.routes.add({ name, points });
+    id = entry.id;
+    toast(`Trajet enregistré · ${formatDistance(routeLength(points))}`, 3500);
+  }
+  app.routeTracing = false;
+  app.editingRouteId = null;
+  app.routeDraft = [];
+  refreshRoutePanel();
+  refreshRoutePicker();
+  return id;
+}
+
+/** Enregistre le brouillon puis lance la navigation dessus. */
+function goFromDraft() {
+  const id = saveRoute();
+  if (id) startGo(id);
+}
+
+function deleteSelectedRoute() {
+  if (!app.editingRouteId) return;
+  const id = app.editingRouteId;
+  app.editingRouteId = null;
+  app.routeTracing = false;
+  app.routeDraft = [];
+  app.routes.remove(id);
+  refreshRoutePanel();
+  toast('Trajet supprimé');
+}
+
+/**
+ * Unique endroit où l'état du panneau de trajet est rendu. Trois états, comme les zones :
+ * la liste des trajets, le tracé en cours, et l'édition d'un trajet repris.
+ */
+function refreshRoutePanel() {
+  const editing = Boolean(app.editingRouteId);
+  const tracing = app.routeMode && app.routeTracing;
+  const listing = app.routeMode && !tracing;
+
+  $('route').hidden = !app.routeMode;
+  $('btn-trajet').classList.toggle('is-on', app.routeMode);
+  app.lakeMap.setRouteMode(app.routeMode);
+  if (!app.routeMode) { app.lakeMap.clearRouteDraft(); stackBottomBars(); return; }
+
+  $('route-title').textContent = editing ? 'Trajet — édition' : tracing ? 'Nouveau trajet' : 'Trajets enregistrés';
+  $('route-list').hidden = !listing;
+  $('route-name-box').hidden = !tracing;
+  $('btn-route-new').hidden = !listing;
+  $('btn-route-undo').hidden = !tracing;
+  $('btn-route-save').hidden = !tracing;
+  $('btn-route-cancel').hidden = !tracing;
+  $('btn-route-go').hidden = !tracing;
+  $('btn-route-del').hidden = !editing;
+  $('btn-route-undo').disabled = app.routeDraft.length === 0;
+  $('btn-route-save').disabled = app.routeDraft.length < 2;
+  $('btn-route-go').disabled = app.routeDraft.length < 2;
+
+  if (tracing) {
+    const n = app.routeDraft.length;
+    const len = routeLength(app.routeDraft);
+    $('route-hint').textContent = n === 0
+      ? 'Touchez la carte pour poser les points de passage.'
+      : 'Ajoutez des points (ou touchez-en un pour le retirer), puis ✓ Enregistrer.';
+    $('route-meta').textContent = n < 2
+      ? `${n} point${n > 1 ? 's' : ''} — il en faut au moins 2`
+      : `${n} points · ${formatDistance(len)} · ~${formatDuration(estimatedDuration(len))} à ${CRUISE_KMH} km/h`;
+    app.lakeMap.setRouteDraft(app.routeDraft);
+  } else {
+    $('route-hint').textContent = app.routes.count
+      ? 'Reprenez un trajet, ou créez-en un nouveau.'
+      : 'Aucun trajet. « ✚ Nouveau trajet » pour commencer.';
+    $('route-meta').textContent = '';
+    app.lakeMap.clearRouteDraft();
+    fillRouteList($('route-list'), false);
+  }
+  stackBottomBars();
+}
+
+/** Liste des trajets enregistrés, dans le menu Navigation. */
+function refreshRoutePicker() {
+  const list = $('route-picker');
+  if (!list) return;
+  $('nav-hint').textContent = app.routes.count
+    ? 'Vos trajets enregistrés :'
+    : 'Aucun trajet. Construisez-en un avec « Trajet ».';
+  fillRouteList(list, true);
+}
+
+/**
+ * Peuple une liste de trajets. `primaryGo` ajoute le bouton ▶ de lancement direct — c'est le
+ * cas du menu Navigation ; le constructeur, lui, propose édition et suppression.
+ */
+function fillRouteList(el, primaryGo) {
+  el.replaceChildren(...app.routes.records.slice().reverse().map((r) => {
+    const len = routeLength(r.points);
+    const li = document.createElement('li');
+
+    const name = document.createElement('span');
+    name.className = 'route__name';
+    name.textContent = r.name;
+    const stat = document.createElement('span');
+    stat.className = 'route__stat';
+    stat.textContent = `${r.points.length} pts · ${formatDistance(len)} · ~${formatDuration(estimatedDuration(len))}`;
+    name.append(stat);
+    li.append(name);
+
+    if (primaryGo) {
+      const go = document.createElement('button');
+      go.type = 'button';
+      go.className = 'route__go';
+      go.textContent = '▶';
+      go.title = `Naviguer « ${r.name} »`;
+      go.addEventListener('click', () => startGo(r.id));
+      li.append(go);
+    }
+
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.textContent = '✎';
+    edit.title = 'Modifier ce trajet';
+    edit.addEventListener('click', () => { if (primaryGo) closeSheet(); editRoute(r.id); });
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'route__del';
+    del.textContent = '✕';
+    del.title = 'Supprimer ce trajet';
+    del.addEventListener('click', () => {
+      if (app.go.active && app.go.routeId === r.id) exitGo();
+      if (app.editingRouteId === r.id) { app.editingRouteId = null; app.routeTracing = false; app.routeDraft = []; }
+      app.routes.remove(r.id);
+      toast('Trajet supprimé');
+    });
+
+    li.append(edit, del);
+    return li;
+  }));
+}
+
+// -------------------------------------------------------------- navigation (Go)
+
+/** Dans le rayon d'arrivée d'un point de passage, on vise le suivant. */
+const ARRIVE_RADIUS_M = 20;
+/** Écart de route à partir duquel on l'affiche explicitement. */
+const XTE_SHOW_M = 8;
+
+function wireGo() {
+  $('btn-go').addEventListener('click', startGoFromMenu);
+  $('btn-go-exit').addEventListener('click', exitGo);
+  $('btn-hist').addEventListener('click', () => {
+    toast('Historique des trajets parcourus — bientôt disponible', 3500);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && app.go.active) exitGo();
+  });
+}
+
+/** « Go » depuis la tuile : reprend le dernier trajet suivi, ou laisse choisir dans la liste. */
+function startGoFromMenu() {
+  if (!app.routes.count) {
+    toast('Créez d’abord un trajet dans « Trajet »');
+    enterRouteMode();
+    return;
+  }
+  const last = loadLastRoute();
+  if (last && app.routes.get(last)) { startGo(last); return; }
+  if (app.routes.count === 1) { startGo(app.routes.records[0].id); return; }
+  toast('Choisissez un trajet dans la liste ci-dessous');
+  setMenuMode('nav');
+}
+
+function startGo(routeId) {
+  const route = app.routes.get(routeId);
+  if (!route || route.points.length < 1) { toast('Trajet introuvable'); return; }
+
+  // Go prend l'écran : on quitte tout le reste.
+  if (app.simMode) exitSim();
+  if (app.zoneMode) exitZoneMode();
+  if (app.routeMode) exitRouteMode();
+  app.captureOpen = false;
+  clearPin();
+  if (app.editingProbeId) endProbeEdit();
+  refreshCaptureUi();
+  closeSheet();
+  location.hash = '#/';
+
+  app.go = { active: true, routeId, points: route.points.map((p) => [p[0], p[1]]), fromIndex: 0, arrived: false, lastSol: null };
+  saveLastRoute(routeId);
+
+  document.body.classList.add('mode-go');
+  $('go').hidden = false;
+  $('go-arrived').hidden = true;
+  $('go-speed-unit').textContent = app.settings.get('speedUnit') === 'kn' ? 'nds' : 'km/h';
+  buildGoTicks();
+
+  // Caméra de chasse : suivi et cap en haut forcés (sans toucher aux réglages), fond atténué.
+  app.lakeMap.setGoMode(true);
+  app.lakeMap.setFollow(true);
+  app.lakeMap.setTrackUp(true);
+  ensureCompass();
+  // À défaut de position GPS (essai sur ordinateur), on cadre au moins sur le trajet.
+  if (!app.geo?.position) app.lakeMap.map.jumpTo({ center: route.points[0] });
+  app.lakeMap.setVisibleWidth(170); // avant l'inclinaison : la mesure de largeur y est juste
+  app.lakeMap.enterNavCam(55);
+  app.lakeMap.setBasemapDim(true);
+  app.goDepthOpacity = app.settings.get('opacity');
+  app.depthLayer.setStyle({ opacity: Math.min(app.goDepthOpacity, 0.32) });
+  app.lakeMap.setRoute(route.points);
+
+  toast(`Navigation : ${route.name}`, 3000);
+  if (app.geo?.position) updateGoHud(app.geo.position);
+  else updateGoSteer();
+}
+
+function exitGo() {
+  if (!app.go.active) return;
+  app.go.active = false;
+  app.go.lastSol = null;
+  document.body.classList.remove('mode-go');
+  $('go').hidden = true;
+  app.lakeMap.setGoMode(false);
+  app.lakeMap.clearRoute();
+  app.lakeMap.setGate(null);
+  app.lakeMap.exitNavCam();
+  app.lakeMap.setBasemapDim(false);
+  refreshDepthStyle();  // restaure l'opacité du fond
+  refreshCameraUi();    // restaure suivi / cap en haut selon les réglages de l'utilisateur
+}
+
+function updateGoHud(position) {
+  if (!app.go.active) return;
+  const boat = [position.lon, position.lat];
+  const sol = navSolution(app.go.points, boat, { fromIndex: app.go.fromIndex, arriveRadiusM: ARRIVE_RADIUS_M });
+  if (!sol) return;
+  app.go.fromIndex = sol.fromIndex;
+  app.go.lastSol = sol;
+
+  // Vitesse : le gros compteur, à l'unité choisie.
+  const unit = app.settings.get('speedUnit');
+  const v = Number.isFinite(position.speed)
+    ? (unit === 'kn' ? position.speed * 1.943844 : position.speed * 3.6)
+    : NaN;
+  $('go-speed').textContent = Number.isFinite(v) ? v.toFixed(1) : '—';
+
+  // Objectif : prochain point, sa distance, et ce qu'il reste du trajet.
+  $('go-wp').textContent = sol.arrived ? 'ARRIVÉE' : `WP ${sol.targetIndex + 1}/${sol.waypointCount}`;
+  $('go-dist').textContent = formatDistance(sol.distToTarget);
+  $('go-remain').textContent = `reste ${formatDistance(sol.distRemaining)} · ~${formatDuration(estimatedDuration(sol.distRemaining))}`;
+
+  const total = routeLength(app.go.points) || 1;
+  const pct = Math.max(0, Math.min(100, (1 - sol.distRemaining / total) * 100));
+  $('go-progress').style.width = `${pct}%`;
+
+  // Écart de route : le sens dit où revenir.
+  const xte = $('go-xte');
+  if (!sol.arrived && Math.abs(sol.crossM) > XTE_SHOW_M) {
+    const drift = Math.round(Math.abs(sol.crossM));
+    xte.hidden = false;
+    xte.textContent = sol.crossM > 0 ? `◀ hors route ${drift} m` : `hors route ${drift} m ▶`;
+    xte.className = sol.crossM > 0 ? 'go__xte is-left' : 'go__xte is-right';
+  } else {
+    xte.hidden = true;
+  }
+
+  app.lakeMap.setGate(sol.arrived ? null : sol.target);
+
+  if (sol.arrived && !app.go.arrived) {
+    app.go.arrived = true;
+    $('go-arrived-detail').textContent = `${app.routes.get(app.go.routeId)?.name ?? ''} · ${formatDistance(total)}`;
+    $('go-arrived').hidden = false;
+  } else if (!sol.arrived && app.go.arrived) {
+    app.go.arrived = false;
+    $('go-arrived').hidden = true;
+  }
+
+  updateGoSteer();
+}
+
+/** Aiguille de gouverne : la flèche penche du côté où venir, verte quand on est dans l'axe. */
+function updateGoSteer() {
+  if (!app.go.active) return;
+  const sol = app.go.lastSol;
+  const dial = document.querySelector('.go__dial');
+  const arrow = $('go-arrow');
+  const cap = $('go-cap');
+  const turn = $('go-turn');
+  const target = $('compass-target');
+
+  if (!sol) {
+    dial.classList.add('is-idle');
+    cap.textContent = '—°';
+    turn.textContent = 'trajet en attente';
+    turn.className = 'go__turn';
+    return;
+  }
+
+  cap.textContent = `${String(Math.round(sol.bearing) % 360).padStart(3, '0')}°`;
+
+  const heading = Number.isFinite(app.heading) ? app.heading
+    : Number.isFinite(app.geo?.position?.heading) ? app.geo.position.heading : null;
+
+  if (heading == null) {
+    dial.classList.add('is-idle');
+    dial.classList.remove('is-oncourse');
+    arrow.style.transform = 'rotate(0deg)';
+    turn.textContent = 'cap en attente';
+    turn.className = 'go__turn';
+    if (target) target.style.transform = 'translateX(-9999px)';
+    return;
+  }
+
+  const delta = angleDelta(heading, sol.bearing);
+  dial.classList.remove('is-idle');
+  arrow.style.transform = `rotate(${delta}deg)`;
+  const onCourse = Math.abs(delta) < 5;
+  dial.classList.toggle('is-oncourse', onCourse);
+  if (onCourse) {
+    turn.textContent = 'tout droit';
+    turn.className = 'go__turn is-oncourse';
+  } else if (delta > 0) {
+    turn.textContent = `${Math.round(delta)}° à droite`;
+    turn.className = 'go__turn is-turn';
+  } else {
+    turn.textContent = `${Math.round(-delta)}° à gauche`;
+    turn.className = 'go__turn is-turn';
+  }
+
+  // Repère de cap cible sur le ruban de la boussole, borné à la largeur visible.
+  if (target) {
+    const half = $('compass').clientWidth / 2;
+    const px = Math.max(-half + 8, Math.min(half - 8, delta * RIBBON_PX_PER_DEG));
+    target.style.transform = `translateX(${px}px)`;
+  }
+}
+
+/** Graduations fixes du cadran de gouverne (une seule fois). */
+function buildGoTicks() {
+  const group = $('go-ticks');
+  if (!group || group.childElementCount) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  for (let a = 0; a < 360; a += 30) {
+    const major = a % 90 === 0;
+    const rad = (a * Math.PI) / 180;
+    const dx = Math.sin(rad);
+    const dy = -Math.cos(rad);
+    const ri = major ? 33 : 37;
+    const ro = 42;
+    const line = document.createElementNS(NS, 'line');
+    line.setAttribute('x1', (ri * dx).toFixed(1));
+    line.setAttribute('y1', (ri * dy).toFixed(1));
+    line.setAttribute('x2', (ro * dx).toFixed(1));
+    line.setAttribute('y2', (ro * dy).toFixed(1));
+    if (major) line.setAttribute('stroke-width', '2.2');
+    group.append(line);
+  }
+}
+
+function saveLastRoute(id) {
+  try { localStorage.setItem('relieflac.lastRoute.v1', id); } catch { /* stockage indisponible */ }
+}
+
+function loadLastRoute() {
+  try { return localStorage.getItem('relieflac.lastRoute.v1'); } catch { return null; }
 }
 
 /**
