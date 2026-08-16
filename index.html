@@ -259,11 +259,12 @@
     <button class="rail__btn" id="btn-suivi" type="button" title="Suivre le bateau" aria-label="Suivre le bateau" aria-pressed="false">
       <svg class="ico" aria-hidden="true"><use href="#i-locate"/></svg>
     </button>
-    <!-- Quelle carte est sous les pieds, et de quoi en changer d'un doigt. Le rail ne porte
-         que ce qui se touche en barrant : celui-ci y a sa place parce que comparer les deux
-         fonds au-dessus d'un haut-fond est justement une manœuvre de navigation, et parce
-         qu'un réglage enfoui trois écrans plus loin ne dit pas ce qu'on regarde. -->
-    <button class="rail__btn rail__btn--bed" id="btn-bed-source" type="button">
+    <!-- Quelle carte est sous les pieds, et de quoi en changer d'un doigt.
+         MASQUÉ depuis le 16/08/2026 : la carte communautaire est celle qu'on navigue, et
+         la bascule ne servait plus qu'à encombrer le rail d'un état à interpréter. Le
+         réglage existe toujours (Réglages → Fond), et le bouton reprendra sa place le jour
+         où comparer les deux levés redeviendra une manœuvre courante. -->
+    <button class="rail__btn rail__btn--bed" id="btn-bed-source" type="button" hidden>
       <span class="rail__tag" id="tag-bed-source">—</span>
     </button>
     <button class="rail__btn rail__btn--tools" id="btn-menu" type="button"
@@ -590,6 +591,21 @@
       </div>
       <span class="go__remain" id="go-remain"></span>
       <span class="go__xte" id="go-xte" hidden></span>
+    </div>
+
+    <!-- Commandes de carte : le rail est masqué en navigation, mais zoomer pour voir plus
+         loin, puis revenir au cadrage de barre, restent des gestes de navigation. -->
+    <div class="go__ctrl">
+      <button class="go__ctrl-btn" id="btn-go-zoom-plus" type="button" title="Zoomer" aria-label="Zoomer">
+        <svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg>
+      </button>
+      <button class="go__ctrl-btn" id="btn-go-zoom-moins" type="button" title="Dézoomer" aria-label="Dézoomer">
+        <svg class="ico" aria-hidden="true"><use href="#i-minus"/></svg>
+      </button>
+      <button class="go__ctrl-btn" id="btn-go-recentre" type="button"
+              title="Recentrer sur le bateau" aria-label="Recentrer sur le bateau">
+        <svg class="ico" aria-hidden="true"><use href="#i-locate"/></svg>
+      </button>
     </div>
 
     <div class="go__progress"><span class="go__progress-bar" id="go-progress"></span></div>

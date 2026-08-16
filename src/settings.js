@@ -171,6 +171,12 @@ export function defaultsFrom(palette, model) {
     syncPath: 'data/corrections/vassiviere.json',
     syncBranch: 'main',
     syncWaterbody: 'vassiviere',
+    // Trajets et sorties voyagent par le même dépôt et le même jeton, dans leurs propres
+    // fichiers : les trajets en un seul (ils se retouchent), les sorties en un dossier —
+    // une trace par fichier, plus un catalogue, parce qu'une trace pèse mille fois un
+    // trajet et ne sera jamais modifiée. Voir src/sync.js.
+    syncRoutesPath: 'data/routes/vassiviere.json',
+    syncTripsDir: 'data/trips/vassiviere',
     // Retouches de couleurs par l'utilisateur, par préréglage : { marine: { emerged_color,
     // bands: [{ max_depth_m, color }] , stops: [...] } }. Appliquées sur la palette en
     // mémoire au démarrage ; « réinitialiser » les efface.

@@ -19,9 +19,9 @@ import {
   CRUISE_KMH, estimatedDuration, formatDistance, formatDuration, Routes, routeLength,
 } from './routes.js';
 import { angleDelta, navSolution } from './nav.js';
-import { Trips, tripDuration, tripLabel } from './trips.js';
+import { hasTrack, tripDistance, Trips, tripDuration, tripLabel } from './trips.js';
 import { SimPoints } from './sim.js';
-import { CorrectionsSync, getToken, setToken } from './sync.js';
+import { CorrectionsSync, getToken, RoutesSync, setToken, TripsSync } from './sync.js';
 import { Soundings } from './soundings.js';
 import { defaultsFrom, Settings } from './settings.js';
 import { VERSION } from './version.js';
@@ -53,6 +53,9 @@ const app = {
   lastBigDepth: null,
   wakeLock: null, wakeState: 'lost', wakePending: false, wakeWarned: false,
   sync: null, syncPushTimer: null, suppressPush: false,
+  // Partage des trajets (fichier unique) et des sorties (un fichier par trace, plus un
+  // catalogue) : même dépôt et même jeton que les relevés, formats distincts.
+  routesSync: null, routesPushTimer: null, suppressRoutePush: false, tripsSync: null,
   // Trajets de navigation. Le constructeur a trois états, comme les zones : panneau ouvert
   // (`routeMode`), tracé en cours (`routeTracing`), trajet repris pour réglage (`editingRouteId`).
   routes: null,
@@ -544,13 +547,25 @@ function syncMeta() {
 }
 
 function wireSync() {
+  const repo = app.settings.get('syncRepo');
+  const branch = app.settings.get('syncBranch');
+  const waterbody = app.settings.get('syncWaterbody');
   app.sync = new CorrectionsSync({
-    repo: app.settings.get('syncRepo'),
+    repo,
     path: app.settings.get('syncPath'),
-    branch: app.settings.get('syncBranch'),
-    waterbody: app.settings.get('syncWaterbody'),
+    branch,
+    waterbody,
     datum: 'NGF-IGN69',
     baseUrl: '.',
+  });
+  // Trajets et sorties passent par le même jeton et le même dépôt que les relevés, mais
+  // par leurs propres fichiers : une intention de route et une trace parcourue n'ont rien
+  // à faire dans le fichier des mesures de fond.
+  app.routesSync = new RoutesSync({
+    repo, branch, waterbody, path: app.settings.get('syncRoutesPath'), baseUrl: '.',
+  });
+  app.tripsSync = new TripsSync({
+    repo, branch, waterbody, dir: app.settings.get('syncTripsDir'), baseUrl: '.',
   });
   $('sync-token').value = getToken();
 
@@ -667,7 +682,105 @@ async function initSync() {
   } catch {
     setSyncStatus('hors ligne — relevés locaux conservés');
   }
+  // Trajets et sorties suivent, chacun de son côté : leur échec ne doit pas emporter la
+  // synchronisation des relevés, qui est celle dont dépend la carte.
+  await syncRoutes().catch(() => {});
+  await syncTrips().catch(() => {});
   refreshSyncUi();
+}
+
+// ------------------------------------------- trajets et sorties partagés (dépôt)
+
+/**
+ * Trajets : même mécanique que les relevés — fusion non destructive par identifiant,
+ * l'horodatage le plus récent gagne, les suppressions tiennent grâce aux pierres tombales.
+ * On publie ensuite si l'on détenait quelque chose que le fichier n'avait pas.
+ */
+async function syncRoutes() {
+  if (!app.routesSync) return;
+  const remote = await app.routesSync.pull();
+  const local = app.routes.records;
+  const merged = mergeById(remote, local, Routes.deletedIds());
+  app.suppressRoutePush = true;
+  app.routes.replaceAll(merged.map((r) => ({
+    id: r.id, at: r.at, name: r.name, points: r.points.map((p) => [p[0], p[1]]), by: r.by ?? null,
+  })));
+  app.suppressRoutePush = false;
+
+  if (!app.routesSync.hasToken()) return;
+  const known = new Map(remote.map((r) => [r.id, r.at]));
+  const owes = merged.some((r) => known.get(r.id) !== r.at) || merged.length !== remote.length;
+  if (owes) await app.routesSync.push(app.routes.records);
+}
+
+function scheduleRoutesPush() {
+  if (!app.routesSync?.hasToken()) return;
+  clearTimeout(app.routesPushTimer);
+  app.routesPushTimer = setTimeout(() => {
+    app.routesSync.push(app.routes.records).catch(() => {
+      toast('Trajet enregistré localement — partage impossible', 4000);
+    });
+  }, 1500);
+}
+
+/**
+ * Sorties : le catalogue partagé se fond dans la liste locale sous forme de résumés, et
+ * les traces que cet appareil a enregistrées montent, une par fichier.
+ *
+ * Une sortie n'est jamais retouchée : la fusion n'a donc pas d'arbitrage à rendre, il lui
+ * suffit d'ajouter ce qui manque de part et d'autre — et de respecter les suppressions.
+ */
+async function syncTrips() {
+  if (!app.tripsSync) return;
+  const entries = await app.tripsSync.pullIndex();
+  const graves = Trips.deletedIds();
+  const local = app.trips.records;
+  const byId = new Map(local.map((t) => [t.id, t]));
+  const alreadyShared = [];
+  let added = 0;
+  for (const entry of entries) {
+    const buried = graves.get(entry.id);
+    if (buried && String(entry.at || '') <= buried) continue;
+    if (byId.has(entry.id)) { alreadyShared.push(entry.id); continue; }
+    // Résumé : la trace ne descendra que si l'on demande à revoir cette sortie.
+    byId.set(entry.id, {
+      id: entry.id, at: entry.at, endedAt: entry.endedAt, name: entry.name,
+      routeId: entry.routeId, by: entry.by, length_m: entry.length_m, count: entry.count,
+      points: [], remote: true, shared: true,
+    });
+    added += 1;
+  }
+  if (added) app.trips.replaceAll([...byId.values()].sort(byStartDate));
+  // Une sortie déjà au catalogue n'a plus à y remonter — y compris celle d'un autre
+  // appareil, qui existait ici sans que rien ne dise qu'elle était publiée.
+  if (alreadyShared.length) app.trips.markShared(alreadyShared);
+
+  if (!app.tripsSync.hasToken()) return;
+  await pushPendingTrips();
+}
+
+/** Monte les traces enregistrées ici qui ne sont pas encore dans le partage. */
+async function pushPendingTrips() {
+  if (!app.tripsSync?.hasToken()) return;
+  const pending = app.trips.records.filter((t) => !t.shared && hasTrack(t));
+  if (!pending.length) return;
+  for (const trip of pending) {
+    await app.tripsSync.pushTrip(trip, tripIndexEntries());
+    app.trips.markShared([trip.id]);
+  }
+}
+
+/** Le catalogue publié décrit TOUTES les sorties connues d'ici, partagées comprises. */
+function tripIndexEntries() {
+  return app.trips.records.map((t) => ({
+    id: t.id, name: t.name, at: t.at, endedAt: t.endedAt, routeId: t.routeId ?? null,
+    by: t.by ?? null, length_m: tripDistance(t),
+    count: hasTrack(t) ? t.points.length : t.count ?? null,
+  }));
+}
+
+function byStartDate(a, b) {
+  return String(a.at || '').localeCompare(String(b.at || ''));
 }
 
 /** Bouton « Synchroniser » : envoie l'état local (avec jeton), sinon récupère et fusionne. */
@@ -686,6 +799,10 @@ async function syncNow() {
       );
       toast('Relevés partagés récupérés');
     }
+    // Trajets et sorties suivent le même geste : « synchroniser » ne doit pas vouloir dire
+    // « les relevés seulement », ou l'utilisateur aurait à deviner ce qui a voyagé.
+    await syncRoutes();
+    await syncTrips();
   } catch (err) {
     setSyncStatus(`échec : ${err.message}`);
     toast('Synchronisation impossible', 6000);
@@ -1260,7 +1377,13 @@ function wireProbes() {
  * point qu'aucune commande visible ne permettrait plus de renseigner.
  */
 function refreshCaptureUi() {
-  const open = Boolean(app.pin) || (app.captureOpen && !app.simMode && !app.zoneMode);
+  // Le relevé appartient au mode Carte. En navigation, la barre de saisie n'a rien à faire
+  // à l'écran, et surtout rien à faire là par rémanence d'une bascule laissée active dans
+  // un autre mode : la seule règle sûre est que Go ferme la question, quel que soit l'état
+  // de `captureOpen`. Le CSS le masquait déjà, mais un point désigné ou une sonde ouverte
+  // en correction restaient, eux, bien réels — et ressortaient à la sortie de Go.
+  const open = !app.go.active
+    && (Boolean(app.pin) || (app.captureOpen && !app.simMode && !app.zoneMode));
   $('capture').hidden = !open;
   $('btn-saisie').classList.toggle('is-on', open);
   // Le rayon d'influence ne concerne qu'un point existant : à la création, la sonde prend
@@ -1387,6 +1510,10 @@ function clearPin() {
 // -------------------------------------------------------- correction d'une sonde
 
 function beginProbeEdit(id) {
+  // En navigation, les sondes affichées restent une information, pas une prise : toucher
+  // l'une d'elles ouvrait la correction — donc la barre de saisie, le clavier et le point
+  // en surbrillance — au beau milieu d'un cap à tenir.
+  if (app.go.active) return;
   const record = app.probes.get(id);
   if (!record) return;
 
@@ -2754,6 +2881,15 @@ function setMenuMode(mode) {
   for (const pane of document.querySelectorAll('.modepane')) {
     pane.hidden = pane.dataset.pane !== mode;
   }
+  // Quitter Carte replie la saisie de relevé : c'est une bascule, donc un état qui survit à
+  // celui qui l'a ouverte, et il ressortait dans les autres modes — jusque sous le HUD de
+  // navigation — sans qu'aucune commande visible n'y renvoie.
+  if (mode !== 'carte' && app.captureOpen) {
+    app.captureOpen = false;
+    clearPin();
+    if (app.editingProbeId) endProbeEdit();
+    refreshCaptureUi();
+  }
   if (mode === 'nav') refreshRoutePicker();
 }
 
@@ -2791,6 +2927,9 @@ function wireRoutes() {
   app.routes.addEventListener('change', () => {
     refreshRoutePicker();
     if (app.routeMode) refreshRoutePanel();
+    // Un trajet se partage comme un relevé : la route qu'on vient de tracer entre deux
+    // hauts-fonds vaut pour tout l'équipage, pas seulement pour ce téléphone.
+    if (!app.suppressRoutePush) scheduleRoutesPush();
   });
 }
 
@@ -3034,6 +3173,11 @@ const MIN_TRIP_M = 50;
 function wireGo() {
   $('btn-go').addEventListener('click', startGoFromMenu);
   $('btn-go-exit').addEventListener('click', exitGo);
+  // Zoom et recentrage : le rail est masqué en navigation, mais dézoomer pour voir la
+  // suite du trajet puis revenir au cadrage de barre reste un geste courant.
+  $('btn-go-zoom-plus').addEventListener('click', () => app.lakeMap.zoomBy(ZOOM_STEP));
+  $('btn-go-zoom-moins').addEventListener('click', () => app.lakeMap.zoomBy(-ZOOM_STEP));
+  $('btn-go-recentre').addEventListener('click', () => app.lakeMap.recenterNav(app.go.navZoom));
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && app.go.active) exitGo();
   });
@@ -3060,6 +3204,9 @@ function finishTrip() {
     endedAt: new Date().toISOString(),
   });
   toast(`Sortie enregistrée · ${formatDistance(distance)}`, 3500);
+  // Et elle monte au partage, sur son propre fichier. En arrière-plan : rentrer au port ne
+  // doit pas attendre le réseau, et la sortie est déjà en sûreté en mémoire locale.
+  pushPendingTrips().catch(() => { /* réessayé au prochain démarrage */ });
 }
 
 /** « Go » depuis la tuile : reprend le dernier trajet suivi, ou laisse choisir dans la liste. */
@@ -3114,6 +3261,9 @@ function startGo(routeId) {
   // À défaut de position GPS (essai sur ordinateur), on cadre au moins sur le trajet.
   if (!app.geo?.position) app.lakeMap.map.jumpTo({ center: route.points[0] });
   app.lakeMap.setVisibleWidth(170); // avant l'inclinaison : la mesure de largeur y est juste
+  // Zoom de travail retenu : c'est celui que le bouton « recentrer » rendra après qu'on
+  // aura dézoomé pour regarder la suite du trajet.
+  app.go.navZoom = app.lakeMap.getZoom();
   app.lakeMap.enterNavCam(55);
   app.lakeMap.setBasemapDim(true);
   app.goDepthOpacity = app.settings.get('opacity');
@@ -3155,10 +3305,25 @@ function updateGoHud(position) {
     }
   }
 
-  const sol = navSolution(app.go.points, boat, { fromIndex: app.go.fromIndex, arriveRadiusM: ARRIVE_RADIUS_M });
+  // Le cap sert au ré-accrochage : deux jambes d'un aller-retour se longent, seul le sens
+  // de la marche dit laquelle on suit.
+  const heading = Number.isFinite(app.heading) ? app.heading
+    : Number.isFinite(position.heading) ? position.heading : null;
+  const sol = navSolution(app.go.points, boat, {
+    fromIndex: app.go.fromIndex, arriveRadiusM: ARRIVE_RADIUS_M, heading,
+  });
   if (!sol) return;
+  // Raccourci soldé : on l'annonce, sinon le compteur de points de passage saute sans que
+  // rien n'explique pourquoi.
+  if (sol.rejoined && sol.fromIndex > app.go.fromIndex) {
+    const passed = sol.fromIndex - app.go.fromIndex;
+    toast(`Parcours ré-accroché · ${passed} point${passed > 1 ? 's' : ''} de passage soldé${passed > 1 ? 's' : ''}`, 3000);
+  }
   app.go.fromIndex = sol.fromIndex;
   app.go.lastSol = sol;
+
+  // Ce qui est derrière le bateau passe au vert, chevrons compris.
+  app.lakeMap.setRouteProgress(sol.fromIndex, sol.snapped, routeDoneMetres(app.go.points, sol));
 
   // Vitesse : le gros compteur, à l'unité choisie.
   const unit = app.settings.get('speedUnit');
@@ -3199,6 +3364,21 @@ function updateGoHud(position) {
   }
 
   updateGoSteer();
+}
+
+/**
+ * Distance parcourue le long du trajet, jusqu'au point du trajet à l'aplomb du bateau.
+ *
+ * Mesurée sur la route et non sur la trace : c'est elle qui dit jusqu'où teindre en vert.
+ * On la reconstruit depuis le segment en cours plutôt que de la déduire de la distance
+ * restante, qui part du bateau — donc d'un point hors de la route dès qu'on s'en écarte.
+ */
+function routeDoneMetres(points, sol) {
+  let done = 0;
+  for (let i = 0; i < sol.fromIndex; i += 1) {
+    done += distanceMeters(points[i][0], points[i][1], points[i + 1][0], points[i + 1][1]);
+  }
+  return done + (sol.alongM ?? 0);
 }
 
 /** Aiguille de gouverne : la flèche penche du côté où venir, verte quand on est dans l'axe. */
@@ -3329,15 +3509,28 @@ function exitHistMode() {
   refreshHistPanel();
 }
 
-/** Revoit une sortie : rappelle son tracé sur la carte et surligne sa ligne dans la liste. */
+/**
+ * Revoit une sortie : rappelle son tracé sur la carte et surligne sa ligne dans la liste.
+ *
+ * Une sortie partagée par un autre appareil n'est ici qu'un résumé — nom, dates, longueur.
+ * Sa trace descend maintenant, une fois pour toutes : c'est le moment où on la demande, et
+ * c'est le seul où quelques centaines de points valent le voyage.
+ */
 function reviewTrip(id) {
   const trip = app.trips.get(id);
   if (!trip) return;
   app.histReviewId = id;
-  app.lakeMap.showTrip(trip.points);
   for (const li of $('hist-list').children) {
     li.classList.toggle('is-selected', li.dataset.id === id);
   }
+  if (hasTrack(trip)) { app.lakeMap.showTrip(trip.points); return; }
+
+  toast('Récupération de la trace partagée…', 2500);
+  app.tripsSync?.pullTrack(id).then((points) => {
+    if (!points) { toast('Trace introuvable dans le partage', 4000); return; }
+    app.trips.setTrack(id, points);
+    if (app.histMode && app.histReviewId === id) app.lakeMap.showTrip(points);
+  }).catch(() => toast('Trace indisponible — hors ligne ?', 4000));
 }
 
 function refreshHistPanel() {
@@ -3360,7 +3553,7 @@ function refreshHistPanel() {
 /** Liste des sorties, la plus récente en tête. Toute la ligne rappelle le tracé ; ✕ supprime. */
 function fillTripList(el) {
   el.replaceChildren(...app.trips.records.slice().reverse().map((t) => {
-    const dist = routeLength(t.points);
+    const dist = tripDistance(t);
     const li = document.createElement('li');
     li.dataset.id = t.id;
     li.classList.add('is-clickable');
@@ -3386,6 +3579,13 @@ function fillTripList(el) {
       if (app.histReviewId === t.id) { app.histReviewId = null; app.lakeMap.clearTrip(); }
       app.trips.remove(t.id);
       toast('Sortie supprimée');
+      // Retirée du partage aussi, quand on en a le droit : sinon le catalogue la ramènerait
+      // au démarrage suivant, et la suppression paraîtrait sans effet.
+      if (app.tripsSync?.hasToken()) {
+        app.tripsSync.removeTrip(t.id, tripIndexEntries()).catch(() => {
+          toast('Sortie retirée ici — le partage n’a pas pu être mis à jour', 4000);
+        });
+      }
     });
 
     li.append(del);

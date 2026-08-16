@@ -6,12 +6,25 @@
 // brute et de laisser la distance se recalculer à l'affichage, comme pour les trajets. La
 // durée, elle, ne se déduit pas de la géométrie : on garde les deux horodatages.
 //
-// Comme les trajets, une sortie est purement personnelle à cet appareil : ni versée au
-// modèle, ni partagée.
+// Les sorties sont partagées depuis le 16/08/2026, mais à part des trajets : un fichier par
+// trace dans le dépôt, plus un catalogue (voir `TripsSync` dans src/sync.js). D'où un
+// enregistrement à deux visages :
+//
+//   — complet  : la trace est là, on peut la revoir sur la carte ;
+//   — résumé   : venu du catalogue partagé (`remote`), il n'en connaît que le nom, les
+//                dates et la longueur. La trace descend au moment où l'on demande à la
+//                revoir, et `setTrack` le change alors en enregistrement complet.
+//
+// C'est ce qui permet de lister la saison entière de tout l'équipage sans télécharger des
+// centaines de milliers de points dont on ne regardera qu'une poignée.
 
 import { routeLength } from './routes.js';
 
 const STORAGE_KEY = 'relieflac.trips.v1';
+const TOMBSTONE_KEY = 'relieflac.trips.deleted.v1';
+
+/** Conservation d'une suppression, en jours — même règle que les sondes (voir probes.js). */
+const TOMBSTONE_DAYS = 180;
 
 export class Trips extends EventTarget {
   constructor() {
@@ -44,6 +57,7 @@ export class Trips extends EventTarget {
 
   remove(id) {
     this.records = this.records.filter((r) => r.id !== id);
+    bury([id]);
     this.#persist();
   }
 
@@ -52,19 +66,50 @@ export class Trips extends EventTarget {
   }
 
   clear() {
+    bury(this.records.map((r) => r.id));
     this.records = [];
     this.#persist();
   }
 
+  /** Adopte un jeu de sorties fusionné avec le partage — sans enterrer quoi que ce soit. */
+  replaceAll(records) {
+    this.records = Array.isArray(records) ? records : [];
+    this.#persist();
+  }
+
+  /** La trace d'une sortie résumée vient d'arriver : l'enregistrement devient complet. */
+  setTrack(id, points) {
+    const record = this.records.find((r) => r.id === id);
+    if (!record || !Array.isArray(points) || points.length < 2) return null;
+    record.points = points.map((p) => [p[0], p[1]]);
+    record.remote = false;
+    this.#persist();
+    return record;
+  }
+
+  /** Marque les sorties déjà publiées : elles n'ont plus à remonter à chaque démarrage. */
+  markShared(ids) {
+    let changed = false;
+    for (const record of this.records) {
+      if (ids.includes(record.id) && !record.shared) { record.shared = true; changed = true; }
+    }
+    if (changed) this.#persist();
+  }
+
+  /** Suppressions mémorisées : identifiant → horodatage. Voir `mergeById` dans main.js. */
+  static deletedIds() {
+    return new Map(Object.entries(readTombstones()));
+  }
+
   /** Distance totale de toutes les sorties, en mètres. */
   get totalDistance() {
-    return this.records.reduce((sum, r) => sum + routeLength(r.points), 0);
+    return this.records.reduce((sum, r) => sum + tripDistance(r), 0);
   }
 
   toGeoJson() {
     return JSON.stringify({
       type: 'FeatureCollection',
-      features: this.records.map((r) => ({
+      features: this.records.filter(hasTrack).map((r) => ({
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: r.points },
         properties: {
@@ -87,6 +132,21 @@ export class Trips extends EventTarget {
     }
     this.dispatchEvent(new CustomEvent('change'));
   }
+}
+
+/** Une sortie dont la trace est là, par opposition au résumé venu du catalogue partagé. */
+export function hasTrack(trip) {
+  return Array.isArray(trip?.points) && trip.points.length >= 2;
+}
+
+/**
+ * Distance d'une sortie, en mètres : recalculée sur la trace quand on l'a, reprise du
+ * catalogue sinon. Le résumé ne ment pas — c'est le même calcul, fait par celui qui a
+ * publié la trace — mais il ne se recalcule pas, d'où la distinction.
+ */
+export function tripDistance(trip) {
+  if (hasTrack(trip)) return routeLength(trip.points);
+  return Number.isFinite(trip?.length_m) ? trip.length_m : 0;
 }
 
 /** Durée d'une sortie, en secondes, du départ à l'arrivée (temps écoulé, arrêts compris). */
@@ -112,10 +172,41 @@ function defaultName(isoAt) {
 function load() {
   try {
     const records = JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? [];
+    // Une sortie sans trace n'est gardée que si elle est le résumé d'une sortie partagée :
+    // ailleurs, c'est un enregistrement abîmé, et l'afficher promettrait un tracé qui
+    // n'existe nulle part.
     return Array.isArray(records)
-      ? records.filter((r) => Array.isArray(r.points) && r.points.length >= 2)
+      ? records.filter((r) => hasTrack(r) || (r.remote && r.id))
       : [];
   } catch {
     return [];
+  }
+}
+
+function readTombstones() {
+  try {
+    const graves = JSON.parse(localStorage.getItem(TOMBSTONE_KEY)) ?? {};
+    return graves && typeof graves === 'object' ? graves : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Note la suppression de ces sorties, et oublie au passage les plus anciennes. */
+function bury(ids) {
+  const graves = readTombstones();
+  const now = new Date();
+  const oldest = new Date(now.getTime() - TOMBSTONE_DAYS * 86400e3).toISOString();
+  for (const [id, at] of Object.entries(graves)) {
+    if (at < oldest) delete graves[id];
+  }
+  for (const id of ids) {
+    if (id) graves[id] = now.toISOString();
+  }
+  try {
+    localStorage.setItem(TOMBSTONE_KEY, JSON.stringify(graves));
+  } catch {
+    // Stockage indisponible : la suppression tient pour la session, et la sortie
+    // reviendra à la prochaine fusion. Mieux vaut cela que de perdre la suppression.
   }
 }

@@ -41,12 +41,73 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L9** | Courbe de l'évolution de la cote dans « Étiage », et historique tenu par l'appareil | ✅ terminé le 16/08/2026 — voir § 1 |
 | **L10** | Menu à **modes** (Carte/Navigation/Pêche/Ski/Réglages), constructeur de **Trajet** et mode **Go** plein écran (chase-cam, HUD vitesse/gouverne) | ✅ terminé le 16/08/2026 (v2026-08-16.4) — voir § 1 |
 | **L11** | **Historique** des sorties : chaque navigation Go laisse sa trace, sa distance et sa durée, revues sur la carte | ✅ terminé le 16/08/2026 (v2026-08-16.5) — voir § 1 |
+| **L12** | Retour de la **première sortie en Navigation** : ré-accrochage après raccourci, chevrons et portion parcourue, commandes de carte en Go, **trajets et sorties partagés** | ✅ terminé le 16/08/2026 (v2026-08-16.6) — voir § 1 |
+
+**Lot L12 — ce que la première sortie en Navigation a appris** (16/08/2026, v2026-08-16.6).
+Neuf points rapportés de l'eau, tous traités. Deux touchent la justesse de la navigation, deux
+son dessin, deux son partage, deux le ménage entre les modes.
+
+- **Ré-accrochage après un raccourci** (`rejoinIndex` dans [`src/nav.js`](src/nav.js)). Le
+  ciblage était purement séquentiel : couper un cap laissait le cap à tenir pointé sur le
+  point de passage abandonné, donc **en arrière**. Revenir à moins de `REJOIN_RADIUS_M = 50` m
+  d'un segment plus avancé vaut désormais franchissement de tout ce qui le précède. Deux
+  garde-fous, parce qu'un saut en avant est irréversible : une **marge** de 8 m (le segment
+  retrouvé doit être franchement plus près que celui qu'on suit) et, si le cap est connu, un
+  **écart de cap** de 90° au plus — c'est lui qui sauve les allers-retours, où le brin du
+  retour longe celui de l'aller à contre-sens et volerait la cible au moindre bruit GPS.
+  `updateGoHud` passe le cap et annonce le saut par un toast (« 3 points de passage soldés »).
+- **Chevrons tournés vers le point suivant**. Ils sortaient à 90° de la marche : la pose sur
+  ligne de MapLibre (`symbol-placement: line`) couche l'image **comme une ligne de texte**,
+  l'axe horizontal du dessin suivant la route, alors que le chevron pointait vers le haut du
+  canvas. On ne dépend plus de cette convention : `routeChevrons(points, 40)` pose des
+  **points** tous les 40 m, chacun portant le **relèvement** de son segment, et la couche les
+  tourne par `icon-rotate: ['get', 'bearing']` (source `route-marks`). Le pas est en mètres,
+  donc `icon-allow-overlap: false` laisse MapLibre les éclaircir quand on dézoome.
+- **Portion parcourue en vert**. `splitRoute` coupe le trajet au point du trajet **à l'aplomb
+  du bateau** (`sol.snapped`, la projection sur le segment en cours) ; la source `route`
+  porte deux tronçons distingués par la propriété `done`, et une expression `case` teinte
+  ligne, halo et chevrons en `#3ddc84`. Le fil animé, lui, est filtré sur `todo` : derrière le
+  bateau, il n'y a plus de marche à indiquer. Les deux tronçons **partagent** le point de
+  coupure, sinon la route montrerait un trou d'un pixel juste sous le bateau.
+- **Zoom et recentrage en Go** (`.go__ctrl`, `LakeMap.recenterNav`). Le rail est masqué en
+  navigation, mais dézoomer pour voir la suite du trajet reste un geste de barre — et rien ne
+  ramenait ensuite à l'échelle de travail. Le zoom de navigation est retenu au départ
+  (`app.go.navZoom`), le bouton de recentrage le rend avec le suivi et le cap en haut.
+- **Trajets partagés** (`RoutesSync`, `data/routes/<lac>.json`). Même mécanique que les
+  relevés : fusion par identifiant, horodatage le plus récent gagnant, **pierres tombales**
+  pour que la suppression tienne. `Routes.update` réhorodate — sans quoi un trajet corrigé
+  ici perdait contre sa version d'origine restée dans le fichier.
+- **Sorties partagées, un fichier par trace** (`TripsSync`, `data/trips/<lac>/`). Le
+  **catalogue** `index.json` porte nom, dates, longueur et nombre de points — **aucune
+  coordonnée** ; il suffit à dresser la liste. La trace ne descend que si l'on demande à
+  revoir la sortie (`reviewTrip` → `pullTrack` → `Trips.setTrack`), et jamais deux fois.
+  D'où deux visages d'un même enregistrement : complet, ou résumé (`remote: true`).
+- **Toute la plomberie GitHub est passée dans `RepoFile`** ([`src/sync.js`](src/sync.js)) :
+  lecture fraîche avec révision quand il y a un jeton, fichier publié sinon, écriture avec
+  reprise sur 409, suppression. `CorrectionsSync` s'appuie dessus sans changer d'un octet le
+  format des relevés (vérifié au banc).
+- **Le bouton de bascule COM/2009 est masqué** (attribut `hidden` sur `#btn-bed-source`, plus
+  la règle `.rail__btn[hidden]` — `display: grid` l'emportait autrement sur l'attribut). Le
+  réglage reste dans Réglages → Fond ; le bouton reprendra sa place le jour où comparer les
+  deux levés redeviendra une manœuvre courante.
+- **Plus aucun élément de relevé en Navigation**. Le CSS masquait bien la barre `.capture`,
+  mais l'état, lui, survivait : toucher une sonde affichée ouvrait sa **correction** (barre,
+  clavier, point en surbrillance) sous le HUD, et la bascule « Relever point » du mode Carte
+  ressortait à la sortie de Go. Trois verrous : `refreshCaptureUi` ferme la question tant que
+  `app.go.active`, `beginProbeEdit` refuse d'ouvrir en navigation, et `setMenuMode` replie la
+  saisie dès qu'on quitte le mode Carte.
+- **Au banc, cette fois** : 13 contrôles neufs dans `test/selftest.js` (174 au total, dont
+  l'unique échec préexistant sur l'épaisseur des contours) couvrent le ré-accrochage, le
+  garde-fou de cap, l'orientation et le pas des chevrons, la découpe fait/à faire et les
+  formats de partage. Le parcours complet a par ailleurs été **joué dans le navigateur** avec
+  des positions simulées : raccourci ré-accroché (WP 5/5, 16 chevrons sur 20 au vert,
+  progression 82,5 %), commandes de carte, sortie enregistrée à 412 m, sonde intouchable en Go.
 
 **Lot L11 — l'Historique se souvient des sorties** (16/08/2026, v2026-08-16.5). Une fois
 qu'on sait suivre une route (L10), reste la question d'après : qu'a-t-on réellement
 parcouru ? Nouveau module [`src/trips.js`](src/trips.js) — store `Trips` (localStorage
-`relieflac.trips.v1`, même patron `EventTarget` que `Probes`/`Zones`, mais **non partagé**,
-comme les trajets : une sortie ne regarde que cet appareil).
+`relieflac.trips.v1`, même patron `EventTarget` que `Probes`/`Zones` ; **non partagé à
+l'époque** — le L12 l'a versé au dépôt, une trace par fichier).
 
 - **Une sortie est un fait révolu, jamais retouché** — d'où le droit d'y ranger la trace
   GPS brute et de laisser la distance se recalculer à l'affichage (`routeLength`), fidèle à
@@ -87,9 +148,10 @@ porte le lien `#/parametres` et l'à-propos.
     du segment), l'avancement séquentiel des points de passage (rayon d'arrivée 20 m), la
     distance restante et `arrived`. Plus `projectOnSegment` et `angleDelta`.
   - [`src/routes.js`](src/routes.js) — classe `Routes` (localStorage `relieflac.routes.v1`,
-    `EventTarget` comme `Probes`/`Zones`, mais **non partagée** : un trajet est une
-    intention, pas une mesure), `routeLength`, `estimatedDuration` (`CRUISE_KMH = 20`),
-    `formatDistance`/`formatDuration`.
+    `EventTarget` comme `Probes`/`Zones` ; **non partagée à l'époque**, au motif qu'un trajet
+    est une intention et non une mesure — le L12 est revenu là-dessus : une route sûre entre
+    deux hauts-fonds vaut pour tout l'équipage), `routeLength`, `estimatedDuration`
+    (`CRUISE_KMH = 20`), `formatDistance`/`formatDuration`.
 - **Trajet** (constructeur, `wireRoutes`/`refreshRoutePanel`, panneau `#route`) : trois
   états comme les zones (liste / tracé / édition). Clic carte → `routevertex` →
   `addRouteVertex` ; toucher un sommet du brouillon le retire (`wptselect`). `fillRouteList()`
@@ -105,13 +167,14 @@ porte le lien `#/parametres` et l'à-propos.
   compteur de **vitesse**, cadran de **gouverne** (`angleDelta(cap, course)`), repère de cap
   cible sur le ruban de boussole, objectif/distance/reste/progression/écart de route. Dernier
   trajet retenu dans `relieflac.lastRoute.v1`.
-- **Réserve honnête sur les tests** : `nav.js`, `routes.js` et `trips.js` **ne sont pas
-  encore au banc** du dépôt (`test/selftest.js`, `test/interaction.js` — les 161 contrôles et
-  83 gestes du bandeau ci-dessus ne les couvrent pas). Leur logique a été vérifiée **hors
-  dépôt** (copies `.mjs` dans un scratchpad, `package.json` étant en `type: commonjs`, plus
-  import dynamique en direct) ; le HUD piloté par la position et le rendu des tracés se
-  valident **sur l'eau**, faute de GPS et de compositeur dans le panneau de test. C'est le
-  premier chantier de reprise si l'on veut ces modules couverts au banc.
+- **Réserve sur les tests, levée en partie au L12** : à la livraison du L10, `nav.js`,
+  `routes.js` et `trips.js` n'étaient pas au banc du dépôt — leur logique n'avait été
+  vérifiée que **hors dépôt** (copies `.mjs` dans un scratchpad, `package.json` étant en
+  `type: commonjs`). Le L12 a versé 13 contrôles dans `test/selftest.js` (navigation le long
+  d'un trajet, chevrons, découpe fait/à faire, formats de partage). Restent hors banc : le
+  HUD piloté par la position et le rendu des tracés, qui se valident **sur l'eau** — mais le
+  parcours complet est désormais rejouable dans le navigateur avec des positions simulées
+  (voir § 4, « Vérifications »).
 
 **Lot L9 — voir ce que fait le lac, pas seulement ce qu'il vaut** (16/08/2026). Demandé par
 l'utilisateur : « sauvegarder la cote du lac actuelle afin de pouvoir constater l'évolution
@@ -950,7 +1013,7 @@ mauvaise donne une carte fausse sans aucun signe extérieur (§ 3.5).
 
 ### Vérifications
 
-Ouvrir `/test/`. 141 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 174 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
 simulation**, **forme de la correction (plateau, fondu, indépendance à l'ordre) et zones
@@ -983,6 +1046,31 @@ Ce banc tourne sur la **même origine** que l'application, donc sur ses vraies d
 met de côté toutes les clés `relieflac.*` du stockage local — jeton compris, sans quoi une
 sonde d'essai partirait vers le dépôt comme une vraie — et les restitue à la fin, même en
 cas d'échec ou de page quittée en route. Le rapport le confirme en dernière ligne.
+
+**Huit enchaînements de zones y échouent depuis quelque temps** — « la zone est enregistrée
+— 2 » au lieu de 1, et la suite. Vérifié le 16/08/2026 en remisant l'arbre de travail : ces
+échecs sont **antérieurs** au lot L12. L'hypothèse à instruire d'abord est que la zone
+publiée dans `data/corrections/vassiviere.json` arrive par `initSync()` pendant que le banc
+compte les siennes — le fichier publié se lit sans jeton, et la mise à l'écart du stockage
+local n'y change donc rien.
+
+**Rejouer une navigation Go sans GPS**, dans le panneau navigateur : la page y est masquée,
+donc rien ne démarre tant qu'on n'a pas posé le shim de visibilité + `requestAnimationFrame`
+(voir § 6). Le faire **avant** de débloquer la page permet en outre d'instrumenter : patcher
+`Geolocator.prototype.start` pour capturer l'instance sans lancer de vrai GPS (`boot()`
+attend `whenVisible` juste après l'avoir construite), et `LakeMap.prototype.setRoute` pour
+capturer la carte. Ensuite, semer un trajet dans `relieflac.routes.v1`, lancer Go par le ▶ du
+sélecteur, et pousser des positions à la main :
+
+```js
+geo.position = pos;
+geo.dispatchEvent(new CustomEvent('position', { detail: pos }));
+// pos = { lon, lat, accuracy, speed, heading, timestamp }
+```
+
+Le HUD, le ré-accrochage, la portion verte et l'enregistrement de la sortie se lisent alors
+dans le DOM et dans `map.getSource('route')._data.geojson` (MapLibre 6 range la donnée sous
+la clé `geojson`, et non directement dans `_data`).
 
 ### Déployer
 

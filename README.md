@@ -60,6 +60,13 @@ mise à jour d'uniforme.
   semaine (par défaut), un mois ou un an, avec les extrêmes de la période en pointillés et
   la valeur lue au doigt. La cote se règle toujours à la main, mais derrière un crayon —
   c'est le geste rare, et celui qui fausse toutes les profondeurs quand on l'oublie ;
+- **mode Navigation** : construire un **trajet** (suite de points de passage), le suivre en
+  plein écran — carte inclinée, gros compteur de vitesse, cadran de gouverne, chevrons
+  pointés vers le point suivant et portion déjà parcourue en vert — puis retrouver la
+  **sortie** dans l'Historique. Le trajet n'est pas un rail : couper au plus court et
+  rejoindre la route plus loin solde les points de passage laissés de côté. Trajets et
+  sorties se partagent comme les relevés (`data/routes/<lac>.json` pour les trajets, un
+  fichier par trace dans `data/trips/<lac>/` pour les sorties, avec un catalogue) ;
 - **clic droit** : poser un point à l'endroit montré, sans signal GPS (essais au bureau) ;
 - paramètres complets, export/import de profil.
 

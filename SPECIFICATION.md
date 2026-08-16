@@ -899,34 +899,65 @@ Le lac est en zone de couverture réseau inégale. L'application doit rester uti
 
 Sources, dates de levé, licences, méthode de calcul, limites connues, et un **avertissement de sécurité** non escamotable au premier lancement (§ 11).
 
-### 6.6 Modes et Navigation — Trajet, Go, Historique (L10-L11, 16/08/2026)
+### 6.6 Modes et Navigation — Trajet, Go, Historique (L10-L12, 16/08/2026)
 
 L'application s'organise en **modes par métier**, sélectionnés dans une barre à cinq
 segments : Carte, Navigation, Pêche, Ski, Réglages. Pêche et Ski restent à spécifier. Le mode
 **Navigation** ajoute la préparation et le suivi d'une route, puis la mémoire de ce qui a été
 parcouru. Le détail d'implémentation, fichier par fichier, est tenu dans
-[ETAT.md](ETAT.md) § 1 (lots L10 et L11) ; on n'en garde ici que le « pourquoi ».
+[ETAT.md](ETAT.md) § 1 (lots L10 à L12) ; on n'en garde ici que le « pourquoi ».
+
+**Une frontière entre les modes, et elle est étanche.** Relever un point appartient au mode
+Carte : la bascule qui déploie la barre de saisie se replie donc dès qu'on quitte ce mode, et
+la navigation refuse d'ouvrir la correction d'une sonde qu'on toucherait sur la carte. Sur
+l'eau, le HUD ne doit jamais être encombré par un geste commencé dans un autre mode — et un
+état d'interface qui survit à son propre mode est un piège, pas une commodité.
 
 - **Trajet** — un trajet est une **intention modifiable** (liste ordonnée de points de
-  passage), donc **personnel à l'appareil et non partagé**, à la différence d'une sonde ou
-  d'une zone qui sont des mesures versées à la communauté. Il se trace, se nomme, se reprend
-  et se supprime comme une zone (trois états : liste / tracé / édition). Sa longueur et sa
-  durée estimée (à `CRUISE_KMH = 20`) sont **recalculées à l'affichage** et jamais rangées à
-  côté de la géométrie — un chiffre dérivé finit toujours par mentir dès que la donnée bouge.
+  passage). Il se trace, se nomme, se reprend et se supprime comme une zone (trois états :
+  liste / tracé / édition). Sa longueur et sa durée estimée (à `CRUISE_KMH = 20`) sont
+  **recalculées à l'affichage** et jamais rangées à côté de la géométrie — un chiffre dérivé
+  finit toujours par mentir dès que la donnée bouge. **Partagé depuis le L12** : on avait
+  d'abord jugé qu'une intention de route ne regardait que son auteur, à la différence d'une
+  sonde qui est une mesure. L'usage a tranché dans l'autre sens — une route sûre entre deux
+  hauts-fonds vaut pour tout l'équipage, et la refaire point par point sur chaque téléphone
+  n'a aucun sens. Même mécanique que les relevés : fichier du dépôt (`data/routes/<lac>.json`),
+  fusion par identifiant, horodatage le plus récent gagnant, pierres tombales pour que la
+  suppression tienne.
 - **Go** — le suivi plein écran d'un trajet. C'est un **état de l'application**, pas une vue
   distincte : la carte reste la même, on lui ajoute une chase-cam inclinée, un fond atténué et
   un HUD. La solution de navigation (`nav.js`, sans dépendance carte ni DOM, donc
   vérifiable seule) donne le **cap à tenir**, l'**écart de route signé** (positif à droite),
   la distance restante et l'avancement séquentiel des points de passage (arrivée à 20 m). Le
   suivi et le cap-en-haut sont **forcés sans modifier les réglages** de l'utilisateur, et
-  restaurés à la sortie : la navigation emprunte la caméra, elle ne la confisque pas.
+  restaurés à la sortie : la navigation emprunte la caméra, elle ne la confisque pas. La
+  carte garde malgré tout ses commandes de zoom et un bouton de **recentrage** qui rend le
+  cadrage de barre : dézoomer pour voir la suite du trajet est un geste de navigation, pas
+  une sortie du mode.
+- **Le trajet n'est pas un rail** (L12). On coupe un cap, on contourne un pêcheur, on rejoint
+  la route trois points de passage plus loin : revenir à moins de 50 m d'un segment plus
+  avancé vaut **franchissement de tout ce qui le précède**, sans quoi le cap à tenir pointe en
+  arrière, vers un point de passage qu'on a délibérément abandonné. Le saut est en avant
+  seulement, et sous deux conditions — le segment retrouvé doit être franchement plus près que
+  celui qu'on suivait, et orienté dans le sens de la marche. Cette dernière règle est ce qui
+  rend l'aller-retour navigable : ses deux brins se longent, seul le cap les distingue.
+- **Ce qu'on voit de la route** : des chevrons pointent vers le point de passage suivant
+  (orientation calculée, jamais déduite de la façon dont le moteur de rendu couche une image
+  le long d'une ligne), et la **portion déjà parcourue passe au vert**, coupée à l'aplomb du
+  bateau. L'avancement se lit alors sans lire un chiffre.
 - **Historique** — une **sortie** est le fait révolu d'une navigation : la trace réellement
   parcourue en Go, entre un départ et une arrivée. Immuable, donc on range la trace GPS brute
   et l'on recalcule la distance à l'affichage ; seule la **durée**, qui ne se déduit pas de la
   géométrie, est conservée via ses deux horodatages. Une sortie n'est enregistrée que
-  **au-delà de 50 m parcourus** (pas de sortie fantôme à quai) et reste, elle aussi,
-  personnelle à l'appareil. Le panneau liste les sorties passées avec date, distance, durée et
-  distance totale, et rejoue chaque tracé sur la carte.
+  **au-delà de 50 m parcourus** (pas de sortie fantôme à quai). Le panneau liste les sorties
+  passées avec date, distance, durée et distance totale, et rejoue chaque tracé sur la carte.
+  **Partagée depuis le L12, mais autrement qu'un trajet** : une trace fait des centaines de
+  points et ne sera jamais modifiée, donc **un fichier par sortie** (`data/trips/<lac>/<id>.json`)
+  et un **catalogue** (`index.json`) qui n'en porte que le nom, les dates, la longueur et le
+  nombre de points — aucune coordonnée. C'est le catalogue qu'on lit au démarrage ; la trace
+  ne descend que si l'on demande à revoir cette sortie-là. Réunir toutes les traces dans un
+  seul fichier aurait obligé à télécharger la saison entière pour en consulter une, et à la
+  réécrire en entier pour en ajouter une.
 
 ---
 

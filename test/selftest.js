@@ -12,7 +12,10 @@
 import { BedGrid, correctedAltitude, rawAltitudeFor } from '../src/bed.js';
 import { angleDelta, CameraFollow, catchUp, deadReckon } from '../src/camera.js';
 import { anchoredMatrix } from '../src/depth-layer.js';
-import { CorrectionsSync } from '../src/sync.js';
+import { CorrectionsSync, RoutesSync, TripsSync } from '../src/sync.js';
+import {
+  distanceToSegment, navSolution, rejoinIndex, routeChevrons, splitRoute,
+} from '../src/nav.js';
 import { bearing, distanceMeters, formatSpeed } from '../src/geo.js';
 import { formatAge, Level } from '../src/level.js';
 import { LevelHistory } from '../src/level-history.js';
@@ -641,6 +644,97 @@ export async function run(base = '..') {
   check('format : aucune sonde publiée sans rayon',
     sync.toFile([{ ...rec, radius_m: null }], { transducer_m: 0.3, radius_m: 35 })
       .points[0].radius_m === 35);
+
+  // --- partage des trajets et des sorties -------------------------------------
+  // Mêmes principes que les relevés — schéma nommé, aller-retour fidèle — mais deux
+  // formats distincts, et pour les sorties un catalogue SANS coordonnées : c'est lui qui
+  // permet de lister la saison entière sans télécharger toutes les traces.
+  const routesSync = new RoutesSync({
+    repo: 'x/y', path: 'data/routes/vassiviere.json', waterbody: 'vassiviere',
+  });
+  const routeFile = routesSync.toFile([{
+    id: 'r1', at: '2026-08-16T10:00:00.000Z', name: 'Passe nord',
+    points: [[1.85, 45.80], [1.86, 45.81], [1.87, 45.80]],
+  }]);
+  const routeBack = RoutesSync.fromFile(routeFile);
+  check('trajets partagés : aller-retour fidèle',
+    routeFile.schema === 'relieflac.routes/1' && routeBack.length === 1
+    && routeBack[0].name === 'Passe nord' && routeBack[0].points.length === 3);
+  check('trajets partagés : trajet d\'un seul point écarté',
+    RoutesSync.fromFile({ routes: [{ id: 'x', points: [[1, 2]] }] }).length === 0);
+
+  const tripsSync = new TripsSync({
+    repo: 'x/y', dir: 'data/trips/vassiviere', waterbody: 'vassiviere',
+  });
+  const tripIndex = tripsSync.toIndex([{
+    id: 't1', name: 'Sortie du 16 août', at: '2026-08-16T12:00:00.000Z',
+    endedAt: '2026-08-16T13:00:00.000Z', length_m: 5432.7, count: 900, routeId: 'r1',
+  }]);
+  const tripBack = TripsSync.entriesFromIndex(tripIndex);
+  check('sorties partagées : le catalogue ne porte aucune coordonnée',
+    !JSON.stringify(tripIndex).includes('points":[') && tripIndex.trips[0].points === 900);
+  check('sorties partagées : catalogue relu fidèlement',
+    tripBack.length === 1 && tripBack[0].length_m === 5433
+    && tripBack[0].endedAt === '2026-08-16T13:00:00.000Z' && tripBack[0].routeId === 'r1');
+  check('sorties partagées : une trace par fichier, nommée par son identifiant',
+    tripsSync.pathOf('t1') === 'data/trips/vassiviere/t1.json'
+    && tripIndex.trips[0].file === 't1.json');
+  const trackFile = tripsSync.toTrackFile({
+    id: 't1', name: 'Sortie', at: '2026-08-16T12:00:00.000Z', endedAt: '2026-08-16T13:00:00.000Z',
+    points: [[1.85, 45.80], [1.851, 45.801]],
+  });
+  check('sorties partagées : la trace garde ses deux horodatages',
+    trackFile.schema === 'relieflac.trip/1' && trackFile.ended_at === '2026-08-16T13:00:00.000Z'
+    && trackFile.points.length === 2);
+
+  // --- navigation le long d'un trajet -----------------------------------------
+  // Repère local en mètres autour d'un point du lac : tout ce qui suit se raisonne en
+  // mètres, jamais en degrés.
+  const NAV_LAT = 45.80;
+  const NAV_LON = 1.85;
+  const navP = (east, north) => [
+    NAV_LON + east / (111320 * Math.cos((NAV_LAT * Math.PI) / 180)),
+    NAV_LAT + north / 111320,
+  ];
+
+  check('navigation : distance à un segment, bornes comprises',
+    near(distanceToSegment(navP(0, 0), navP(100, 0), navP(50, 30)), 30, 0.3)
+    && near(distanceToSegment(navP(0, 0), navP(100, 0), navP(140, 0)), 40, 0.3));
+
+  // Trajet en escalier : couper au plus court fait rejoindre le dernier brin. Les points
+  // de passage laissés de côté doivent être soldés, sinon le cap à tenir pointe en arrière.
+  const stair = [navP(0, 0), navP(200, 0), navP(200, 200), navP(400, 200), navP(400, 400)];
+  const cut = navSolution(stair, navP(400, 260), { fromIndex: 0 });
+  check('navigation : raccourci ré-accroché, points de passage soldés',
+    cut.fromIndex === 3 && cut.targetIndex === 4 && cut.rejoined === true,
+    `cible ${cut.targetIndex} · reste ${cut.distRemaining.toFixed(0)} m`);
+  check('navigation : hors rayon de ré-accrochage, la cible ne saute pas',
+    navSolution(stair, navP(300, 300), { fromIndex: 0 }).fromIndex === 0);
+
+  // Aller-retour : les deux jambes se longent, seul le cap dit laquelle on suit.
+  const legs = [navP(0, 0), navP(0, 400), navP(30, 400), navP(30, 0)];
+  check('navigation : le cap protège l\'aller-retour du ré-accrochage',
+    rejoinIndex(legs, navP(24, 200), 0) === 2
+    && rejoinIndex(legs, navP(24, 200), 0, { heading: 0 }) === -1);
+
+  // Chevrons : orientation calculée ici, et non déduite de la pose sur ligne de MapLibre,
+  // qui couche l'image comme une ligne de texte et les sortait à 90° de la marche.
+  const chevrons = routeChevrons([navP(0, 0), navP(100, 0)], 40);
+  check('chevrons : pointés vers le point suivant',
+    chevrons.length === 3 && chevrons.every((m) => near(m.bearing, 90, 0.5)),
+    `${chevrons.length} chevrons à ${chevrons[0].bearing.toFixed(1)}°`);
+  const bent = routeChevrons([navP(0, 0), navP(50, 0), navP(50, 50)], 40);
+  check('chevrons : le pas enjambe les coudes et suit le nouveau brin',
+    bent.length === 3 && bent.every((m, i) => near(m.alongM, 20 + 40 * i, 0.02))
+    && near(bent[1].bearing, 0, 0.5));
+
+  const straight = [navP(0, 0), navP(100, 0), navP(200, 0)];
+  const partway = navSolution(straight, navP(140, 12), { fromIndex: 1 });
+  const cutRoute = splitRoute(straight, partway.fromIndex, partway.snapped);
+  check('progression : la coupure tombe sous le bateau, sans trou',
+    cutRoute.done.length === 3 && cutRoute.todo.length === 2
+    && cutRoute.todo[0][0] === cutRoute.done[2][0] && cutRoute.todo[0][1] === cutRoute.done[2][1]
+    && near(distanceMeters(cutRoute.done[2][0], cutRoute.done[2][1], navP(140, 0)[0], navP(140, 0)[1]), 0, 0.5));
 
   // --- sondes de 2009 ---------------------------------------------------------
   const soundings = await Soundings.load(base);

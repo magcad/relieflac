@@ -231,6 +231,9 @@ a { color: var(--accent); }
   box-shadow: var(--shadow);
 }
 .rail__btn.is-on { border-color: var(--accent); color: var(--accent); }
+/* `display: grid` ci-dessus l'emporterait sur l'attribut `hidden` : sans cette règle, un
+   bouton du rail masqué en HTML resterait affiché. */
+.rail__btn[hidden] { display: none; }
 
 /* Bouton de carte : le seul du rail qui annonce un état plutôt qu'une action. Pas d'icône
    — deux cartes ne se distinguent par aucun pictogramme évident — mais son nom court, en
@@ -1127,6 +1130,22 @@ body.mode-go .navstrip { border-bottom-color: color-mix(in srgb, var(--m-nav) 45
 .go__xte[hidden] { display: none; }
 .go__xte.is-left { color: #ffd27a; }
 .go__xte.is-right { color: #ffd27a; }
+
+/* Commandes de carte en navigation : zoom et recentrage, empilés au-dessus du HUD, du
+   côté de la main qui tient le téléphone. Elles reprennent l'aspect du rail, qui est
+   masqué en Go : même geste, même bouton, à un autre endroit. */
+.go__ctrl {
+  position: absolute; right: .6rem;
+  bottom: calc(var(--go-hud-h, 128px) + var(--safe-bottom) + 1.4rem);
+  display: grid; gap: .4rem;
+}
+.go__ctrl-btn {
+  display: grid; place-items: center; width: 44px; height: 44px; cursor: pointer;
+  color: var(--text); background: var(--glass-2); border: 1px solid var(--line);
+  border-radius: var(--r-sm); backdrop-filter: var(--blur); box-shadow: var(--shadow);
+}
+.go__ctrl-btn:active { background: color-mix(in srgb, var(--m-nav) 30%, var(--glass-2)); }
+.go__ctrl-btn .ico { width: 22px; height: 22px; }
 
 /* Barre de progression, juste au-dessus du HUD du bas. */
 .go__progress {

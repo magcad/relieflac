@@ -13,6 +13,28 @@ import { bearing, distanceMeters } from './geo.js';
 
 const M_PER_DEG_LAT = 111320;
 
+/**
+ * Distance à laquelle on considère le parcours « ré-accroché » après un raccourci.
+ *
+ * Un trajet n'est pas un rail : on coupe un cap, on contourne un pêcheur, on rejoint la
+ * route trois points de passage plus loin. Le ciblage purement séquentiel visait alors
+ * toujours le point de passage abandonné, donc en arrière — un cap à 180° de la marche.
+ * Revenir à moins de 50 m d'un segment plus avancé vaut donc franchissement de tout ce
+ * qui le précède.
+ */
+export const REJOIN_RADIUS_M = 50;
+
+/**
+ * Marge exigée avant de sauter en avant : le segment retrouvé doit être franchement plus
+ * près que celui qu'on suit. Sans elle, deux jambes voisines — le retour d'un aller-retour
+ * passe souvent à quelques dizaines de mètres de l'aller — se voleraient la cible au gré
+ * du bruit GPS, et le trajet se terminerait avant d'avoir commencé.
+ */
+const REJOIN_MARGIN_M = 8;
+
+/** Écart de cap au-delà duquel un segment ne peut pas être celui qu'on vient de rejoindre. */
+const REJOIN_HEADING_TOLERANCE_DEG = 90;
+
 /** Écart angulaire signé le plus court, de `from` vers `to`, dans ]−180, 180]. */
 export function angleDelta(from, to) {
   return ((to - from + 540) % 360) - 180;
@@ -50,19 +72,73 @@ export function projectOnSegment(from, to, boat) {
 }
 
 /**
+ * Distance du bateau au segment [a → b], bornes comprises (m).
+ *
+ * Distinct de `crossM`, qui mesure l'écart à la droite **infinie** portant le segment : à
+ * l'aplomb d'un point de passage, cette droite passe encore sous le bateau alors que le
+ * segment, lui, s'est arrêté. Pour décider d'un ré-accrochage, c'est bien le segment fini
+ * qu'il faut mesurer.
+ */
+export function distanceToSegment(a, b, boat) {
+  const [ex, ey] = toLocal(b, a);
+  const [bx, by] = toLocal(boat, a);
+  const lenSq = ex * ex + ey * ey;
+  if (lenSq < 1e-12) return Math.hypot(bx, by);
+  const t = Math.min(Math.max((bx * ex + by * ey) / lenSq, 0), 1);
+  return Math.hypot(bx - t * ex, by - t * ey);
+}
+
+/**
+ * Segment plus avancé sur lequel le bateau vient de se ré-accrocher, ou −1.
+ *
+ * On retient le segment le plus proche parmi ceux qui restent à parcourir, à condition
+ * qu'il soit dans le rayon, franchement plus près que celui qu'on suivait, et — si le cap
+ * est connu — orienté dans le sens de la marche. Ce dernier garde-fou est celui qui sauve
+ * les allers-retours : le brin du retour longe celui de l'aller, mais à contre-sens.
+ *
+ * @param {number[][]} points  trajet, suite de [lon, lat]
+ * @param {number[]} boat  position du bateau [lon, lat]
+ * @param {number} fromIndex  segment actuellement suivi
+ * @param {{radiusM?:number, heading?:?number}} [options]
+ */
+export function rejoinIndex(points, boat, fromIndex, { radiusM = REJOIN_RADIUS_M, heading = null } = {}) {
+  const last = points.length - 1;
+  if (last < 2 || fromIndex >= last - 1) return -1;
+
+  const currentD = distanceToSegment(points[fromIndex], points[fromIndex + 1], boat);
+  let best = -1;
+  let bestD = radiusM;
+  for (let i = fromIndex + 1; i < last; i += 1) {
+    const d = distanceToSegment(points[i], points[i + 1], boat);
+    if (d >= bestD) continue;
+    if (Number.isFinite(heading)) {
+      const course = bearing(points[i][0], points[i][1], points[i + 1][0], points[i + 1][1]);
+      if (Math.abs(angleDelta(heading, course)) > REJOIN_HEADING_TOLERANCE_DEG) continue;
+    }
+    bestD = d;
+    best = i;
+  }
+  return best >= 0 && bestD + REJOIN_MARGIN_M < currentD ? best : -1;
+}
+
+/**
  * Solution de navigation le long d'un trajet, à partir du dernier point de passage atteint.
  *
  * Le ciblage est séquentiel : on vise le point qui suit le dernier franchi (`fromIndex`),
  * et l'on avance dès qu'on entre dans son rayon d'arrivée. Séquentiel plutôt que « point le
  * plus proche » : un trajet peut se recouper ou repasser près d'un point déjà franchi, et
- * viser alors le plus proche ferait sauter la cible en arrière.
+ * viser alors le plus proche ferait sauter la cible en arrière. Le seul saut consenti est
+ * le saut en AVANT du ré-accrochage (voir `rejoinIndex`), qui solde les points de passage
+ * qu'un raccourci a laissés de côté.
  *
  * @param {number[][]} points  trajet, suite de [lon, lat]
  * @param {number[]} boat  position du bateau [lon, lat]
- * @param {{fromIndex?:number, arriveRadiusM?:number}} [state]
+ * @param {{fromIndex?:number, arriveRadiusM?:number, rejoinRadiusM?:number, heading?:?number}} [state]
  * @returns {?object}  null si le trajet est vide, sinon cap, distances, écart, arrivée.
  */
-export function navSolution(points, boat, { fromIndex = 0, arriveRadiusM = 20 } = {}) {
+export function navSolution(points, boat, {
+  fromIndex = 0, arriveRadiusM = 20, rejoinRadiusM = REJOIN_RADIUS_M, heading = null,
+} = {}) {
   const last = points.length - 1;
   if (last < 0) return null;
 
@@ -72,12 +148,20 @@ export function navSolution(points, boat, { fromIndex = 0, arriveRadiusM = 20 } 
     return {
       fromIndex: 0, targetIndex: 0, target: points[0], legFrom: boat, legTo: points[0],
       bearing: bearing(boat[0], boat[1], points[0][0], points[0][1]),
-      distToTarget, distRemaining: distToTarget, crossM: 0,
+      distToTarget, distRemaining: distToTarget, crossM: 0, alongM: 0,
+      snapped: [boat[0], boat[1]], rejoined: false,
       arrived: distToTarget <= arriveRadiusM, waypointCount: 1,
     };
   }
 
   let from = Math.min(Math.max(fromIndex, 0), last - 1);
+
+  // Ré-accrochage d'abord : un raccourci a pu rendre caduque toute une portion du trajet,
+  // et l'avancement séquentiel qui suit doit repartir du segment réellement suivi.
+  const rejoin = rejoinIndex(points, boat, from, { radiusM: rejoinRadiusM, heading });
+  const rejoined = rejoin > from;
+  if (rejoined) from = rejoin;
+
   let target = from + 1;
   // Avancement : dans le rayon d'arrivée d'un point de passage intermédiaire, on vise le suivant.
   while (target < last
@@ -90,7 +174,7 @@ export function navSolution(points, boat, { fromIndex = 0, arriveRadiusM = 20 } 
   const legTo = points[target];
   const distToTarget = distanceMeters(boat[0], boat[1], legTo[0], legTo[1]);
   const course = bearing(boat[0], boat[1], legTo[0], legTo[1]);
-  const { crossM } = projectOnSegment(legFrom, legTo, boat);
+  const { crossM, t, alongM } = projectOnSegment(legFrom, legTo, boat);
 
   // Distance restante : jusqu'à la cible, puis le long des segments qui suivent.
   let remaining = distToTarget;
@@ -100,8 +184,77 @@ export function navSolution(points, boat, { fromIndex = 0, arriveRadiusM = 20 } 
 
   return {
     fromIndex: from, targetIndex: target, target: legTo, legFrom, legTo,
-    bearing: course, distToTarget, distRemaining: remaining, crossM,
+    bearing: course, distToTarget, distRemaining: remaining, crossM, alongM, rejoined,
+    // Point du trajet à l'aplomb du bateau : c'est là que s'arrête la portion parcourue.
+    snapped: [
+      legFrom[0] + (legTo[0] - legFrom[0]) * t,
+      legFrom[1] + (legTo[1] - legFrom[1]) * t,
+    ],
     arrived: target === last && distToTarget <= arriveRadiusM,
     waypointCount: points.length,
   };
+}
+
+/**
+ * Découpe le trajet en deux au point atteint : ce qui est fait, ce qui reste.
+ *
+ * Les deux tronçons partagent le point de coupure, sans quoi la route montrerait un trou
+ * d'un pixel à l'endroit précis que l'œil surveille — sous le bateau.
+ *
+ * @param {number[][]} points  trajet complet
+ * @param {number} fromIndex  segment en cours
+ * @param {?number[]} snapped  projection du bateau sur ce segment
+ * @returns {{done:number[][], todo:number[][]}}
+ */
+export function splitRoute(points, fromIndex, snapped) {
+  if (!Array.isArray(points) || points.length < 2) return { done: [], todo: [] };
+  if (!Array.isArray(snapped)) return { done: [], todo: points.map((p) => [p[0], p[1]]) };
+  const cut = Math.min(Math.max(fromIndex, 0), points.length - 2);
+  const head = points.slice(0, cut + 1).map((p) => [p[0], p[1]]);
+  const tail = points.slice(cut + 1).map((p) => [p[0], p[1]]);
+  const at = [snapped[0], snapped[1]];
+  return { done: [...head, at], todo: [at, ...tail] };
+}
+
+/**
+ * Chevrons jalonnant le trajet, chacun avec le relèvement du segment qui le porte.
+ *
+ * L'orientation est calculée ici, et non laissée à la pose sur ligne de MapLibre : celle-ci
+ * couche le dessin le long de la ligne comme une ligne de texte — l'axe HORIZONTAL de
+ * l'image suit la route — si bien qu'un chevron dessiné pointe en haut sortait à 90° de la
+ * marche. Un relèvement explicite ne dépend plus d'aucune convention de rendu.
+ *
+ * `alongM` (distance depuis le départ) accompagne chaque chevron : c'est ce qui permet de
+ * teindre en vert ceux qui sont derrière le bateau.
+ *
+ * @param {number[][]} points  trajet, suite de [lon, lat]
+ * @param {number} spacingM  pas entre deux chevrons (m)
+ * @returns {{lon:number, lat:number, bearing:number, alongM:number}[]}
+ */
+export function routeChevrons(points, spacingM = 40) {
+  const marks = [];
+  if (!Array.isArray(points) || points.length < 2 || !(spacingM > 0)) return marks;
+  let next = spacingM / 2; // le premier chevron ne se pose pas sur le départ
+  let travelled = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1];
+    const b = points[i];
+    const segLenM = distanceMeters(a[0], a[1], b[0], b[1]);
+    if (!(segLenM > 0)) continue;
+    const course = bearing(a[0], a[1], b[0], b[1]);
+    for (let d = next; d <= segLenM; d += spacingM) {
+      const t = d / segLenM;
+      marks.push({
+        lon: a[0] + (b[0] - a[0]) * t,
+        lat: a[1] + (b[1] - a[1]) * t,
+        bearing: course,
+        alongM: travelled + d,
+      });
+      next = d + spacingM;
+    }
+    next -= segLenM;
+    if (next < 0) next = 0;
+    travelled += segLenM;
+  }
+  return marks;
 }

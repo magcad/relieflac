@@ -8,6 +8,7 @@
 import { Map as MaplibreMap, Marker, ScaleControl, setWorkerUrl } from '../vendor/maplibre-gl.js';
 import { angleDelta, BEARING_SETTLED_DEG, CameraFollow } from './camera.js';
 import { distanceMeters } from './geo.js';
+import { routeChevrons, splitRoute } from './nav.js';
 
 // Emplacement du worker de tuilage, déclaré explicitement.
 //
@@ -80,6 +81,22 @@ const ROUTE_COLOR = '#4c8dff';
 
 /** Ambre des sorties passées : distingue une trace parcourue (révolue) d'une route à suivre. */
 const TRIP_COLOR = '#ffb454';
+
+/**
+ * Vert de la portion déjà parcourue.
+ *
+ * La route se teint derrière le bateau : d'un coup d'œil, on voit ce qui est fait et ce
+ * qui reste, sans lire un chiffre. Vert franc plutôt que gris : il ne s'agit pas d'éteindre
+ * cette partie du trajet — elle reste un repère pour revenir — mais de dire qu'elle est
+ * soldée.
+ */
+const DONE_COLOR = '#3ddc84';
+
+/** Pas entre deux chevrons le long de la route (m). */
+const CHEVRON_SPACING_M = 40;
+
+/** La route porte `done` : c'est ce booléen qui choisit la couleur, tronçon par tronçon. */
+const routeColor = ['case', ['get', 'done'], DONE_COLOR, ROUTE_COLOR];
 
 /**
  * Plafond de finesse de rendu.
@@ -324,7 +341,7 @@ export class LakeMap extends EventTarget {
     // dessinée en corridor lumineux façon piste de drone, et le brouillon du constructeur,
     // en pointillé. Les points de passage restent des marqueurs HTML (setRouteWaypoints) —
     // pas de couche symbole chiffrée, faute de serveur de glyphes hors ligne.
-    this.#addChevronImage();
+    this.#addChevronImages();
     map.addSource('route', { type: 'geojson', data: EMPTY });
     map.addLayer({
       id: 'route-glow',
@@ -332,7 +349,7 @@ export class LakeMap extends EventTarget {
       source: 'route',
       layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' },
       paint: {
-        'line-color': ROUTE_COLOR,
+        'line-color': routeColor,
         'line-width': ['interpolate', ['linear'], ['zoom'], 12, 10, 16, 26, 19, 40],
         'line-blur': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 16],
         'line-opacity': 0.32,
@@ -344,7 +361,7 @@ export class LakeMap extends EventTarget {
       source: 'route',
       layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' },
       paint: {
-        'line-color': ROUTE_COLOR,
+        'line-color': routeColor,
         'line-width': ['interpolate', ['linear'], ['zoom'], 12, 3, 16, 6, 19, 9],
         'line-opacity': 0.95,
       },
@@ -355,6 +372,8 @@ export class LakeMap extends EventTarget {
       id: 'route-flow',
       type: 'line',
       source: 'route',
+      // Le fil ne coule que devant : derrière le bateau, il n'y a plus de marche à indiquer.
+      filter: ['!', ['get', 'done']],
       layout: { 'line-cap': 'butt', visibility: 'none' },
       paint: {
         'line-color': '#eaf4ff',
@@ -363,19 +382,27 @@ export class LakeMap extends EventTarget {
         'line-dasharray': [0, 4, 3],
       },
     });
+    // Chevrons posés en POINTS, chacun tourné du relèvement de son segment (voir
+    // `routeChevrons`). La pose sur ligne de MapLibre couche l'image comme une ligne de
+    // texte — l'axe horizontal de l'icône suit la route — et sortait donc le chevron à 90°
+    // de la marche. Une rotation explicite ne dépend d'aucune convention de rendu.
+    map.addSource('route-marks', { type: 'geojson', data: EMPTY });
     map.addLayer({
       id: 'route-chevrons',
       type: 'symbol',
-      source: 'route',
+      source: 'route-marks',
       layout: {
         visibility: 'none',
-        'symbol-placement': 'line',
-        'symbol-spacing': 44,
-        'icon-image': 'route-chevron',
+        'icon-image': ['case', ['get', 'done'], 'route-chevron-done', 'route-chevron'],
         'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.5, 16, 0.85],
+        'icon-rotate': ['get', 'bearing'],
         'icon-rotation-alignment': 'map',
-        'icon-allow-overlap': true,
-        'icon-ignore-placement': true,
+        // Sans recouvrement : le pas est en mètres, donc les chevrons se resserrent à
+        // l'écran quand on dézoome ; c'est la sélection de MapLibre qui les éclaircit alors,
+        // au lieu d'en faire une file illisible.
+        'icon-allow-overlap': false,
+        'icon-ignore-placement': false,
+        'icon-padding': 2,
       },
     });
 
@@ -787,28 +814,37 @@ export class LakeMap extends EventTarget {
 
   // ------------------------------------------------------------------ trajets
 
-  /** Chevron dessiné sur un canvas et versé en image de la carte, pour la couche symbole. */
-  #addChevronImage() {
-    if (this.map.hasImage?.('route-chevron')) return;
-    const size = 28;
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = size;
-    const g = canvas.getContext('2d');
-    g.strokeStyle = '#eaf4ff';
-    g.lineWidth = 4.5;
-    g.lineCap = 'round';
-    g.lineJoin = 'round';
-    // Le chevron pointe vers le HAUT du canvas : la couche symbole l'aligne ensuite sur le
-    // sens de la ligne, si bien qu'il indique la marche.
-    g.beginPath();
-    g.moveTo(7, 18);
-    g.lineTo(size / 2, 9);
-    g.lineTo(size - 7, 18);
-    g.stroke();
-    const { data } = g.getImageData(0, 0, size, size);
-    try {
-      this.map.addImage('route-chevron', { width: size, height: size, data }, { pixelRatio: 2 });
-    } catch { /* déjà présente (style rechargé) : sans conséquence */ }
+  /**
+   * Chevrons dessinés sur un canvas et versés en images de la carte.
+   *
+   * Deux images plutôt qu'une teintée : une couche symbole ne recolore que des icônes SDF,
+   * qui exigeraient un champ de distance — pour deux couleurs fixes, deux dessins coûtent
+   * moins cher qu'un format d'image à fabriquer.
+   *
+   * Le chevron pointe vers le HAUT du canvas, ce que `icon-rotate: 0` place au nord :
+   * tourné du relèvement du segment, il pointe alors vers le point de passage suivant.
+   */
+  #addChevronImages() {
+    for (const [name, color] of [['route-chevron', '#eaf4ff'], ['route-chevron-done', DONE_COLOR]]) {
+      if (this.map.hasImage?.(name)) continue;
+      const size = 28;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const g = canvas.getContext('2d');
+      g.strokeStyle = color;
+      g.lineWidth = 4.5;
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      g.beginPath();
+      g.moveTo(7, 18);
+      g.lineTo(size / 2, 9);
+      g.lineTo(size - 7, 18);
+      g.stroke();
+      const { data } = g.getImageData(0, 0, size, size);
+      try {
+        this.map.addImage(name, { width: size, height: size, data }, { pixelRatio: 2 });
+      } catch { /* déjà présente (style rechargé) : sans conséquence */ }
+    }
   }
 
   #showRouteLayers(on) {
@@ -840,15 +876,60 @@ export class LakeMap extends EventTarget {
   /** Trajet actif (aperçu / navigation) : corridor lumineux + chevrons + points de passage. */
   setRoute(points, { waypoints = true } = {}) {
     const coords = points.map((p) => [p.lon ?? p[0], p.lat ?? p[1]]);
-    this.map.getSource('route').setData(coords.length >= 2
-      ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }
-      : EMPTY);
+    this.routeCoords = coords;
+    this.routeMarks = routeChevrons(coords, CHEVRON_SPACING_M);
+    this.#drawRoute(null, null);
     this.#showRouteLayers(coords.length >= 2);
     this.#renderWaypointMarkers('routeMarkers', waypoints ? points : [], { active: true });
   }
 
+  /**
+   * Avancement sur le trajet suivi : la portion derrière le bateau passe au vert.
+   *
+   * Appelée à chaque point GPS, donc une fois par seconde : elle ne fait que réécrire deux
+   * sources GeoJSON, sans toucher aux couches ni aux marqueurs.
+   */
+  setRouteProgress(fromIndex, snapped, alongM) {
+    if (!this.routeCoords || this.routeCoords.length < 2) return;
+    this.#drawRoute({ fromIndex, snapped }, alongM);
+  }
+
+  #drawRoute(progress, alongM) {
+    const coords = this.routeCoords ?? [];
+    if (coords.length < 2) {
+      this.map.getSource('route')?.setData(EMPTY);
+      this.map.getSource('route-marks')?.setData(EMPTY);
+      return;
+    }
+    const { done, todo } = progress
+      ? splitRoute(coords, progress.fromIndex, progress.snapped)
+      : { done: [], todo: coords };
+    const line = (path, isDone) => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: path },
+      properties: { done: isDone },
+    });
+    const features = [];
+    if (todo.length >= 2) features.push(line(todo, false));
+    if (done.length >= 2) features.push(line(done, true));
+    this.map.getSource('route').setData({ type: 'FeatureCollection', features });
+
+    const limit = Number.isFinite(alongM) ? alongM : -1;
+    this.map.getSource('route-marks').setData({
+      type: 'FeatureCollection',
+      features: (this.routeMarks ?? []).map((m) => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
+        properties: { bearing: m.bearing, done: m.alongM <= limit },
+      })),
+    });
+  }
+
   clearRoute() {
+    this.routeCoords = null;
+    this.routeMarks = null;
     this.map.getSource('route')?.setData(EMPTY);
+    this.map.getSource('route-marks')?.setData(EMPTY);
     this.#showRouteLayers(false);
     this.#renderWaypointMarkers('routeMarkers', [], { active: true });
   }
@@ -931,6 +1012,22 @@ export class LakeMap extends EventTarget {
   enterNavCam(pitch = 55) {
     this.map.setPitch(pitch);
     this.#startFlow();
+  }
+
+  /**
+   * Retour au cadrage de navigation : bateau au centre, étrave en haut, zoom de route.
+   *
+   * En navigation le suivi est déjà forcé, mais le pincement, lui, reste rendu à la main
+   * (`follow.setZoom(null)` au premier doigt posé) — c'est ce qui permet de dézoomer pour
+   * embrasser tout le trajet. Sans ce bouton, rien ne ramenait ensuite à l'échelle de
+   * barre : il faut une commande qui rende la vue de travail d'un seul geste.
+   */
+  recenterNav(zoom) {
+    this.follow.setFollow(true);
+    this.follow.setTrackUp(true);
+    if (Number.isFinite(zoom)) this.follow.setZoom(zoom);
+    this.follow.resetClock();
+    this.#kick();
   }
 
   exitNavCam() {
