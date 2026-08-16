@@ -701,11 +701,15 @@ async function syncRoutes() {
   const remote = await app.routesSync.pull();
   const local = app.routes.records;
   const merged = mergeById(remote, local, Routes.deletedIds());
-  app.suppressRoutePush = true;
-  app.routes.replaceAll(merged.map((r) => ({
-    id: r.id, at: r.at, name: r.name, points: r.points.map((p) => [p[0], p[1]]), by: r.by ?? null,
-  })));
-  app.suppressRoutePush = false;
+  // On ne réécrit le stockage que si la fusion apporte quelque chose : adopter à l'identique
+  // à chaque démarrage relancerait pour rien tout le rendu accroché à `change`.
+  if (signatureOf(merged) !== signatureOf(local)) {
+    app.suppressRoutePush = true;
+    app.routes.replaceAll(merged.map((r) => ({
+      id: r.id, at: r.at, name: r.name, points: r.points.map((p) => [p[0], p[1]]), by: r.by ?? null,
+    })));
+    app.suppressRoutePush = false;
+  }
 
   if (!app.routesSync.hasToken()) return;
   const known = new Map(remote.map((r) => [r.id, r.at]));
@@ -781,6 +785,11 @@ function tripIndexEntries() {
 
 function byStartDate(a, b) {
   return String(a.at || '').localeCompare(String(b.at || ''));
+}
+
+/** Empreinte d'un jeu d'enregistrements : identifiant + horodatage, l'ordre mis à plat. */
+function signatureOf(records) {
+  return records.map((r) => `${r.id}@${r.at}`).sort().join('|');
 }
 
 /** Bouton « Synchroniser » : envoie l'état local (avec jeton), sinon récupère et fusionne. */
