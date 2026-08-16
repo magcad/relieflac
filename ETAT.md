@@ -1,9 +1,10 @@
 # État du projet — reprise de session
 
-**Dernière mise à jour** : 14 août 2026
+**Dernière mise à jour** : 16 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 128 contrôles, tous passants
-**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 44 gestes, tous passants
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 133 contrôles, un seul en
+échec (l'épaisseur des contours au zoom, connu et expliqué au § 1)
+**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 65 gestes, tous passants
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
 Ce document sert à reprendre le travail sans relire tout l'historique, **y compris depuis
@@ -31,6 +32,40 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L6** | Deuxième fond, **carte communautaire seule**, au choix dans l'application | ✅ terminé le 14/08/2026 — voir § 1 |
 | **L6 bis** | Recalage de terrain de +2,72 m sur la carte communautaire, mesuré sur l'eau | ✅ appliqué le 14/08/2026, **non confirmé au sondeur** — voir § 1 |
 | **L6 ter** | Recalage **réglable dans l'application** et mesurable au sondeur, carte par carte | ✅ terminé le 14/08/2026 — voir § 1 |
+| **L7** | Carte communautaire par défaut, recalage à 1,72 m, avertissement d'ouverture, zones partagées, étalonnage retiré | ✅ terminé le 16/08/2026 — voir § 1 |
+
+**Lot L7 — ce que voit un nouvel arrivant** (16/08/2026). Sept changements demandés par
+l'utilisateur, tous tournés vers celui qui ouvre l'application sans rien savoir du projet :
+
+- **La carte communautaire est celle qui s'ouvre**, et son recalage passe de +2,72 m à
+  **+1,72 m** — la première mesure avait été prise contre une cote de simulation restée en
+  place (piège de la cote de simulation, § 6), la seconde l'a été le 15/08/2026, cote
+  vérifiée. `data/bed_quickdraw.json` garde 2,72 : la valeur y est **cuite dans le PNG**, et c'est le
+  réglage `quickdrawDatum_m` qui la remplace à l'exécution. Un défaut ne s'impose pas tout
+  seul à qui a déjà ouvert l'application une fois — ses réglages sont en mémoire locale et
+  gagnent — d'où le **numéro de schéma** dans `src/settings.js` (`SCHEMA`, `MIGRATIONS`) :
+  les clés qu'il liste reprennent leur valeur d'usine au démarrage suivant.
+- **Avertissement d'ouverture français/anglais** à chaque lancement (`#gate`) : ce n'est pas
+  un document officiel, la couverture est incomplète, on navigue au sondeur. Non mémorisé
+  volontairement — le lac reçoit surtout des visiteurs qui ouvrent l'application une fois.
+- **Un seul champ « Recalage de la carte »**, qui suit la carte affichée : le plan d'eau des
+  bandes sur la communautaire, la cote du jour du levé sur celle de 2009. La section
+  « Calage bathymétrique » a disparu — c'était le même geste sous deux noms.
+- **Les commentaires des réglages tiennent en une ligne**, le détail derrière un petit « i »
+  (`.infobtn` / `.note`, `wireInfoNotes`). La page était devenue un texte suivi dans lequel
+  les réglages se perdaient.
+- **Les zones émergées sont partagées** : `data/corrections/<lac>.json` porte désormais un
+  tableau `zones` à côté de `points`, rangé à part (une zone reste une interprétation, pas
+  une mesure). Pierres tombales ajoutées à `src/zones.js` comme pour les sondes, sans quoi la
+  fusion — qui est une union non destructive — ressusciterait une zone supprimée.
+- **Le rayon d'influence est toujours écrit** dans le fichier partagé et affiché dans la
+  liste des sondes : sans lui, la même mesure corrigeait une surface différente sur
+  l'appareil d'en face, donc une autre carte.
+- **L'étalonnage au sondeur est retiré** (`src/calibration.js` supprimé, écran, couche de
+  repères, tests). L'Eagle du bord est informatif et ne se cale pas ; la tuile devient
+  « Trajet », fonction à écrire. Le recalage, lui, se règle à la main et se juge sur le trait
+  de côte.
+- La cote du bandeau ouvre désormais **l'étiage** et non les Paramètres.
 
 Mode **« Sonde »** (saisie manuelle) livré le 11/08/2026 : le sondeur du bord est un
 **Eagle** monochrome sans enregistrement ni GPS — on relève la profondeur à la main. Un

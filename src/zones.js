@@ -19,12 +19,18 @@
 // La zone se recolorie donc toute seule quand la cote bouge : émergée en étiage, submergée
 // à la retenue normale, et le curseur du mode 🌊 montre le passage de l'une à l'autre.
 //
-// Local à l'appareil pour l'instant, comme les points témoins : une zone est une
-// interprétation, pas une mesure, et le fichier partagé `data/corrections/<lac>.json` ne
-// transporte que des points mesurés. L'export GeoJSON permet de la verser au modèle par
-// la chaîne de préparation quand elle aura été confirmée sur le terrain.
+// **Partagées**, comme les sondes : le fichier `data/corrections/<lac>.json` transporte
+// désormais les zones à côté des points. Elles restent une interprétation et non une
+// mesure — le fichier les range à part, jamais parmi les points — mais un îlot que le levé
+// a comblé est exactement ce que le voisin a besoin de voir avant de passer dessus, et le
+// garder sur un seul téléphone n'aidait personne. L'export GeoJSON reste le chemin vers la
+// chaîne de préparation, pour les verser au modèle une fois confirmées sur le terrain.
 
 const STORAGE_KEY = 'relieflac.zones.v1';
+const TOMBSTONE_KEY = 'relieflac.zones.deleted.v1';
+
+/** Durée de conservation d'une suppression, en jours — voir `src/probes.js`. */
+const TOMBSTONE_DAYS = 180;
 
 /** Largeur du fondu au-delà du bord, en mètres : une berge n'est pas une falaise. */
 export const DEFAULT_FEATHER_M = 10;
@@ -51,6 +57,7 @@ export class Zones extends EventTarget {
 
   remove(id) {
     this.records = this.records.filter((r) => r.id !== id);
+    bury([id]);
     this.#persist();
   }
 
@@ -74,14 +81,27 @@ export class Zones extends EventTarget {
   }
 
   clear() {
+    bury(this.records.map((r) => r.id));
     this.records = [];
     this.#persist();
   }
 
-  /** Remplace tout le jeu de zones (import d'un profil, adoption d'une version partagée). */
+  /**
+   * Remplace tout le jeu de zones (import d'un profil, adoption d'une version partagée).
+   * Aucune pierre tombale : adopter n'est pas supprimer — voir `Probes.replaceAll`.
+   */
   replaceAll(records) {
     this.records = Array.isArray(records) ? records : [];
     this.#persist();
+  }
+
+  /**
+   * Suppressions mémorisées : identifiant → horodatage. Sans elles, la fusion — qui est
+   * une union non destructive — ramènerait à chaque ouverture la zone effacée ici mais
+   * toujours présente dans le fichier partagé. Voir `Probes.deletedIds`.
+   */
+  static deletedIds() {
+    return new Map(Object.entries(readTombstones()));
   }
 
   toGeoJson() {
@@ -191,5 +211,32 @@ function load() {
     return Array.isArray(records) ? records.filter((r) => Array.isArray(r.ring) && r.ring.length >= 3) : [];
   } catch {
     return [];
+  }
+}
+
+function readTombstones() {
+  try {
+    const graves = JSON.parse(localStorage.getItem(TOMBSTONE_KEY)) ?? {};
+    return graves && typeof graves === 'object' ? graves : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Note la suppression de ces zones, et oublie au passage les plus anciennes. */
+function bury(ids) {
+  const graves = readTombstones();
+  const now = new Date();
+  const oldest = new Date(now.getTime() - TOMBSTONE_DAYS * 86400e3).toISOString();
+  for (const [id, at] of Object.entries(graves)) {
+    if (at < oldest) delete graves[id];
+  }
+  for (const id of ids) {
+    if (id) graves[id] = now.toISOString();
+  }
+  try {
+    localStorage.setItem(TOMBSTONE_KEY, JSON.stringify(graves));
+  } catch {
+    // Stockage indisponible : la suppression tient pour la session.
   }
 }

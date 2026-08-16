@@ -47,13 +47,15 @@ mise à jour d'uniforme.
 - **mode plein soleil** : contraste maximal de l'habillage, sans toucher aux couleurs des
   fonds, parce qu'aucune API du web ne commande la luminosité de la dalle ;
 - **hachurage des zones non sondées**, et provenance annoncée sous le bateau ;
-- **mode Étalonnage** : comparer la lecture du sondeur au modèle pour lever l'inconnue
-  de calage, avec verdict sur la dispersion des écarts ;
+- **avertissement d'ouverture** (français / anglais) : ce n'est pas un document nautique
+  officiel, la couverture est incomplète, on navigue au sondeur ;
 - **relevés qui corrigent la carte** : chaque sonde saisie aplanit un disque à sa valeur
   autour d'elle, puis se fond vers le levé de 2009 ; deux relevés voisins fusionnent au
   lieu de s'empiler, et le rayon se règle point par point ;
 - **zones émergées** : tracer le contour d'un îlot que le levé de 2009 a comblé et le
-  porter à sa hauteur hors d'eau — il découvre ou se noie ensuite avec la cote ;
+  porter à sa hauteur hors d'eau — il découvre ou se noie ensuite avec la cote ; sondes et
+  zones partent ensemble dans le fichier partagé `data/corrections/<lac>.json`, rangées à
+  part l'une de l'autre ;
 - **clic droit** : poser un point à l'endroit montré, sans signal GPS (essais au bureau) ;
 - paramètres complets, export/import de profil.
 
@@ -100,13 +102,18 @@ sans triangulation, sans contrainte de rive. Celle-ci décrit 94 % du lac et lai
 bascule est instantanée, et les relevés que vous saisissez s'appliquent à celui qui est
 affiché. Telles que construites, elles s'accordent à moins de 2 m sur 80 % du lac.
 
-La carte communautaire porte depuis le 14/08/2026 un **recalage de terrain de +2,72 m**,
-mesuré sur l'eau sur le trait de côte (`quickdraw_only.datum_offset_m`). Il place son plan
-d'eau de référence à **650,40 m NGF**, soit la cote de retenue normale à 40 cm près — ce qui
-est cohérent avec la façon dont on lit un traceur : des profondeurs rapportées au niveau
-normal, dont on retranche la baisse du jour. Il n'est pas confirmé au sondeur, et remonter
-le fond ou baisser la cote du lac d'autant donnent le même dessin à l'écran :
+**La carte communautaire est celle qui s'ouvre par défaut** depuis le 16/08/2026 : c'est
+celle que la plupart des plaisanciers du lac ont déjà sous les yeux au traceur. Elle porte un
+**recalage de terrain de +1,72 m** (réglage `quickdrawDatum_m`), mesuré sur l'eau le
+15/08/2026 sur le trait de côte, cote du lac vérifiée — la première mesure, +2,72 m, avait
+été prise contre une cote de simulation restée en place, et c'est elle qui est encore inscrite
+dans `quickdraw_only.datum_offset_m`. Le recalage place le plan d'eau de référence des bandes
+à **649,40 m NGF**. Il n'est pas confirmé au sondeur, et remonter le fond ou baisser la cote
+du lac d'autant donnent le même dessin à l'écran :
 voir `data/mesuresEtalonnage/Garmin/ANALYSE.md` § 12.5.
+
+Le champ « Recalage de la carte » des Paramètres corrige **la carte affichée** : le plan d'eau
+des bandes sur la communautaire, la cote du jour du levé sur celle de 2009.
 
 Le correctif complet existe : un levé multifaisceaux à couverture totale a été réalisé en
 2011 par ENSTA Bretagne, Gand, la HCU Hamburg et le CIDCO pour EDF. Il reste à l'obtenir —

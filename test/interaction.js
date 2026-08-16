@@ -103,6 +103,13 @@ async function boot() {
     started ? '' : $('chargement').textContent.trim());
   if (!started) return null;
 
+  // L'avertissement d'ouverture : il doit paraître à chaque lancement, et se refermer sur
+  // le seul bouton qu'il porte. Le banc le lit puis l'écarte, comme le ferait un barreur.
+  check('l\'avertissement communautaire s\'affiche au lancement', $('gate').hidden === false,
+    $('gate').textContent.replace(/\s+/g, ' ').trim().slice(0, 70));
+  $('btn-gate-ok').click();
+  check('il se referme sur « J\'ai compris »', $('gate').hidden === true);
+
   // `initSync` récupère les relevés publiés en tâche de fond et remplace le jeu local :
   // provoquer un geste avant qu'il ait fini le ferait écraser sans rapport avec le geste.
   await sleep(2000);
@@ -297,6 +304,13 @@ async function run() {
 
   // -------------------------------------------------- témoins de simulation
   group('Témoin de simulation : pose et suppression');
+  // La cote du bandeau ouvre l'étiage, et non les Paramètres : c'est le geste de quelqu'un
+  // qui veut voir ce que découvre une baisse, pas saisir une cote à la main.
+  $('btn-cote').click();
+  check('toucher la cote ouvre le panneau d\'étiage',
+    $('sim').hidden === false && location.hash !== '#/parametres', location.hash);
+  $('btn-sim-exit').click();
+
   $('btn-sim').click();
   fire('probe', { lng: 1.8714, lat: 45.7933 });
   check('le témoin est posé', sims().length === 1, `${sims().length}`);
@@ -381,40 +395,65 @@ async function run() {
     return probes().at(-1)?.modelBedZ;
   };
 
-  const onSurvey = await readModel();
+  // La carte communautaire est celle qui s'ouvre par défaut depuis le 16/08/2026 : le banc
+  // part donc d'elle, et c'est vers le levé qu'il bascule.
+  check('la carte communautaire est affichée au démarrage',
+    $('set-bed-source').value === 'quickdraw', $('set-bed-source').value);
+  const onCommunity = await readModel();
   location.hash = '#/parametres';
   await sleep(60);
-  $('set-bed-source').value = 'quickdraw';
+  $('set-bed-source').value = 'ofb2009';
   $('set-bed-source').dispatchEvent(new Event('change'));
   // Le menu ne montre pas le souhait mais le fond RÉELLEMENT chargé : `refreshSettingsUi`
   // le remet sur la source affichée, et il ne bascule qu'une fois la grille échangée. C'est
   // donc le signal d'attente le plus honnête dont dispose le banc.
-  const swapped = await until(() => $('set-bed-source').value === 'quickdraw', 8000);
-  check('le réglage bascule sur la carte communautaire', swapped,
+  const swapped = await until(() => $('set-bed-source').value === 'ofb2009', 8000);
+  check('le réglage bascule sur le levé de 2009', swapped,
     $('hint-bed-source').textContent.slice(0, 90));
 
   location.hash = '#/';
   await sleep(60);
-  const onCommunity = await readModel();
+  const onSurvey = await readModel();
   check('le modèle lu sous le bateau change avec le fond',
     Number.isFinite(onSurvey) && Number.isFinite(onCommunity)
     && Math.abs(onSurvey - onCommunity) > 0.5,
     `${onSurvey?.toFixed(2)} m NGF (levé) · ${onCommunity?.toFixed(2)} m NGF (communauté)`);
 
+  // Le champ « Recalage de la carte » est unique et suit la carte affichée : sur le levé il
+  // porte la cote du jour du levé, sur la communautaire le plan d'eau des bandes. Les deux
+  // valeurs ne doivent pas se contaminer — c'est tout l'enjeu du regroupement.
+  location.hash = '#/parametres';
+  await sleep(60);
+  check('sur le levé, le champ de recalage porte la cote du levé',
+    Math.abs(Number($('set-datum').value)) < 0.005
+    && $('hint-datum').textContent.includes('levé'),
+    `${$('set-datum').value} · ${$('hint-datum').textContent.slice(0, 60)}`);
+
+  group('Retour au fond communautaire');
+  $('set-bed-source').value = 'quickdraw';
+  $('set-bed-source').dispatchEvent(new Event('change'));
+  const back = await until(() => $('set-bed-source').value === 'quickdraw', 8000);
+  location.hash = '#/';
+  await sleep(60);
+  const again = await readModel();
+  check('retour à la communautaire : la même valeur qu\'au départ',
+    back && Number.isFinite(again) && Math.abs(again - onCommunity) < 0.01,
+    `${again?.toFixed(2)} m NGF`);
+
   // ------------------------------------- recalage réglable de la carte communautaire
   //
   // C'est le réglage qui sert à mesurer le bon décalage sur l'eau : il doit déplacer la
-  // grille pour de vrai, et « valeur d'origine » doit rendre exactement le fichier.
+  // grille pour de vrai, et « valeur d'origine » doit rendre exactement la valeur de départ.
   group('Recalage de la carte communautaire');
   location.hash = '#/parametres';
   await sleep(60);
-  check('le réglage du recalage apparaît avec cette carte',
-    $('bloc-recalage').hidden === false);
-  const baseline = Number($('set-qd-datum').value);
-  $('set-qd-datum').value = (baseline + 1.5).toFixed(2);
-  $('set-qd-datum').dispatchEvent(new Event('change'));
+  const baseline = Number($('set-datum').value);
+  check('le champ porte le recalage mesuré sur l\'eau',
+    Math.abs(baseline - 1.72) < 0.005, `${baseline} m`);
+  $('set-datum').value = (baseline + 1.5).toFixed(2);
+  $('set-datum').dispatchEvent(new Event('change'));
   const moved = await until(
-    () => Math.abs(Number($('set-qd-datum').value) - (baseline + 1.5)) < 0.005, 8000);
+    () => Math.abs(Number($('set-datum').value) - (baseline + 1.5)) < 0.005, 8000);
   location.hash = '#/';
   await sleep(60);
   const raised = await readModel();
@@ -425,28 +464,15 @@ async function run() {
 
   location.hash = '#/parametres';
   await sleep(60);
-  $('btn-qd-datum-reset').click();
+  $('btn-datum-reset').click();
   const back0 = await until(
-    () => Math.abs(Number($('set-qd-datum').value) - baseline) < 0.005, 8000);
+    () => Math.abs(Number($('set-datum').value) - baseline) < 0.005, 8000);
   location.hash = '#/';
   await sleep(60);
   const restored = await readModel();
-  check('« Valeur d\'origine » rend exactement le fichier',
+  check('« Valeur d\'origine » rend exactement la valeur de départ',
     back0 && Number.isFinite(restored) && Math.abs(restored - onCommunity) < 0.005,
     `${restored?.toFixed(2)} m NGF`);
-
-  group('Retour au fond du levé');
-  location.hash = '#/parametres';
-  await sleep(60);
-  $('set-bed-source').value = 'ofb2009';
-  $('set-bed-source').dispatchEvent(new Event('change'));
-  const back = await until(() => $('set-bed-source').value === 'ofb2009', 8000);
-  location.hash = '#/';
-  await sleep(60);
-  const again = await readModel();
-  check('retour au levé : la même valeur qu\'au départ',
-    back && Number.isFinite(again) && Math.abs(again - onSurvey) < 0.01,
-    `${again?.toFixed(2)} m NGF`);
 
   // ------------------------------------------ effacement en bloc et persistance
   group('Effacement en bloc');

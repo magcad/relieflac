@@ -3,7 +3,7 @@
 // Ne couvre volontairement pas le rendu cartographique : MapLibre s'initialise depuis
 // requestAnimationFrame, suspendu dans un onglet masqué, donc invérifiable sans page
 // affichée. Tout le reste — table de couleurs, décodage de la grille, statistiques
-// d'étalonnage, index des sondes, géométrie — l'est.
+// de synchronisation, index des sondes, géométrie — l'est.
 //
 // La table de couleurs est comparée à test/reference.json, produit par le Python. Les
 // deux implémentations doivent coïncider, sinon l'aperçu de contrôle et le téléphone
@@ -13,7 +13,6 @@ import { BedGrid, correctedAltitude } from '../src/bed.js';
 import { angleDelta, CameraFollow, catchUp, deadReckon } from '../src/camera.js';
 import { anchoredMatrix } from '../src/depth-layer.js';
 import { CorrectionsSync } from '../src/sync.js';
-import { Calibration, makeRecord } from '../src/calibration.js';
 import { bearing, distanceMeters, formatSpeed } from '../src/geo.js';
 import { formatAge, Level } from '../src/level.js';
 import { applyPaletteOverride, bandLimits, buildLut, LUT_SIZE, lutIndex } from '../src/palette.js';
@@ -395,108 +394,13 @@ export async function run(base = '..') {
     zones.clear();
   }
 
-  // Le décalage d'étalonnage ne doit toucher que ce qui vient du levé de 2009.
+  // Le recalage du levé ne doit toucher que ce qui vient du levé de 2009.
   const waterPlane = model.reference_levels.rge_alti.value_m_ngf;
   check('décalage appliqué sous le plan d\'eau LiDAR',
     near(correctedAltitude(630, -1.5, waterPlane), 628.5, 1e-9));
   check('décalage ignoré sur le terrain mesuré au LiDAR',
     near(correctedAltitude(650.61, -1.5, waterPlane), 650.61, 1e-9));
   check('altitude absente reste absente', Number.isNaN(correctedAltitude(NaN, -1.5, waterPlane)));
-
-  // --- étalonnage -------------------------------------------------------------
-  const record = makeRecord({
-    position: { lon: 1.87, lat: 45.79, accuracy: 8 },
-    level: 647.0, levelSource: 'live', modelBedZ: 630.0,
-    sounderDepth: 16.5, transducerDepth: 0.3, nearestSounding: 12,
-  });
-  // fond réel = 647,0 − 16,5 − 0,3 = 630,2 ; le modèle dit 630,0 → écart +0,2
-  check('résidu d\'étalonnage', near(record.residual, 0.2, 1e-9), `${record.residual}`);
-  check('modèle plus profond que la mesure', near(record.modelDepth, 17.0, 1e-9));
-  check('relevé classé sur trace', record.onTrack === true);
-
-  // Même geste, à pied sur un haut-fond découvert : fond réel = 647,0 + 0,4 = 647,4, sans
-  // immersion de sonde puisqu'il n'y a pas de sonde. Le modèle dit 630,0 → écart +17,4.
-  const walkedRecord = makeRecord({
-    position: { lon: 1.87, lat: 45.79, accuracy: 8 },
-    level: 647.0, levelSource: 'live', modelBedZ: 630.0,
-    sounderDepth: -0.4, transducerDepth: 0.3, nearestSounding: 12,
-  });
-  check('résidu d\'un relevé à pied sur haut-fond émergé',
-    near(walkedRecord.residual, 17.4, 1e-9), `${walkedRecord.residual}`);
-
-  const calibration = new Calibration();
-  calibration.clear();
-  [0.1, 0.2, 0.25, 0.3, 0.9].forEach((residual, i) => calibration.add({
-    lon: 1.87, lat: 45.79, accuracy: 8, level: 647, levelSource: 'live',
-    modelBedZ: 630, sounderDepth: 16 + i * 0.1, transducerDepth: 0.3,
-    residual, nearestSounding: 10, onTrack: true,
-  }));
-  const stats = calibration.stats();
-  check('médiane des résidus insensible à l\'aberrant', near(stats.median, 0.25, 1e-9), `${stats.median}`);
-  check('dispersion faible jugée exploitable', stats.usable === true, `IQR ${stats.iqr.toFixed(2)}`);
-
-  calibration.clear();
-  [-2, -0.5, 0.4, 1.8, 3.1].forEach((residual) => calibration.add({
-    lon: 1.87, lat: 45.79, accuracy: 8, level: 647, levelSource: 'live',
-    modelBedZ: 630, sounderDepth: 17, transducerDepth: 0.3,
-    residual, nearestSounding: 10, onTrack: true,
-  }));
-  check('dispersion forte jugée inexploitable', calibration.stats().usable === false);
-  calibration.clear();
-
-  // Forme du résidu : constante ou proportionnelle à la profondeur ?
-  //
-  // Le piège que ces trois cas verrouillent : relevé en petit fond seulement, une erreur
-  // d'échelle du sondeur se groupe aussi bien qu'un décalage de référence, et la constante
-  // qu'on en tirerait fausserait le large d'autant plus qu'il est profond.
-  const shaped = (pairs) => {
-    calibration.clear();
-    pairs.forEach(([depth, residual]) => calibration.add({
-      lon: 1.87, lat: 45.79, accuracy: 8, level: 647, levelSource: 'live',
-      modelBedZ: 630, sounderDepth: depth - 0.3, transducerDepth: 0.3,
-      residual, nearestSounding: 10, onTrack: true,
-    }));
-    return calibration.stats();
-  };
-
-  const wide = [3, 5, 9, 15, 22, 28];
-  const flat = shaped(wide.map((d) => [d, 1.0]));
-  check('écart constant sur une large plage : décalage de référence',
-    flat.model === 'constant' && flat.usable === true, `${flat.model}`);
-
-  const sloped = shaped(wide.map((d) => [d, 0.27 * d]));
-  check('écart proportionnel à la profondeur : erreur d\'échelle détectée',
-    sloped.model === 'proportionnel', `${sloped.model}`);
-  check('erreur proportionnelle : la correction constante est refusée',
-    sloped.usable === false, `usable ${sloped.usable}`);
-  check('pente rapportée en % de la profondeur',
-    near(sloped.slopePercent, 27, 0.5), `${sloped.slopePercent}`);
-
-  // Écarts de l'ordre de ceux relevés à Vauveix, tous entre 3,4 et 4,1 m. Les deux modèles
-  // y collent aussi bien — l'app doit refuser de trancher plutôt que de rassurer à tort.
-  const narrow = shaped([[3.4, 0.85], [3.5, 0.95], [3.6, 1.09], [3.8, 1.02], [4.1, 1.10]]);
-  check('bande de profondeurs trop étroite : aucune conclusion',
-    narrow.model === 'indetermine', `${narrow.model}`);
-  check('profondeurs sondées rapportées',
-    near(narrow.depthMin, 3.4, 1e-9) && near(narrow.depthMax, 4.1, 1e-9));
-
-  // Relevé à pied sur un haut-fond découvert : il compte dans la médiane — le plan d'eau
-  // est une référence directement visible — mais il ne peut pas porter le verdict de
-  // forme, puisque les deux modèles concurrents se rejoignent à profondeur nulle.
-  const walked = {
-    lon: 1.87, lat: 45.79, accuracy: 8, level: 647, levelSource: 'live',
-    modelBedZ: 630, sounderDepth: -0.4, transducerDepth: 0.3,
-    residual: 1.0, nearestSounding: 10, onTrack: true,
-  };
-  calibration.clear();
-  wide.forEach((d) => calibration.add({ ...walked, sounderDepth: d - 0.3 }));
-  calibration.add(walked);
-  const mixed = calibration.stats();
-  check('relevé à pied compté dans la médiane',
-    mixed.count === wide.length + 1 && near(mixed.median, 1.0, 1e-9), `${mixed.count}`);
-  check('relevé à pied écarté du verdict de forme',
-    mixed.model === 'constant' && near(mixed.depthMin, 3, 1e-9), `${mixed.model} / ${mixed.depthMin}`);
-  calibration.clear();
 
   // --- sondes saisies à la main -----------------------------------------------
   // fond = 647,0 − 8,1 − 0,3 = 638,6 ; le modèle dit 630,0 → il annonçait 17,0 m d'eau
@@ -692,6 +596,33 @@ export async function run(base = '..') {
   check('immersion : absente du fichier → repli explicite', legacy[0].transducer_m === null);
   check('immersion : repli appliqué à l\'écriture suivante',
     sync.toFile(legacy, { transducer_m: 0.3, radius_m: 20 }).points[0].transducer_m === 0.3);
+
+  // Les zones voyagent avec les points, mais RANGÉES À PART : un lecteur qui ne les connaît
+  // pas lit les points sans s'en apercevoir, et rien ne fait passer une interprétation pour
+  // une mesure.
+  const zoneRing = [[1.87, 45.79], [1.8705, 45.79], [1.8705, 45.7905], [1.87, 45.7905]];
+  const withZones = sync.toFile([rec], { transducer_m: 0.3, radius_m: 20 }, [{
+    id: 'z1', at: '2026-08-16T09:00:00Z', ring: zoneRing,
+    bedZ: 647.5, height_m: 0.5, cote_m: 647.0, feather_m: 12,
+  }]);
+  check('format : zones rangées à part des points',
+    withZones.points.length === 1 && withZones.zones.length === 1
+    && withZones.zones[0].ground_m_ngf === 647.5,
+    `${withZones.zones.length} zone(s)`);
+  const zonesBack = CorrectionsSync.zonesFromFile(withZones);
+  check('format : aller-retour d\'une zone fidèle',
+    zonesBack.length === 1 && zonesBack[0].bedZ === 647.5 && zonesBack[0].feather_m === 12
+    && zonesBack[0].ring.length === 4 && zonesBack[0].id === 'z1');
+  check('format : contour sans surface écarté',
+    CorrectionsSync.zonesFromFile({ zones: [{ ring: [[1, 2]], ground_m_ngf: 647 }] }).length === 0);
+  check('format : fichier sans zones relu sans erreur',
+    CorrectionsSync.zonesFromFile({ points: [] }).length === 0);
+
+  // Le rayon d'une sonde doit TOUJOURS être écrit : sans lui, la même mesure corrigerait une
+  // surface différente sur l'appareil d'en face, et sa carte serait fausse.
+  check('format : aucune sonde publiée sans rayon',
+    sync.toFile([{ ...rec, radius_m: null }], { transducer_m: 0.3, radius_m: 35 })
+      .points[0].radius_m === 35);
 
   // --- sondes de 2009 ---------------------------------------------------------
   const soundings = await Soundings.load(base);

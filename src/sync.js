@@ -70,12 +70,26 @@ export class CorrectionsSync {
   // conséquence tant que `z_fond` reste figé, mais faux dès qu'on le recalcule, ce que
   // fera toute correction d'échelle du sondeur. La valeur passée en paramètre ne sert
   // plus que de repli, pour les relevés antérieurs à cette règle.
-  toFile(records, { transducer_m, radius_m }) {
+  toFile(records, { transducer_m, radius_m }, zones = []) {
     return {
       schema: 'relieflac.corrections/1',
       waterbody: this.waterbody,
       datum: this.datum,
       updated_at: new Date().toISOString(),
+      // Les zones voyagent à part des points, et c'est le fond de l'affaire : un point est
+      // une mesure, une zone est une interprétation — « à partir d'ici, c'est de la terre ».
+      // Les mêler donnerait un fichier où plus rien ne dit ce qui a été mesuré. Un lecteur
+      // qui ne connaît pas les zones lit les points sans s'en apercevoir.
+      zones: (zones ?? []).map((z) => ({
+        id: z.id,
+        ring: z.ring,
+        ground_m_ngf: z.bedZ,
+        height_m: z.height_m ?? null,
+        cote_m_ngf: z.cote_m ?? null,
+        feather_m: Number.isFinite(z.feather_m) ? z.feather_m : null,
+        at: z.at,
+        by: z.by ?? null,
+      })),
       points: records.map((r) => ({
         id: r.id,
         lon: r.lon,
@@ -119,11 +133,31 @@ export class CorrectionsSync {
       }));
   }
 
+  /**
+   * Zones relues du fichier. Un contour de moins de trois sommets n'a pas de surface :
+   * il est écarté ici plutôt que de faire tomber `applyCorrections` sur le bateau.
+   */
+  static zonesFromFile(file) {
+    const zones = Array.isArray(file?.zones) ? file.zones : [];
+    return zones
+      .filter((z) => Number.isFinite(z.ground_m_ngf) && Array.isArray(z.ring) && z.ring.length >= 3)
+      .map((z) => ({
+        id: z.id ?? crypto.randomUUID(),
+        at: z.at ?? new Date().toISOString(),
+        ring: z.ring,
+        bedZ: z.ground_m_ngf,
+        height_m: Number.isFinite(z.height_m) ? z.height_m : null,
+        cote_m: Number.isFinite(z.cote_m_ngf) ? z.cote_m_ngf : null,
+        feather_m: Number.isFinite(z.feather_m) ? z.feather_m : null,
+        by: z.by ?? null,
+      }));
+  }
+
   // --- lecture ----------------------------------------------------------------
   /**
    * Récupère les relevés partagés. Avec un jeton, on lit par l'API (frais + révision sha
    * pour pouvoir réécrire) ; sans jeton, on lit le fichier publié avec le site.
-   * Renvoie { records } ou null si le fichier n'existe pas encore.
+   * Renvoie { records, zones } — les deux tableaux, vides si le fichier n'existe pas encore.
    */
   async pull() {
     if (this.hasToken()) return this.#pullApi();
@@ -133,32 +167,34 @@ export class CorrectionsSync {
   async #pullApi() {
     const url = `${API}/repos/${this.repo}/contents/${encodeURI(this.path)}?ref=${this.branch}`;
     const res = await fetch(url, { headers: this.#headers(), cache: 'no-store' });
-    if (res.status === 404) { this.sha = null; return { records: [] }; }
+    if (res.status === 404) { this.sha = null; return { records: [], zones: [] }; }
     if (!res.ok) throw new Error(`lecture API : HTTP ${res.status}`);
     const body = await res.json();
     this.sha = body.sha;
     const file = JSON.parse(fromBase64(body.content));
-    return { records: CorrectionsSync.fromFile(file) };
+    return { records: CorrectionsSync.fromFile(file), zones: CorrectionsSync.zonesFromFile(file) };
   }
 
   async #pullPublished() {
     const res = await fetch(`${this.baseUrl}/${this.path}`, { cache: 'no-cache' });
-    if (!res.ok) return { records: [] };
-    return { records: CorrectionsSync.fromFile(await res.json()) };
+    if (!res.ok) return { records: [], zones: [] };
+    const file = await res.json();
+    return { records: CorrectionsSync.fromFile(file), zones: CorrectionsSync.zonesFromFile(file) };
   }
 
   // --- écriture ---------------------------------------------------------------
-  /** Écrit l'intégralité des relevés dans le dépôt. Nécessite un jeton. */
-  async push(records, meta) {
+  /** Écrit l'intégralité des relevés et des zones dans le dépôt. Nécessite un jeton. */
+  async push(records, meta, zones = []) {
     if (!this.hasToken()) throw new Error('aucun jeton');
     // On s'assure d'avoir la révision courante, sinon GitHub refuse l'écriture.
     if (this.sha === null) { try { await this.#pullApi(); } catch { /* 1er commit */ } }
-    const content = `${JSON.stringify(this.toFile(records, meta), null, 2)}\n`;
+    const content = `${JSON.stringify(this.toFile(records, meta, zones), null, 2)}\n`;
     const put = async () => fetch(`${API}/repos/${this.repo}/contents/${encodeURI(this.path)}`, {
       method: 'PUT',
       headers: this.#headers(),
       body: JSON.stringify({
-        message: `Relevés ${this.waterbody} : ${records.length} point(s)`,
+        message: `Relevés ${this.waterbody} : ${records.length} point(s)`
+          + `${zones.length ? `, ${zones.length} zone(s)` : ''}`,
         content: toBase64(content),
         branch: this.branch,
         ...(this.sha ? { sha: this.sha } : {}),

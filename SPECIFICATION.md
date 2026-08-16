@@ -659,8 +659,8 @@ contours reste de 2 à 3 px pour un rapport de zoom de 5.
   manque au-dessus, il replie sa capsule de zoom avant de glisser sous le bandeau de cap :
   le pincement remplace le zoom, rien ne remplace le bouton « Outils ».
 - **Feuille « Outils »** : tout ce qui ne se touche pas en barrant — relever une sonde,
-  tracer une zone émergée, mode étiage, bascule du fond de carte, Étalonnage, Paramètres,
-  À propos. Tuiles **libellées**, et non des glyphes : ▲ et ◎ n'étaient interprétables par
+  tracer une zone émergée, mode étiage, bascule du fond de carte, Trajet (à écrire),
+  Paramètres, À propos. Tuiles **libellées**, et non des glyphes : ▲ et ◎ n'étaient interprétables par
   personne, et leur rendu variait d'un appareil à l'autre. La feuille se referme dès qu'une
   tuile agit — ouvrir un mode de correction, c'est vouloir la carte, pas rester au menu.
 
@@ -996,7 +996,16 @@ Règles :
 
 **Volume utile** : ~20 relevés donnent déjà une médiane solide ; 40 permettent en plus de quantifier la dispersion. Une seule sortie suffit.
 
-### 15.3 Mode « Étalonnage » dans l'application (avancé au lot L1)
+### 15.3 Mode « Étalonnage » dans l'application — **RETIRÉ le 16/08/2026**
+
+> **L'écran n'existe plus** (`src/calibration.js` supprimé au lot L7). Motif donné par
+> l'utilisateur, et qui tranche le § 3.2 bis d'ETAT.md dans l'autre sens : le sondeur Eagle
+> du bord est **informatif**, il ne se cale pas, et un protocole qui repose sur sa lecture ne
+> peut pas donner mieux que lui. Ce qui reste, et qui suffit : le champ « Recalage de la
+> carte » des Paramètres, réglable à la main et **jugeable sur le trait de côte** — la seule
+> référence directement visible, celle qui n'a besoin d'aucun instrument. Le protocole
+> ci-dessous est conservé pour mémoire : il redeviendrait applicable avec un sondeur
+> enregistreur (§ 15.4), qui est la vraie voie.
 
 Écran dédié, conçu pour être utilisable seul à la barre :
 

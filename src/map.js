@@ -308,19 +308,6 @@ export class LakeMap extends EventTarget {
       paint: { 'line-color': '#4db3ff', 'line-width': 1, 'line-opacity': 0.7 },
     });
 
-    map.addSource('reperes', { type: 'geojson', data: EMPTY });
-    map.addLayer({
-      id: 'reperes',
-      type: 'circle',
-      source: 'reperes',
-      paint: {
-        'circle-radius': 7,
-        'circle-color': ['case', ['get', 'onTrack'], '#22c55e', '#f59e0b'],
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#0f1417',
-      },
-    });
-
     const element = document.createElement('div');
     element.className = 'boat';
     element.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">'
@@ -330,7 +317,7 @@ export class LakeMap extends EventTarget {
   }
 
   addDepthLayer(layer) {
-    // Sous les repères et le bateau, au-dessus des fonds de carte.
+    // Sous les sondes et le bateau, au-dessus des fonds de carte.
     this.map.addLayer(layer, 'sondes-2009');
   }
 
@@ -364,17 +351,6 @@ export class LakeMap extends EventTarget {
     try { out.tiled = m.querySourceFeatures('sondes-2009').length; } catch { /* */ }
     try { out.rendered = m.queryRenderedFeatures({ layers: ['sondes-2009'] }).length; } catch { /* */ }
     return out;
-  }
-
-  setMarkers(records) {
-    this.map.getSource('reperes').setData({
-      type: 'FeatureCollection',
-      features: records.map((r) => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [r.lon, r.lat] },
-        properties: { onTrack: Boolean(r.onTrack) },
-      })),
-    });
   }
 
   /**

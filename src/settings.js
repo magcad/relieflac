@@ -6,11 +6,28 @@
 
 const STORAGE_KEY = 'relieflac.settings.v1';
 
+/**
+ * Version du jeu de réglages.
+ *
+ * Changer une valeur par défaut ne change rien pour qui a déjà ouvert l'application une
+ * fois : ses réglages sont en mémoire locale, défauts compris, et ils gagnent. Or certains
+ * défauts ne sont pas des préférences mais des **décisions de fond** — quelle carte on
+ * montre, et à quel recalage — qu'il faut pouvoir imposer à tout le monde. D'où ce numéro :
+ * les clés listées ci-dessous reprennent leur valeur d'usine au premier démarrage qui suit.
+ */
+const SCHEMA = 2;
+
+const MIGRATIONS = {
+  // 2 — 16/08/2026 : la carte communautaire devient la carte affichée par défaut, et son
+  // recalage passe à la valeur mesurée sur l'eau le 15/08/2026, cote vérifiée.
+  2: ['bedSource', 'quickdrawDatum_m'],
+};
+
 export class Settings extends EventTarget {
   constructor(defaults) {
     super();
     this.defaults = defaults;
-    this.values = { ...defaults, ...load() };
+    this.values = migrate({ ...defaults, ...load() }, defaults);
   }
 
   get(key) {
@@ -60,12 +77,27 @@ export class Settings extends EventTarget {
     const filtered = Object.fromEntries(
       Object.entries(incoming).filter(([key]) => key in this.defaults),
     );
-    this.update({ ...this.defaults, ...filtered });
+    // Migré comme au démarrage : un profil exporté avant la bascule vers la carte
+    // communautaire ne doit pas la défaire en revenant.
+    this.update(migrate({ ...this.defaults, ...filtered }, this.defaults));
   }
+}
+
+/** Applique les migrations non encore passées, et mémorise le palier atteint. */
+function migrate(values, defaults) {
+  const from = Number.isFinite(values.settingsSchema) ? values.settingsSchema : 0;
+  if (from >= SCHEMA) return values;
+  for (let step = from + 1; step <= SCHEMA; step += 1) {
+    for (const key of MIGRATIONS[step] ?? []) values[key] = defaults[key];
+  }
+  values.settingsSchema = SCHEMA;
+  save(values);
+  return values;
 }
 
 export function defaultsFrom(palette, model) {
   return {
+    settingsSchema: SCHEMA,
     preset: palette.active_preset,
     draft_m: palette.safety_contour.draft_m,
     margin_m: palette.safety_contour.margin_m,
@@ -81,14 +113,22 @@ export function defaultsFrom(palette, model) {
     alarmDepth_m: 1.5,
     speedUnit: 'kmh',
     basemap: 'plan',
-    // Fond bathymétrique : 'ofb2009' (levé + apports) ou 'quickdraw' (carte communautaire
-    // seule). Les deux grilles partagent la maille, les relevés manuels s'appliquent sur
+    // Fond bathymétrique : 'quickdraw' (carte communautaire seule) ou 'ofb2009' (levé +
+    // apports). Les deux grilles partagent la maille, les relevés manuels s'appliquent sur
     // celle qui est active. Voir BED_SOURCES dans src/bed.js.
-    bedSource: 'ofb2009',
+    //
+    // La communautaire est celle qu'on montre par défaut : c'est celle que la plupart des
+    // plaisanciers du lac ont déjà sous les yeux au traceur, elle couvre 94 % du lac avec le
+    // passage réel d'un sondeur, et elle laisse le reste vide au lieu de l'inventer.
+    bedSource: 'quickdraw',
     // Recalage vertical de la carte communautaire, en mètres. `null` = celui inscrit dans
     // data/bed_quickdraw.json par la chaîne Python ; toute autre valeur le remplace, ce qui
     // permet de le mesurer sur l'eau en plusieurs points sans reconstruire la grille.
-    quickdrawDatum_m: null,
+    //
+    // 1,72 m : mesuré sur l'eau le 15/08/2026, cote du lac vérifiée cette fois-là — le 2,72
+    // du fichier avait été relevé alors qu'une cote de simulation traînait dans les
+    // réglages, donc contre un trait de côte faux.
+    quickdrawDatum_m: 1.72,
     // Les deux verrous de caméra sont actifs à l'ouverture : sur l'eau, on veut le bateau
     // au centre et l'étrave vers le haut sans avoir à y penser.
     followBoat: true,

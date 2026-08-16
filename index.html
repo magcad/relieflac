@@ -104,12 +104,14 @@
     </g>
   </symbol>
 
-  <symbol id="i-target" viewBox="0 0 24 24">
-    <g stroke="currentColor" stroke-width="1.6" fill="none">
-      <circle cx="12" cy="12" r="8.4"/>
-      <circle cx="12" cy="12" r="3.8"/>
-    </g>
-    <circle cx="12" cy="12" r="1.4" fill="currentColor"/>
+  <!-- Trajet : la route suivie, d'un point à l'autre. -->
+  <symbol id="i-route" viewBox="0 0 24 24">
+    <path d="M6.4 18.6c4.4 0 3-5.2 5.6-5.2s1.4 5.2 5.6 5.2"
+          stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"
+          stroke-dasharray="3 2.4"/>
+    <circle cx="6.4" cy="18.6" r="2" fill="currentColor"/>
+    <path d="M17.6 3.4c1.9 0 3.4 1.5 3.4 3.4 0 2.4-3.4 6-3.4 6s-3.4-3.6-3.4-6c0-1.9 1.5-3.4 3.4-3.4Z"
+          stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/>
   </symbol>
 
   <symbol id="i-sliders" viewBox="0 0 24 24">
@@ -172,7 +174,7 @@
     </div>
 
     <button class="level" id="btn-cote" type="button"
-            title="Cote du lac — toucher pour les réglages" aria-label="Cote du lac">
+            title="Cote du lac — toucher pour l'étiage" aria-label="Cote du lac, ouvrir l'étiage">
       <span class="level__value" id="cote-value">—</span>
       <span class="level__unit">m</span>
       <span class="level__meta" id="cote-meta"></span>
@@ -351,11 +353,11 @@
           <span class="tile__label">Fond de carte</span>
           <span class="tile__sub" id="fond-label">Plan IGN</span>
         </button>
-        <a class="tile" href="#/etalonnage">
-          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-target"/></svg>
-          <span class="tile__label">Étalonnage</span>
-          <span class="tile__sub">caler le modèle</span>
-        </a>
+        <button class="tile" id="btn-trajet" type="button">
+          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-route"/></svg>
+          <span class="tile__label">Trajet</span>
+          <span class="tile__sub">bientôt</span>
+        </button>
         <a class="tile" href="#/parametres">
           <svg class="ico ico--tile" aria-hidden="true"><use href="#i-sliders"/></svg>
           <span class="tile__label">Paramètres</span>
@@ -390,7 +392,6 @@
     <button type="button" data-goto="sec-lisibilite">Lisibilité</button>
     <button type="button" data-goto="sec-couleurs">Couleurs</button>
     <button type="button" data-goto="sec-cote">Cote</button>
-    <button type="button" data-goto="sec-calage">Calage</button>
     <button type="button" data-goto="sec-sondes">Mes sondes</button>
     <button type="button" data-goto="sec-zones">Zones</button>
     <button type="button" data-goto="sec-sync">Partage</button>
@@ -432,84 +433,82 @@
       <label class="row">
         <span>Source du fond</span>
         <select id="set-bed-source">
-          <option value="ofb2009">Levé OFB 2009 + apports</option>
           <option value="quickdraw">Carte communautaire seule</option>
+          <option value="ofb2009">Levé OFB 2009 + apports</option>
         </select>
       </label>
-      <p class="hint" id="hint-bed-source"></p>
+      <p class="hint">
+        <span id="hint-bed-source"></span>
+        <button class="infobtn" type="button" data-info="note-bed-source"
+                aria-expanded="false" aria-label="En savoir plus sur les deux cartes">i</button>
+      </p>
+      <div class="note" id="note-bed-source" hidden>
+        <p>
+          <strong>La carte communautaire seule</strong> ne contient rien d'autre que les
+          bandes de couleur Quickdraw : ni sonde de 2009, ni interpolation, ni contrainte de
+          rive. Elle décrit <strong>94 % du lac</strong> et laisse les 45 ha restants
+          <em>vides</em> plutôt qu'extrapolés. Une bande ne donne jamais une profondeur,
+          seulement un intervalle. C'est la carte de ceux qui naviguent au traceur, et celle
+          affichée par défaut.
+        </p>
+        <p>
+          <strong>Le levé de 2009</strong> mesure au décimètre, mais seulement le long de ses
+          traces : plus de 150 m les séparent dans les grands bassins, et entre elles la carte
+          interpole. Elle est ensuite relevée par le MNT, encadrée par la communauté et biaisée
+          vers le haut-fond.
+        </p>
+        <p>
+          Hors recalage, les deux fonds s'accordent à moins de 2 m sur 80 % du lac. La
+          communautaire n'a pas la généralisation vers le haut-fond du levé : un caillou plus
+          étroit que la maille du traceur peut lui échapper.
+          <strong>Vos relevés s'appliquent aux deux.</strong>
+        </p>
+      </div>
 
-      <div id="bloc-recalage" hidden>
-        <label class="row">
-          <span>Recalage de la carte (m)</span>
-          <input type="number" id="set-qd-datum" min="-10" max="10" step="0.05"
-                 inputmode="decimal">
-        </label>
-        <p class="hint" id="hint-qd-datum"></p>
-        <div class="actions">
-          <button type="button" id="btn-qd-datum-reset">Valeur d'origine</button>
-        </div>
-        <p class="hint">
+      <!-- Un seul champ pour les deux cartes : ce qu'on règle ici, c'est toujours « de
+           combien cette carte-ci est à côté ». La grandeur fautive change avec la carte —
+           le plan d'eau des bandes, ou la cote du levé de 2009 — mais pas le geste. -->
+      <label class="row">
+        <span>Recalage de la carte (m)</span>
+        <input type="number" id="set-datum" min="-10" max="10" step="0.05" inputmode="decimal">
+      </label>
+      <p class="hint">
+        <span id="hint-datum"></span>
+        <button class="infobtn" type="button" data-info="note-datum"
+                aria-expanded="false" aria-label="En savoir plus sur le recalage">i</button>
+      </p>
+      <div class="note" id="note-datum" hidden>
+        <p>
           Positif = le fond <strong>remonte</strong>, donc moins d'eau et plus de rive
-          découverte. Le réglage agit tout de suite, sans rien retélécharger : on peut le
-          régler sur l'eau en regardant le trait de côte. Les îlots mesurés au laser ne
-          bougent pas — leur altitude est absolue.
+          découverte. Le réglage agit tout de suite, sans rien retélécharger : on le règle sur
+          l'eau en regardant le trait de côte. Les îlots mesurés au laser ne bougent pas —
+          leur altitude est absolue.
         </p>
-        <p class="hint">
-          <strong>Pour le mesurer plutôt que le deviner</strong> : passez par
-          <a href="#/etalonnage">Étalonnage</a>, carte communautaire affichée. Chaque relevé
-          au sondeur donne l'écart au point où vous êtes ; l'écran affiche la médiane, dit
-          si les relevés sont cohérents entre eux, et distingue un vrai décalage constant
-          d'une erreur qui suivrait la profondeur. « Appliquer la correction » reporte alors
-          la médiane ici. Relevez en <strong>plusieurs endroits</strong> et à des
-          profondeurs franchement différentes — c'est la seule façon de trancher.
+        <p class="only-qd">
+          <strong>Recalage de terrain : +1,72 m</strong>, relevé sur l'eau le 15/08/2026 en
+          comparant le trait de côte de la carte à celui qu'on avait sous les yeux, cote du lac
+          vérifiée. Il place le plan d'eau de référence des bandes à
+          <strong>649,40 m NGF</strong>, ce qui est cohérent avec la façon dont on lit un
+          traceur : des profondeurs rapportées à un niveau haut, dont on retranche la baisse
+          du jour.
         </p>
+        <p class="only-ofb">
+          La cote du lac le 22 avril 2009, jour du levé, n'est pas connue : elle décale toutes
+          les profondeurs d'une constante, et c'est elle que ce champ corrige. Le recalage ne
+          s'applique qu'aux fonds issus du levé, pas au terrain mesuré au LiDAR, dont les
+          altitudes sont absolues.
+        </p>
+        <p class="only-ofb" id="hint-z2009"></p>
       </div>
-
-      <p class="hint">
-        <strong>Le levé de 2009</strong> mesure au décimètre, mais seulement le long de ses
-        traces : plus de 150 m les séparent dans les grands bassins, et entre elles la carte
-        interpole. Elle est ensuite relevée par le MNT, encadrée par la communauté et biaisée
-        vers le haut-fond — c'est la carte la plus prudente.
-      </p>
-      <p class="hint">
-        <strong>La carte communautaire seule</strong> ne contient rien d'autre que les bandes
-        de couleur Quickdraw : ni sonde de 2009, ni interpolation, ni contrainte de rive.
-        Elle décrit <strong>94 % du lac</strong> et laisse les 45 ha restants <em>vides</em>
-        plutôt qu'extrapolés. Une bande ne donne jamais une profondeur, seulement un
-        intervalle — la carte reste à l'intérieur de celui de chaque cellule. C'est la carte
-        de ceux qui naviguent au traceur.
-      </p>
-      <p class="hint">
-        <strong>Recalage de terrain : +2,72 m</strong>, relevé sur l'eau le 14/08/2026 en
-        comparant son trait de côte à celui qu'on a sous les yeux. Le fond issu des bandes a
-        été remonté d'autant, ce qui place son plan d'eau de référence à
-        <strong>650,40 m NGF</strong> — à 40 cm de la cote de retenue normale du lac. C'est
-        cohérent avec la façon dont on lit un traceur : des profondeurs rapportées au niveau
-        normal, dont on retranche la baisse du jour. Les îlots du MNT, eux, ne bougent pas :
-        leurs altitudes sont mesurées par avion et n'ont rien à voir avec cette référence.
-      </p>
-      <div class="warn">
-        Conséquence à connaître : cette carte annonce environ <strong>2,5 m d'eau de
-        moins</strong> que le fond du levé, et sa fosse la plus profonde tombe à 18 m au
-        lieu de 28. C'est le sens prudent, mais elle peut aussi <strong>cacher de l'eau
-        navigable</strong> — à la cote du jour elle découvre 137 ha contre 70 pour le levé.
-        Tant que le recalage n'est pas confirmé au sondeur, les deux cartes ne peuvent pas
-        avoir raison ensemble : au large, elles se confondaient à 0,00 m près avant lui.
+      <div class="actions">
+        <button type="button" id="btn-datum-reset">Valeur d'origine</button>
       </div>
-      <p class="hint">
-        À vérifier lors d'une prochaine sortie, et cela prend une minute : saisir la cote à
-        la main, <strong>−2,72 m</strong> par rapport à celle d'EDF. Si les <em>deux</em>
-        cartes tombent alors juste, l'erreur est sur la cote du lac et non sur le fond — les
-        deux donnent exactement le même dessin à l'écran, et rien ici ne permet de les
-        distinguer. Le recalage serait alors retiré d'ici et porté sur la cote, où il
-        corrigerait les deux cartes au lieu d'une.
-      </p>
-      <p class="hint">
-        Hors recalage, les deux fonds s'accordent à moins de 2 m sur 80 % du lac. La
-        communautaire n'a pas la généralisation vers le haut-fond du levé : un caillou plus
-        étroit que la maille du traceur peut lui échapper.
-        <strong>Vos relevés s'appliquent aux deux</strong>, et le décalage d'étalonnage aussi.
-      </p>
+      <div class="warn only-qd">
+        Cette carte annonce environ <strong>1,5 m d'eau de moins</strong> que le fond du levé.
+        C'est le sens prudent, mais elle peut aussi <strong>cacher de l'eau navigable</strong>.
+        Tant que le recalage n'est pas confirmé, les deux cartes ne peuvent pas avoir raison
+        ensemble : au large, elles se confondaient avant lui.
+      </div>
     </fieldset>
 
     <fieldset id="sec-lisibilite">
@@ -519,16 +518,23 @@
         <input type="checkbox" id="set-sun">
       </label>
       <p class="hint">
-        Supprime les fonds translucides et les gris de l'habillage : en plein soleil, la
-        dalle renvoie plus de lumière qu'elle n'en produit et tout ce qui est estompé
-        disparaît. Les couleurs des fonds ne sont pas modifiées. Se règle aussi d'un
-        toucher sur le soleil du rail de la carte.
+        Contraste maximal de l'habillage, pour lire au soleil.
+        <button class="infobtn" type="button" data-info="note-soleil"
+                aria-expanded="false" aria-label="En savoir plus sur le mode plein soleil">i</button>
       </p>
+      <div class="note" id="note-soleil" hidden>
+        <p>
+          Supprime les fonds translucides et les gris de l'habillage : en plein soleil, la
+          dalle renvoie plus de lumière qu'elle n'en produit et tout ce qui est estompé
+          disparaît. Les couleurs des fonds ne sont pas modifiées. Se règle aussi d'un
+          toucher sur le soleil du rail de la carte.
+        </p>
+        <p>
+          La luminosité de la dalle reste pilotée par iOS seul : aucune application web ne
+          peut l'imposer, et l'iPhone la baisse de lui-même quand il chauffe au soleil.
+        </p>
+      </div>
       <p class="hint" id="hint-veille"></p>
-      <p class="hint">
-        La luminosité de la dalle reste pilotée par iOS seul : aucune application web ne
-        peut l'imposer, et l'iPhone la baisse de lui-même quand il chauffe au soleil.
-      </p>
     </fieldset>
 
     <fieldset id="sec-couleurs">
@@ -546,10 +552,18 @@
           <button type="button" class="danger" id="btn-palette-reset">Couleurs d'origine</button>
         </div>
         <p class="hint">
-          La couleur de chaque plage et sa profondeur maximale sont modifiables. Les
-          retouches sont mémorisées par préréglage sur cet appareil ; « Réinitialiser »
-          (section Application) les efface.
+          Retouches mémorisées par préréglage, sur cet appareil.
+          <button class="infobtn" type="button" data-info="note-palette"
+                  aria-expanded="false" aria-label="En savoir plus sur l'éditeur de couleurs">i</button>
         </p>
+        <div class="note" id="note-palette" hidden>
+          <p>
+            La couleur de chaque plage et sa profondeur maximale sont modifiables. Les
+            retouches ne touchent pas les couleurs d'origine du fichier : « Couleurs
+            d'origine » les défait pour le préréglage affiché, et « Réinitialiser » (section
+            Application) les efface toutes.
+          </p>
+        </div>
       </details>
       <label class="row">
         <span>Opacité <output id="out-opacity"></output></span>
@@ -573,12 +587,18 @@
         <input type="checkbox" id="set-voids">
       </label>
       <p class="hint">
-        <strong>37,8 % du lac est à plus de 60 m de toute sonde de 2009</strong>, et
-        jusqu'à 314 m dans les grands bassins. Le modèle y interpole entre des traces
-        éloignées : un haut-fond peut y être totalement invisible et hériter de la
-        profondeur des fosses voisines. Les hachures marquent ces zones ; afficher les
-        traces permet de naviguer dessus, là où la donnée est mesurée.
+        Les hachures marquent ce qui n'est adossé à aucune mesure.
+        <button class="infobtn" type="button" data-info="note-voids"
+                aria-expanded="false" aria-label="En savoir plus sur les zones non sondées">i</button>
       </p>
+      <div class="note" id="note-voids" hidden>
+        <p>
+          <strong>37,8 % du lac est à plus de 60 m de toute sonde de 2009</strong>, et jusqu'à
+          314 m dans les grands bassins. Le modèle y interpole entre des traces éloignées : un
+          haut-fond peut y être totalement invisible et hériter de la profondeur des fosses
+          voisines. Afficher les traces permet de naviguer dessus, là où la donnée est mesurée.
+        </p>
+      </div>
     </fieldset>
 
     <fieldset id="sec-cote">
@@ -594,37 +614,28 @@
       </div>
     </fieldset>
 
-    <fieldset id="sec-calage">
-      <legend>Calage bathymétrique</legend>
-      <p class="hint">
-        La cote du lac le 22 avril 2009, jour du levé, n'est pas connue : elle décale
-        toutes les profondeurs d'une constante. Le décalage ci-dessous s'obtient par
-        <a href="#/etalonnage">étalonnage au sondeur</a>. Il ne s'applique qu'aux fonds
-        issus du levé, pas au terrain mesuré au LiDAR.
-      </p>
-      <label class="row">
-        <span>Décalage (m)</span>
-        <input type="number" id="set-offset" min="-5" max="5" step="0.05">
-      </label>
-      <p class="hint" id="hint-z2009"></p>
-    </fieldset>
-
     <fieldset id="sec-sondes">
       <legend>Mes sondes</legend>
       <p class="hint">
-        Relevez à la main la profondeur lue au sondeur : elle est calée sur la cote du
-        moment et posée sur la carte à votre position. Ces points <strong>mesurés</strong>
-        se distinguent du fond colorié, qui reste interpolé. Exportez-les pour les intégrer
-        durablement au modèle (<code>tools/import_soundings.py</code>).
+        La profondeur lue au sondeur, calée sur la cote et posée à votre position.
+        <button class="infobtn" type="button" data-info="note-sondes"
+                aria-expanded="false" aria-label="En savoir plus sur les sondes">i</button>
       </p>
-      <p class="hint">
-        Trois valeurs, trois situations : <strong>positive</strong>, la profondeur sous la
-        flottaison (l'immersion de la sonde est retranchée) ; <strong>zéro</strong>, le trait
-        de côte relevé à pied — le fond y est à la cote du lac, c'est la mesure la plus
-        directe qui soit ; <strong>négative</strong>, la hauteur d'un fond découvert
-        au-dessus de l'eau. Dans les deux derniers cas rien n'est immergé, et l'immersion
-        n'est pas retranchée.
-      </p>
+      <div class="note" id="note-sondes" hidden>
+        <p>
+          Ces points <strong>mesurés</strong> se distinguent du fond colorié, qui reste
+          interpolé. Exportez-les pour les intégrer durablement au modèle
+          (<code>tools/import_soundings.py</code>).
+        </p>
+        <p>
+          Trois valeurs, trois situations : <strong>positive</strong>, la profondeur sous la
+          flottaison (l'immersion de la sonde est retranchée) ; <strong>zéro</strong>, le trait
+          de côte relevé à pied — le fond y est à la cote du lac, c'est la mesure la plus
+          directe qui soit ; <strong>négative</strong>, la hauteur d'un fond découvert
+          au-dessus de l'eau. Dans les deux derniers cas rien n'est immergé, et l'immersion
+          n'est pas retranchée.
+        </p>
+      </div>
       <label class="row">
         <span>Immersion de la sonde (m)</span>
         <input type="number" id="set-transducer" min="0" max="2" step="0.05">
@@ -638,12 +649,24 @@
         <input type="number" id="set-radius" min="1" max="200" step="1">
       </label>
       <p class="hint">
-        Surface qu'un relevé corrige autour de lui. La moitié centrale est un
-        <strong>plateau</strong> où la carte vaut exactement la valeur relevée ; la moitié
-        extérieure se fond vers le levé de 2009. Deux relevés voisins se
-        <strong>fusionnent</strong> au lieu de s'empiler. Ce réglage donne le rayon des
-        nouveaux relevés ; chacun se règle ensuite séparément en touchant sa pastille.
+        Rayon des <em>nouveaux</em> relevés ; chacun garde ensuite le sien.
+        <button class="infobtn" type="button" data-info="note-rayon"
+                aria-expanded="false" aria-label="En savoir plus sur le rayon d'influence">i</button>
       </p>
+      <div class="note" id="note-rayon" hidden>
+        <p>
+          Surface qu'un relevé corrige autour de lui. La moitié centrale est un
+          <strong>plateau</strong> où la carte vaut exactement la valeur relevée ; la moitié
+          extérieure se fond vers le fond affiché. Deux relevés voisins se
+          <strong>fusionnent</strong> au lieu de s'empiler.
+        </p>
+        <p>
+          Le rayon <strong>appartient au relevé</strong> : il est enregistré avec lui et
+          voyage dans le fichier partagé. Sans cela, la même sonde ne corrigerait pas la même
+          surface d'un appareil à l'autre, et les cartes des autres seraient fausses. Il se
+          règle point par point en touchant sa pastille sur la carte.
+        </p>
+      </div>
       <p class="hint" id="probe-count">Aucune sonde enregistrée.</p>
       <ol class="records" id="probe-records"></ol>
       <div class="actions">
@@ -656,15 +679,24 @@
     <fieldset id="sec-zones">
       <legend>Zones émergées</legend>
       <p class="hint">
-        Le bateau sondeur de 2009 ne passait pas sur un haut-fond : un îlot y est un trou
-        dans les données, comblé en reliant les fosses voisines. Une sonde corrige un
-        caillou, pas l'étendue de la terre autour. Tracez le contour avec « Zone émergée »
-        dans les Outils de la carte : tout l'intérieur est porté à la hauteur indiquée
-        au-dessus de l'eau, et l'altitude retenue, elle, ne bouge plus — la zone découvre
-        ou se noie toute seule quand la cote change. Ces zones restent sur cet appareil :
-        elles sont une interprétation, pas une mesure, et ne partent pas dans le fichier
-        partagé.
+        Un îlot que le levé a comblé : tracez son contour, il est partagé comme les sondes.
+        <button class="infobtn" type="button" data-info="note-zones"
+                aria-expanded="false" aria-label="En savoir plus sur les zones émergées">i</button>
       </p>
+      <div class="note" id="note-zones" hidden>
+        <p>
+          Le bateau sondeur de 2009 ne passait pas sur un haut-fond : un îlot y est un trou
+          dans les données, comblé en reliant les fosses voisines. Une sonde corrige un
+          caillou, pas l'étendue de la terre autour. Tracez le contour avec « Zone émergée »
+          dans les Outils de la carte : tout l'intérieur est porté à la hauteur indiquée
+          au-dessus de l'eau, et l'altitude retenue, elle, ne bouge plus — la zone découvre
+          ou se noie toute seule quand la cote change.
+        </p>
+        <p>
+          Les zones partent dans le <strong>fichier partagé</strong>, à côté des sondes mais
+          rangées à part : une zone reste une interprétation, pas une mesure.
+        </p>
+      </div>
       <label class="row row--switch">
         <span>Afficher les contours sur la carte</span>
         <input type="checkbox" id="set-zones">
@@ -680,11 +712,17 @@
     <fieldset id="sec-sync">
       <legend>Synchronisation des relevés</legend>
       <p class="hint">
-        Les sondes que tu saisis avec « Relever » corrigent la carte partagée : elles sont
-        enregistrées dans le dépôt et visibles par tous. L'écriture demande
-        <strong>ton</strong> jeton GitHub, qui reste sur cet appareil et n'est jamais
-        exporté. Sans jeton, l'application lit quand même les relevés publiés.
+        Sondes et zones sont enregistrées dans le dépôt et visibles par tous.
+        <button class="infobtn" type="button" data-info="note-sync"
+                aria-expanded="false" aria-label="En savoir plus sur le partage">i</button>
       </p>
+      <div class="note" id="note-sync" hidden>
+        <p>
+          L'écriture demande <strong>ton</strong> jeton GitHub, qui reste sur cet appareil et
+          n'est jamais exporté avec le profil. Sans jeton, l'application lit quand même les
+          relevés publiés — et les fusionne avec les siens, sans jamais en écraser.
+        </p>
+      </div>
       <label class="row">
         <span>Jeton GitHub</span>
         <input id="sync-token" type="password" inputmode="text" autocomplete="off"
@@ -718,72 +756,6 @@
       <p class="hint"><a href="#/a-propos">À propos, sources et limites</a></p>
     </fieldset>
 
-  </div>
-</section>
-
-<!-- ------------------------------------------------------- écran étalonnage -->
-<section id="vue-etalonnage" class="view panel">
-  <header class="panel__head">
-    <a class="iconbtn" href="#/" aria-label="Retour à la carte">
-      <svg class="ico" aria-hidden="true"><use href="#i-back"/></svg>
-    </a>
-    <h1>Étalonnage</h1>
-  </header>
-  <div class="panel__body">
-
-    <p class="hint">
-      Comparez la profondeur lue au sondeur à celle du modèle. Si les écarts se groupent
-      autour d'une même valeur, c'est le décalage de référence cherché. S'ils se dispersent,
-      le problème est l'interpolation et aucune constante ne le corrigera.
-    </p>
-    <p class="hint" id="cal-bed">
-      Les relevés comptent <strong>par carte</strong> : un écart mesuré contre le levé ne
-      corrige pas la carte communautaire, et l'inverse est tout aussi faux.
-    </p>
-    <p class="hint">
-      <strong>Relevez sur les traces de 2009</strong> (activables dans les Paramètres) et
-      sur des fonds plats de 10 à 20 m. Entre deux traces ou sur une pente, une erreur de
-      position de 20 m change tout.
-    </p>
-
-    <fieldset>
-      <legend>Nouveau relevé</legend>
-      <label class="row">
-        <span>Immersion de la sonde (m)</span>
-        <input type="number" id="cal-transducer" min="0" max="2" step="0.05" value="0.3">
-      </label>
-      <label class="row">
-        <span>Profondeur au sondeur (m)</span>
-        <button type="button" class="sign-btn" id="btn-cal-sign"
-                aria-label="Inverser le signe : haut-fond émergé, relevé à pied">±</button>
-        <input type="number" id="cal-depth" min="-10" max="60" step="0.1" inputmode="decimal">
-      </label>
-      <p class="hint">
-        Un haut-fond découvert se relève à pied : saisissez sa hauteur au-dessus de l'eau
-        en <strong>négatif</strong> (± pour le signe). L'immersion de la sonde est alors
-        ignorée d'office — il n'y a rien dans l'eau.
-      </p>
-      <p class="hint" id="cal-context">Position en attente…</p>
-      <button type="button" class="primary big" id="btn-releve">Relever</button>
-    </fieldset>
-
-    <fieldset>
-      <legend>Résultat</legend>
-      <div class="stats" id="cal-stats"><p class="hint">Aucun relevé.</p></div>
-      <div class="actions">
-        <button type="button" class="primary" id="btn-apply-offset" disabled>Appliquer la correction</button>
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Relevés</legend>
-      <ol class="records" id="cal-records"></ol>
-      <div class="actions">
-        <button type="button" id="btn-cal-csv">Exporter CSV</button>
-        <button type="button" id="btn-cal-json">Exporter JSON</button>
-        <button type="button" class="danger" id="btn-cal-clear">Tout effacer</button>
-      </div>
-    </fieldset>
   </div>
 </section>
 
@@ -827,12 +799,12 @@ profondeur = cote_du_jour − z_fond</code></pre>
       relevés que vous saisissez s'appliquent à celle qui est affichée.
     </p>
     <p>
-      La carte communautaire porte depuis le 14/08/2026 un <strong>recalage de terrain de
-      +2,72 m</strong>, mesuré sur l'eau sur le trait de côte, qui place son plan d'eau de
-      référence à 650,40 m NGF — la cote de retenue normale à 40 cm près. Il n'est pas
-      confirmé au sondeur : cette carte annonce alors ~2,5 m d'eau de <em>moins</em> que le
-      levé, ce qui est le sens prudent mais peut cacher de l'eau navigable. Voir la mise en
-      garde dans les Paramètres.
+      La carte communautaire est celle affichée par défaut. Elle porte un <strong>recalage de
+      terrain de +1,72 m</strong>, mesuré sur l'eau le 15/08/2026 sur le trait de côte, cote du
+      lac vérifiée, qui place son plan d'eau de référence à 649,40 m NGF. Il n'est pas confirmé
+      au sondeur : cette carte annonce alors ~1,5 m d'eau de <em>moins</em> que le levé, ce qui
+      est le sens prudent mais peut cacher de l'eau navigable. Voir la mise en garde dans les
+      Paramètres.
     </p>
 
     <h2>Sources</h2>
@@ -893,6 +865,32 @@ profondeur = cote_du_jour − z_fond</code></pre>
     </p>
   </div>
 </section>
+
+<!--
+  Avertissement d'ouverture, en français et en anglais.
+
+  Il paraît à CHAQUE lancement, et c'est délibéré : le lac est fréquenté par des visiteurs
+  qui ouvrent l'application une fois, et l'habitude de la voir est précisément ce qui fait
+  oublier d'où viennent ses chiffres. Deux phrases par langue, pas davantage — un pavé se
+  balaie du doigt sans être lu.
+-->
+<div class="gate" id="gate" hidden>
+  <div class="gate__panel" role="alertdialog" aria-modal="true" aria-labelledby="gate-title">
+    <p class="gate__sign" aria-hidden="true">⚠</p>
+    <h2 id="gate-title">Carte communautaire — pas un document officiel</h2>
+    <p>
+      Les profondeurs viennent de relevés d'amateurs. Tout n'est pas répertorié : des
+      hauts-fonds manquent, des valeurs sont fausses.
+      <strong>Naviguez au sondeur et à vue.</strong>
+    </p>
+    <h2 lang="en">Community chart — not an official document</h2>
+    <p lang="en">
+      Depths come from amateur surveys. Coverage is incomplete: shoals are missing and some
+      values are wrong. <strong>Navigate with your sounder and your own eyes.</strong>
+    </p>
+    <button class="gate__ok" id="btn-gate-ok" type="button">J'ai compris · Understood</button>
+  </div>
+</div>
 
 <div id="chargement" class="loading">
   <svg class="loading__mark" aria-hidden="true"><use href="#i-mark"/></svg>

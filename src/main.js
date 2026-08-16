@@ -1,7 +1,6 @@
-// Assemblage de l'application : chargement des données, carte, réglages, étalonnage.
+// Assemblage de l'application : chargement des données, carte, réglages, relevés.
 
 import { BedGrid, BED_SOURCES, correctedAltitude, DEFAULT_BED_SOURCE } from './bed.js';
-import { Calibration, makeRecord, ON_TRACK_RADIUS_M } from './calibration.js';
 import { DepthLayer } from './depth-layer.js';
 import { formatSpeed, Geolocator } from './geo.js';
 import { formatAge, Level, LevelSource } from './level.js';
@@ -19,11 +18,11 @@ import { closeRing, dedupeRing, DEFAULT_FEATHER_M, formatArea, groundAltitude, r
 const $ = (id) => document.getElementById(id);
 /** Pas des boutons de zoom : un niveau, donc un facteur deux — franc et prévisible. */
 const ZOOM_STEP = 1;
-const ROUTES = { '#/': 'vue-carte', '#/parametres': 'vue-parametres', '#/etalonnage': 'vue-etalonnage', '#/a-propos': 'vue-apropos' };
+const ROUTES = { '#/': 'vue-carte', '#/parametres': 'vue-parametres', '#/a-propos': 'vue-apropos' };
 
 const app = {
   palette: null, model: null, bed: null, soundings: null,
-  settings: null, level: null, geo: null, calibration: null, probes: null,
+  settings: null, level: null, geo: null, probes: null,
   sim: null, compass: null, zones: null,
   lakeMap: null, depthLayer: null,
   alarmActive: false, lastAlarmAt: 0,
@@ -45,6 +44,9 @@ const app = {
 // ---------------------------------------------------------------- démarrage
 
 async function boot() {
+  // Avant tout le reste, et sans attendre les données : l'avertissement doit être lu
+  // pendant que la carte se construit, pas une fois qu'elle s'affiche.
+  showGate();
   try {
     const [palette, model] = await Promise.all([
       fetchJson('config/palette.json'),
@@ -68,7 +70,6 @@ async function boot() {
     // Retouches de couleurs mémorisées : appliquées sur la palette en mémoire, dont tout
     // le rendu (table, légende, shader) dérive ensuite.
     applyAllPaletteOverrides();
-    app.calibration = new Calibration();
     app.probes = new Probes();
     app.sim = new SimPoints();
     app.zones = new Zones();
@@ -108,7 +109,7 @@ async function boot() {
     else app.lakeMap.setVisibleWidth(app.settings.get('initialWidth_m'));
 
     wireSettings();
-    wireCalibration();
+    wireInfoNotes();
     wireProbes();
     wireSim();
     wireZones();
@@ -123,7 +124,6 @@ async function boot() {
     refreshLevelUi();
     refreshDepthStyle();
     refreshSettingsUi();
-    refreshCalibrationUi();
     refreshProbesUi();
     refreshProbesOnMap();
     refreshSimOnMap();
@@ -177,8 +177,8 @@ function whenVisible(message) {
   });
 }
 
-// Les 8 118 sondes ne sont utiles qu'à l'affichage optionnel et à l'étalonnage :
-// on ne bloque pas l'ouverture de la carte pour elles.
+// Les 8 118 sondes ne servent qu'à l'affichage optionnel des traces du levé : on ne bloque
+// pas l'ouverture de la carte pour elles.
 async function loadSoundingsLazily() {
   const status = $('soundings-status');
   try {
@@ -333,7 +333,6 @@ function onPosition(event) {
   setGpsState(position.accuracy);
 
   updateAlarm(depth);
-  if (location.hash === '#/etalonnage') refreshCalibrationContext();
 }
 
 function onGeoStatus(event) {
@@ -448,13 +447,10 @@ function refreshWakeUi() {
 
 const WAKE_MESSAGES = {
   held: 'Écran maintenu allumé : oui.',
-  refused: "Écran maintenu allumé : non — refusé par l'appareil. C'est presque toujours le "
-    + "mode économie d'énergie de l'iPhone, qu'aucune application web ne peut contourner. "
-    + 'Le désactiver, ou brancher le téléphone, rétablit le maintien.',
-  lost: 'Écran maintenu allumé : pas pour le moment. La reprise est automatique dès que la '
-    + 'page revient au premier plan.',
-  unsupported: 'Écran maintenu allumé : impossible, ce navigateur ne fournit pas le verrou '
-    + "d'écran. Régler la mise en veille sur « Jamais » dans les réglages de l'appareil.",
+  refused: "Écran maintenu allumé : refusé — c'est le mode économie d'énergie de l'iPhone.",
+  lost: 'Écran maintenu allumé : pas pour le moment, reprise automatique au retour.',
+  unsupported: "Écran maintenu allumé : impossible sur ce navigateur — régler la mise en "
+    + 'veille sur « Jamais ».',
 };
 
 /**
@@ -514,16 +510,33 @@ function wireSync() {
   refreshSyncUi();
 }
 
-// Les relevés partagés sont les sondes « Relever ». Conversion vers le format de
-// fichier (générique, réutilisable) et retour.
+// Les relevés partagés sont les sondes « Relever » ET les zones émergées. Conversion vers
+// le format de fichier (générique, réutilisable) et retour.
 function probesToRecords() {
+  const fallback = app.settings.get('correctionRadius_m');
   return (app.probes?.records ?? []).map((p) => ({
     id: p.id, at: p.at, lon: p.lon, lat: p.lat, bedZ: p.bedZ,
     depth_m: p.sounderDepth ?? null, cote_m: p.level ?? null,
     transducer_m: p.transducerDepth ?? null,
-    radius_m: p.radius_m ?? null,
+    // Rayon TOUJOURS explicite, jamais `null` : c'est la surface que ce relevé corrige, et
+    // le lecteur d'en face n'a pas le même réglage par défaut que nous. Sans lui, la même
+    // sonde creusait 20 m ici et 60 m là-bas — donc deux cartes différentes pour une seule
+    // mesure. Les relevés antérieurs à cette règle prennent le réglage courant, qui est
+    // celui sous lequel ils ont été posés.
+    radius_m: Probes.radiusOf(p, fallback),
     position_source: p.fixSource ?? 'gps',
   }));
+}
+
+/** Les zones voyagent avec leur altitude de sol et leur fondu — tout ce qui les redessine. */
+function zonesToRecords() {
+  return (app.zones?.records ?? [])
+    .filter((z) => Number.isFinite(z.bedZ) && Array.isArray(z.ring) && z.ring.length >= 3)
+    .map((z) => ({
+      id: z.id, at: z.at, ring: z.ring, bedZ: z.bedZ,
+      height_m: z.height_m ?? null, cote_m: z.cote_m ?? null,
+      feather_m: Number.isFinite(z.feather_m) ? z.feather_m : DEFAULT_FEATHER_M,
+    }));
 }
 
 // L'immersion revient du relevé lui-même. Le réglage courant ne sert que de repli, pour
@@ -542,6 +555,14 @@ function recordsToProbes(records) {
   }));
 }
 
+function recordsToZones(records) {
+  return records.map((r) => ({
+    id: r.id, at: r.at, ring: r.ring, bedZ: r.bedZ,
+    height_m: r.height_m ?? null, cote_m: r.cote_m ?? null,
+    feather_m: Number.isFinite(r.feather_m) ? r.feather_m : DEFAULT_FEATHER_M,
+  }));
+}
+
 /**
  * Union par id, l'horodatage le plus récent gagne les conflits.
  *
@@ -552,12 +573,11 @@ function recordsToProbes(records) {
  * paraissait sans effet sur les quatre sondes publiées, puisqu'elles revenaient à chaque
  * démarrage.
  *
- * D'où les pierres tombales (`Probes.deletedIds`) : un relevé distant plus ancien que sa
- * propre suppression est écarté. Plus récent, il repasse — c'est alors qu'il a été mesuré à
- * nouveau depuis, et la même règle d'horodatage doit valoir.
+ * D'où les pierres tombales (`Probes.deletedIds`, `Zones.deletedIds`) : un relevé distant
+ * plus ancien que sa propre suppression est écarté. Plus récent, il repasse — c'est alors
+ * qu'il a été mesuré à nouveau depuis, et la même règle d'horodatage doit valoir.
  */
-function mergeById(remote, local) {
-  const graves = Probes.deletedIds();
+function mergeById(remote, local, graves = Probes.deletedIds()) {
   const byId = new Map();
   for (const r of [...(remote || []), ...(local || [])]) {
     const buried = graves.get(r.id);
@@ -570,18 +590,18 @@ function mergeById(remote, local) {
 
 /**
  * Au démarrage : on FUSIONNE le distant et le local (jamais d'écrasement qui perdrait des
- * relevés), on adopte la fusion, puis on publie si le local apportait des relevés absents
+ * relevés), on adopte la fusion, puis on publie si le local apportait quelque chose d'absent
  * du distant. C'est ce qui fait remonter des sondes saisies avant l'installation du jeton.
  */
 async function initSync() {
   if (!app.sync) return;
   try {
-    const { records: remote } = await app.sync.pull();
+    const { records: remote, zones: remoteZones } = await app.sync.pull();
     const local = probesToRecords();
-    const merged = mergeById(remote, local);
-    adoptRemote(merged);
-    const remoteIds = new Set(remote.map((r) => r.id));
-    const hasLocalExtra = local.some((r) => !remoteIds.has(r.id));
+    const localZones = zonesToRecords();
+    adoptRemote(mergeById(remote, local), mergeById(remoteZones, localZones, Zones.deletedIds()));
+    const known = new Set([...remote, ...remoteZones].map((r) => r.id));
+    const hasLocalExtra = [...local, ...localZones].some((r) => !known.has(r.id));
     if (app.sync.hasToken() && (app.sync.dirty || hasLocalExtra)) await pushCorrections();
   } catch {
     setSyncStatus('hors ligne — relevés locaux conservés');
@@ -598,8 +618,11 @@ async function syncNow() {
       await pushCorrections();
       toast('Relevés synchronisés');
     } else {
-      const { records } = await app.sync.pull();
-      adoptRemote(mergeById(records, probesToRecords()));
+      const { records, zones } = await app.sync.pull();
+      adoptRemote(
+        mergeById(records, probesToRecords()),
+        mergeById(zones, zonesToRecords(), Zones.deletedIds()),
+      );
       toast('Relevés partagés récupérés');
     }
   } catch (err) {
@@ -609,11 +632,11 @@ async function syncNow() {
   refreshSyncUi();
 }
 
-/** Adopte un jeu de relevés (fusionné) sans déclencher de renvoi. */
-function adoptRemote(records) {
-  if (!Array.isArray(records)) return;
+/** Adopte un jeu de relevés et de zones (fusionné) sans déclencher de renvoi. */
+function adoptRemote(records, zones) {
   app.suppressPush = true;
-  app.probes.replaceAll(recordsToProbes(records));
+  if (Array.isArray(records)) app.probes.replaceAll(recordsToProbes(records));
+  if (Array.isArray(zones)) app.zones.replaceAll(recordsToZones(zones));
   app.suppressPush = false;
 }
 
@@ -627,8 +650,8 @@ async function pushCorrections() {
   if (!app.sync?.hasToken()) return;
   setSyncStatus('envoi…');
   try {
-    await app.sync.push(probesToRecords(), syncMeta());
-    setSyncStatus(`à jour · ${app.probes.count} relevé(s)`);
+    await app.sync.push(probesToRecords(), syncMeta(), zonesToRecords());
+    setSyncStatus(syncSummary());
   } catch (err) {
     app.sync.markDirty();
     setSyncStatus(`non synchronisé : ${err.message}`);
@@ -642,6 +665,9 @@ function setSyncStatus(text) {
   if (el) el.textContent = text;
 }
 
+const syncSummary = () => `à jour · ${app.probes.count} relevé(s)`
+  + (app.zones?.count ? `, ${app.zones.count} zone(s)` : '');
+
 function refreshSyncUi() {
   if (!app.sync) return;
   $('btn-sync-now').textContent = app.sync.hasToken() ? 'Synchroniser maintenant' : 'Récupérer les relevés';
@@ -649,7 +675,7 @@ function refreshSyncUi() {
   const transient = /^(envoi|synchronisation|non synchronisé|échec|hors ligne)/.test(cur);
   if (!transient) {
     setSyncStatus(app.sync.hasToken()
-      ? (app.sync.dirty ? 'écritures en attente' : `à jour · ${app.probes.count} relevé(s)`)
+      ? (app.sync.dirty ? 'écritures en attente' : syncSummary())
       : 'lecture seule (aucun jeton)');
   }
 }
@@ -737,13 +763,24 @@ function wireSettings() {
   });
 
   bind('set-bed-source', 'change', (el) => s.set('bedSource', el.value));
-  bind('set-qd-datum', 'change', (el) => {
+  // Un seul champ, deux grandeurs : le geste est le même — « de combien cette carte-ci est
+  // à côté » — mais ce qu'il corrige suit la carte affichée. Sur la communautaire, c'est le
+  // plan d'eau auquel se rapportent les bandes ; sur le levé, la cote du 22 avril 2009. Les
+  // confondre corromprait l'autre carte, d'où l'aiguillage ici et non dans le réglage.
+  bind('set-datum', 'change', (el) => {
     const value = Number(el.value);
-    s.set('quickdrawDatum_m', el.value === '' || !Number.isFinite(value)
-      ? null
-      : Math.max(-10, Math.min(10, round2(value))));
+    const empty = el.value === '' || !Number.isFinite(value);
+    if (communityBed()) {
+      s.set('quickdrawDatum_m', empty ? null : clamp(round2(value), -10, 10));
+    } else {
+      s.set('calibrationOffset_m', empty ? 0 : clamp(round2(value), -5, 5));
+    }
   });
-  $('btn-qd-datum-reset').addEventListener('click', () => s.set('quickdrawDatum_m', null));
+  $('btn-datum-reset').addEventListener('click', () => {
+    if (communityBed()) s.set('quickdrawDatum_m', s.defaults.quickdrawDatum_m);
+    else s.set('calibrationOffset_m', s.defaults.calibrationOffset_m);
+    refreshBedSourceUi();
+  });
   bind('set-preset', 'change', (el) => s.set('preset', el.value));
   bind('set-opacity', 'input', (el) => s.set('opacity', Number(el.value) / 100));
   bind('set-outlines', 'change', (el) => s.set('showOutlines', el.checked));
@@ -756,7 +793,6 @@ function wireSettings() {
   bind('set-alarm', 'change', (el) => s.set('alarmEnabled', el.checked));
   bind('set-alarm-depth', 'change', (el) => s.set('alarmDepth_m', clampNumber(el, 0.2, 10)));
   bind('set-speed-unit', 'change', (el) => s.set('speedUnit', el.value));
-  bind('set-offset', 'change', (el) => s.set('calibrationOffset_m', clampNumber(el, -5, 5)));
   bind('set-manual-level', 'change', (el) => {
     const value = Number(el.value);
     s.set('manualLevel', el.value === '' || !Number.isFinite(value) ? null : value);
@@ -886,8 +922,13 @@ function disarmAll() {
 function clampNumber(element, min, max) {
   const value = Number(element.value);
   if (!Number.isFinite(value)) return Number(element.defaultValue) || min;
-  return Math.min(Math.max(value, min), max);
+  return clamp(value, min, max);
 }
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+/** La carte communautaire est-elle celle qui est affichée ? */
+const communityBed = () => (app.bed?.source ?? app.settings.get('bedSource')) === 'quickdraw';
 
 function refreshSettingsUi() {
   const s = app.settings;
@@ -904,7 +945,6 @@ function refreshSettingsUi() {
   $('set-alarm').checked = s.get('alarmEnabled');
   $('set-alarm-depth').value = s.get('alarmDepth_m');
   $('set-speed-unit').value = s.get('speedUnit');
-  $('set-offset').value = s.get('calibrationOffset_m');
   $('set-manual-level').value = s.get('manualLevel') ?? '';
   $('set-transducer').value = s.get('transducer_m');
   $('set-probes').checked = s.get('showProbes');
@@ -915,11 +955,6 @@ function refreshSettingsUi() {
 
   $('hint-safety').textContent = `Contour de sécurité tracé à ${s.safetyDepth.toFixed(2)} m `
     + `(tirant d'eau ${s.get('draft_m')} + marge ${s.get('margin_m')}).`;
-
-  const z = s.get('z2009_m_ngf') + s.get('calibrationOffset_m');
-  $('hint-z2009').textContent = `Cote du levé retenue : ${z.toFixed(2)} m NGF `
-    + `(valeur de départ ${s.get('z2009_m_ngf')}, non confirmée). `
-    + `Une fois la valeur stabilisée, la reporter dans config/model.json et reconstruire la grille.`;
 
   const state = currentLevel();
   $('hint-level').textContent = state.value == null
@@ -938,178 +973,43 @@ function refreshSettingsUi() {
   refreshPaletteEditor();
 }
 
-// ------------------------------------------------------------- étalonnage
-
-function wireCalibration() {
-  $('btn-releve').addEventListener('click', recordCalibration);
-  wireSignToggle('btn-cal-sign', 'cal-depth');
-  // Le même bouton corrige deux choses différentes selon la carte affichée, et c'est
-  // voulu : ce qu'on mesure au sondeur, c'est toujours « de combien cette carte-ci est à
-  // côté ». Sur le levé, la grandeur fautive est la cote du levé de 2009 ; sur la carte
-  // communautaire, c'est le plan d'eau auquel se rapportent les bandes. Les deux se
-  // règlent, mais pas au même endroit — les confondre corromprait l'autre carte.
-  $('btn-apply-offset').addEventListener('click', () => {
-    const stats = app.calibration.stats(true, app.bed.source);
-    if (!stats) return;
-    const shift = round2(stats.median);
-    const sign = shift > 0 ? '+' : '';
-    if (app.bed.source === 'quickdraw') {
-      const datum = round2(app.bed.datum + shift);
-      app.settings.set('quickdrawDatum_m', datum);
-      toast(`Recalage porté à ${datum > 0 ? '+' : ''}${datum} m (${sign}${shift})`);
-    } else {
-      app.settings.set('calibrationOffset_m', shift);
-      toast(`Correction de ${sign}${shift} m appliquée`);
-    }
-  });
-  $('btn-cal-csv').addEventListener('click', () => download('etalonnage.csv', app.calibration.toCsv(), 'text/csv'));
-  $('btn-cal-json').addEventListener('click', () => download('etalonnage.json', app.calibration.toJson(), 'application/json'));
-  wireArmed('btn-cal-clear', 'Confirmer ?', () => app.calibration.clear());
-  app.calibration.addEventListener('change', refreshCalibrationUi);
-}
-
-function recordCalibration() {
-  const position = app.geo.position;
-  if (!position) { toast('Position GPS indisponible'); return; }
-
-  const sounderDepth = readDepthInput('cal-depth');
-  if (sounderDepth === null) {
-    toast('Saisissez la profondeur lue au sondeur (négative si le fond émerge)'); return;
-  }
-
-  const state = currentLevel();
-  if (state.value == null) { toast('Cote du lac inconnue'); return; }
-
-  // Altitude du levé 2009 SEUL : le décalage cherché est précisément celui qu'on
-  // appliquera ensuite. `altitudeAt()` renverrait la grille de travail, déjà tirée vers
-  // les relevés manuels — un étalonnage pris dans un disque de correction mesurerait son
-  // écart contre une surface qu'on a soi-même déplacée, donc un résidu rabattu vers zéro.
-  const modelBedZ = app.bed.baseAltitudeAt(position.lon, position.lat);
-  if (!Number.isFinite(modelBedZ)) { toast('Hors emprise du modèle'); return; }
-
-  app.calibration.add(makeRecord({
-    position,
-    level: state.value,
-    levelSource: state.source,
-    modelBedZ,
-    sounderDepth,
-    transducerDepth: Number($('cal-transducer').value) || 0,
-    nearestSounding: app.soundings?.distanceToNearest(position.lon, position.lat) ?? Infinity,
-    bedSource: app.bed.source,
-    bedDatum: app.bed.datum,
-  }));
-
-  setDepthInput('cal-depth');
-  toast(`Relevé enregistré · ${depthLabel(sounderDepth)}`);
-}
-
-function refreshCalibrationContext() {
-  const position = app.geo.position;
-  const element = $('cal-context');
-  if (!position) { element.textContent = 'Position en attente…'; return; }
-
-  const depth = depthAt(position.lon, position.lat);
-  const nearest = app.soundings?.distanceToNearest(position.lon, position.lat) ?? Infinity;
-  const onTrack = nearest <= ON_TRACK_RADIUS_M;
-
-  element.textContent = `Modèle : ${Number.isFinite(depth) ? `${depth.toFixed(1)} m` : '—'} · `
-    + `GPS ±${position.accuracy ? Math.round(position.accuracy) : '?'} m · `
-    + (Number.isFinite(nearest)
-      ? `sonde 2009 la plus proche à ${Math.round(nearest)} m ${onTrack ? '— sur la trace' : '— entre deux traces, relevé peu fiable'}`
-      : 'aucune sonde 2009 à proximité — relevé peu fiable');
-}
+// --------------------------------------- notes détaillées des réglages (le petit « i »)
 
 /**
- * Second verdict : la forme du résidu. Un décalage de référence est constant ; une erreur
- * d'échelle du sondeur croît avec la profondeur. Les deux se ressemblent tant qu'on n'a
- * sondé qu'une bande étroite — et c'est justement là que la constante devient un piège,
- * puisqu'elle serait appliquée à un lac qui descend à 31 m.
+ * Chaque réglage porte une ligne de commentaire, et un « i » qui ouvre le détail.
+ *
+ * Les explications tenaient jusqu'ici en toutes lettres sous chaque réglage : six à dix
+ * lignes chacune, et la page des Paramètres était devenue un texte suivi dans lequel les
+ * réglages se perdaient. Ce qui est nécessaire pour agir reste visible ; le pourquoi — qui
+ * ne se lit qu'une fois, et jamais sur l'eau — s'ouvre à la demande.
  */
-function depthVerdict(stats) {
-  if (!Number.isFinite(stats.depthMin)) return null;
-  const span = `sondé de ${stats.depthMin.toFixed(1)} à ${stats.depthMax.toFixed(1)} m`;
-
-  if (stats.model === 'proportionnel') {
-    return ['verdict--spread', `L'écart suit la profondeur (environ ${stats.slopePercent.toFixed(0)} %`
-      + ` de la profondeur, ${span}) : ce n'est pas la référence du levé qui est en cause,`
-      + ' mais l\'échelle du sondeur. Une constante corrigerait le petit fond et fausserait'
-      + ' le large — vérifiez le réglage de vitesse du son.'];
+function wireInfoNotes() {
+  for (const button of document.querySelectorAll('.infobtn[data-info]')) {
+    const note = $(button.dataset.info);
+    if (!note) continue;
+    button.addEventListener('click', () => {
+      const open = note.hidden;
+      note.hidden = !open;
+      button.setAttribute('aria-expanded', String(open));
+    });
   }
-  if (stats.model === 'constant') {
-    return ['verdict--ok', `L'écart ne suit pas la profondeur (${span}) : un décalage constant`
-      + ' est bien le bon modèle.'];
-  }
-  return ['verdict--wait', `Impossible encore de distinguer un décalage constant d'une erreur`
-    + ` proportionnelle à la profondeur (${span}) : relevez aussi en eau nettement plus`
-    + ' profonde, sans quoi la correction sera fausse au large.'];
 }
 
-function refreshCalibrationUi() {
-  // Les résidus se comptent par carte : un écart mesuré contre le levé ne corrige pas la
-  // carte communautaire, et l'inverse est tout aussi faux.
-  const stats = app.calibration.stats(true, app.bed?.source);
-  const container = $('cal-stats');
-  const apply = $('btn-apply-offset');
+// ------------------------------------------ avertissement d'ouverture (FR / EN)
 
-  if (!stats) {
-    container.innerHTML = '<p class="hint">Aucun relevé.</p>';
-    apply.disabled = true;
-  } else {
-    // Premier verdict : la dispersion seule. Conclure ici « c'est bien un décalage de
-    // référence » contredirait le second quand la forme du résidu n'est pas tranchée —
-    // sur un outil de navigation, deux verdicts qui se contredisent ne valent rien.
-    const verdict = stats.count < 5
-      ? ['verdict--wait', `Encore ${5 - stats.count} relevé(s) pour conclure.`]
-      : stats.iqr > 1.0
-        ? ['verdict--spread', `Écarts dispersés (interquartile ${stats.iqr.toFixed(2)} m) : `
-          + (stats.model === 'proportionnel'
-            ? 'ils suivent la profondeur — voir ci-dessous.'
-            : "le problème est l'interpolation, pas la référence. Aucune constante ne le corrigera.")]
-        : ['verdict--ok', `Écarts groupés (interquartile ${stats.iqr.toFixed(2)} m) : les relevés sont cohérents entre eux.`];
-
-    const shape = depthVerdict(stats);
-    container.innerHTML = `
-      <div class="big-number">${stats.median > 0 ? '+' : ''}${stats.median.toFixed(2)} m</div>
-      <p class="hint">Médiane des écarts sur ${stats.count} relevé(s)
-        ${stats.trustedCount ? `dont ${stats.trustedCount} sur trace` : ''} ·
-        étendue ${stats.min.toFixed(2)} à ${stats.max.toFixed(2)} m</p>
-      <p class="verdict ${verdict[0]}">${verdict[1]}</p>
-      ${shape ? `<p class="verdict ${shape[0]}">${shape[1]}</p>` : ''}`;
-    apply.disabled = !stats.usable;
-  }
-
-  // Dire sur quelle carte on mesure, et ce que « Appliquer » corrigera : le même bouton
-  // règle la cote du levé de 2009 ou le recalage de la carte communautaire.
-  const community = app.bed?.source === 'quickdraw';
-  const mine = app.calibration.forBed(app.bed?.source).length;
-  const other = app.calibration.records.length - mine;
-  $('cal-bed').innerHTML = `Carte mesurée : <strong>${BED_SOURCES[app.bed?.source ?? DEFAULT_BED_SOURCE].label}</strong>`
-    + ` — ${mine} relevé(s)${other ? `, ${other} sur l'autre carte, non comptés` : ''}.`
-    + (community
-      ? ` « Appliquer » reportera la médiane sur le <em>recalage</em> de cette carte`
-        + ` (actuellement ${app.bed.datum > 0 ? '+' : ''}${app.bed.datum.toFixed(2)} m).`
-      : ' « Appliquer » corrigera la cote du levé de 2009.');
-  apply.textContent = community ? 'Appliquer au recalage' : 'Appliquer la correction';
-
-  const list = $('cal-records');
-  list.replaceChildren(...app.calibration.records.slice().reverse().map((r) => {
-    const item = document.createElement('li');
-    const when = new Date(r.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
-    const bed = r.bedSource ?? DEFAULT_BED_SOURCE;
-    item.innerHTML = `<span class="residual">${r.residual > 0 ? '+' : ''}${r.residual.toFixed(2)} m</span>
-      <span class="tag ${r.onTrack ? 'tag--on' : 'tag--off'}">${r.onTrack ? 'sur trace' : 'hors trace'}</span>
-      ${bed === (app.bed?.source ?? DEFAULT_BED_SOURCE) ? '' : `<span class="tag tag--off">${BED_SOURCES[bed]?.label ?? bed}</span>`}
-      <span class="hint">${r.sounderDepth < 0 ? `${depthLabel(r.sounderDepth)} (à pied)` : `${depthLabel(r.sounderDepth)} au sondeur`} · ${when}</span>`;
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.textContent = '×';
-    remove.title = 'Supprimer ce relevé';
-    remove.addEventListener('click', () => app.calibration.remove(r.id));
-    item.append(remove);
-    return item;
-  }));
-
-  app.lakeMap?.setMarkers(app.calibration.records);
+/**
+ * Mise en garde affichée à chaque lancement.
+ *
+ * Non mémorisée volontairement : ce n'est pas une case à cocher une fois pour toutes mais
+ * un rappel de ce qu'on a sous les yeux, et le lac reçoit surtout des visiteurs qui
+ * ouvrent l'application une seule fois. Elle ne bloque pas le chargement — la carte se
+ * construit derrière — mais elle passe au-dessus de l'écran d'attente.
+ */
+function showGate() {
+  const gate = $('gate');
+  if (!gate) return;
+  gate.hidden = false;
+  $('btn-gate-ok').addEventListener('click', () => { gate.hidden = true; }, { once: true });
 }
 
 // ---------------------------------------------------------------- mes sondes
@@ -1464,8 +1364,12 @@ function refreshProbesUi() {
     const when = new Date(r.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
     const modelText = Number.isFinite(r.modelDepth) && r.modelDepth > 0
       ? ` · modèle ${r.modelDepth.toFixed(1)} m` : '';
+    // Le rayon fait partie de ce qu'on relit : c'est lui qui dit quelle surface le point
+    // corrige, donc ce que verra celui d'en face. Une liste qui le taisait laissait croire
+    // qu'il n'appartenait pas au relevé.
+    const radius = Probes.radiusOf(r, app.settings.get('correctionRadius_m'));
     item.innerHTML = `<span class="residual">${depthLabel(r.sounderDepth)}</span>
-      <span class="hint">${when}${modelText}</span>`;
+      <span class="hint">rayon ${Math.round(radius)} m · ${when}${modelText}</span>`;
 
     const edit = document.createElement('button');
     edit.type = 'button';
@@ -1845,7 +1749,6 @@ async function applyBedSource(announce = false) {
       app.bed.setDatumOffset(app.settings.get('quickdrawDatum_m'));
       applyModelCorrections();
       refreshBedSourceUi();
-      refreshCalibrationUi();
       refreshDepthStyle();
       if (announce) toast(`Fond : ${BED_SOURCES[app.bed.source].label}`);
     }
@@ -1855,42 +1758,59 @@ async function applyBedSource(announce = false) {
   }
 }
 
-/** Rappelle partout quelle carte est sous les pieds : réglages et page « À propos ». */
+/**
+ * Rappelle partout quelle carte est sous les pieds : réglages et page « À propos ».
+ *
+ * C'est aussi ici que le champ « Recalage de la carte » change de grandeur. Le levé de 2009
+ * n'a pas de recalage de plan d'eau mais a le même problème sous un autre nom — la cote du
+ * jour du levé, inconnue, qui décale toutes ses profondeurs d'une constante : c'est donc
+ * bien le même champ, et non deux réglages voisins entre lesquels il faudrait choisir.
+ */
 function refreshBedSourceUi() {
   if (!app.bed) return;
   const source = BED_SOURCES[app.bed.source];
   const meta = app.bed.meta;
   $('set-bed-source').value = app.bed.source;
   const community = app.bed.source === 'quickdraw';
+  $('sec-fond').classList.toggle('is-community', community);
   $('hint-bed-source').textContent = community
-    ? `Affiché : ${meta.quickdraw_only?.framed_ha ?? '—'} ha encadrés par la communauté `
-      + `(${Math.round((meta.coverage_ratio ?? 0) * 100)} % du lac), largeur d'encadrement `
-      + `médiane ${meta.quickdraw_only?.envelope_median_m ?? '—'} m. Aucune sonde de 2009.`
-    : `Affiché : levé OFB 2009 relevé par le MNT et encadré par la communauté, `
-      + `sonde à ${meta.coverage?.median_m ?? '—'} m en médiane.`;
+    ? `${meta.quickdraw_only?.framed_ha ?? '—'} ha encadrés par la communauté `
+      + `(${Math.round((meta.coverage_ratio ?? 0) * 100)} % du lac), aucune sonde de 2009.`
+    : `Levé mesuré au décimètre, sonde à ${meta.coverage?.median_m ?? '—'} m en médiane, `
+      + 'interpolé entre les traces.';
 
-  // Le recalage ne concerne que la carte communautaire : sur le levé, le bloc disparaît
-  // plutôt que de rester là, grisé, à laisser croire qu'il pourrait s'appliquer.
-  $('bloc-recalage').hidden = !community || !meta.quickdraw_only;
+  const field = $('set-datum');
+  const applied = community ? app.bed.datum : app.settings.get('calibrationOffset_m');
+  // On n'écrase pas la saisie en cours : réécrire la valeur pendant que l'utilisateur tape
+  // lui déplacerait le curseur à chaque frappe.
+  if (document.activeElement !== field) field.value = applied.toFixed(2);
+  field.min = community ? -10 : -5;
+  field.max = community ? 10 : 5;
+
   if (community && meta.quickdraw_only) {
-    const applied = app.bed.datum;
     const built = app.bed.builtInDatum;
     const zAc = meta.quickdraw_only.z_ac_m_ngf;
-    const field = $('set-qd-datum');
-    // On n'écrase pas la saisie en cours : réécrire la valeur pendant que l'utilisateur
-    // tape lui déplacerait le curseur à chaque frappe.
-    if (document.activeElement !== field) field.value = applied.toFixed(2);
-    $('hint-qd-datum').textContent =
+    $('hint-datum').textContent =
       `Plan d'eau de référence : ${(zAc + applied).toFixed(2)} m NGF `
-      + `(mesuré ${zAc.toFixed(2)}, recalé de ${applied > 0 ? '+' : ''}${applied.toFixed(2)} m). `
-      + (Math.abs(applied - built) < 0.005
-        ? "C'est la valeur d'origine du fichier."
-        : `Réglage local — le fichier dit ${built > 0 ? '+' : ''}${built.toFixed(2)} m.`);
+      + `(mesuré ${zAc.toFixed(2)}, recalé de ${signed(applied)} m).`
+      + (Math.abs(applied - built) < 0.005 ? ' Valeur du fichier.' : ` Le fichier dit ${signed(built)}.`);
+  } else if (community) {
+    $('hint-datum').textContent = `Recalage appliqué : ${signed(applied)} m.`;
+  } else {
+    const z = app.settings.get('z2009_m_ngf') + applied;
+    $('hint-datum').textContent = `Cote du levé retenue : ${z.toFixed(2)} m NGF `
+      + `(départ ${app.settings.get('z2009_m_ngf')}, non confirmée).`;
+    $('hint-z2009').textContent = 'Une fois la valeur stabilisée, la reporter dans '
+      + 'config/model.json et reconstruire la grille : le recalage ne serait alors plus '
+      + 'qu\'un correctif de dernière minute, à remettre à zéro.';
   }
 
   $('apropos-version').textContent = `${VERSION} · fond ${source.label} `
     + `· grille ${app.bed.width}×${app.bed.height}`;
 }
+
+/** « +1,72 » / « −0,30 » : sur un décalage, le signe porte tout le sens. */
+const signed = (value) => `${value > 0 ? '+' : ''}${value.toFixed(2)}`;
 
 /**
  * Reporte le recalage réglé à la main sur la grille en mémoire.
@@ -1906,8 +1826,9 @@ function applyBedDatum(announce = false) {
   refreshBedSourceUi();
   if (announce) {
     const applied = app.bed.datum;
-    toast(`Recalage ${applied > 0 ? '+' : ''}${applied.toFixed(2)} m — plan d'eau `
-      + `${(app.bed.meta.quickdraw_only.z_ac_m_ngf + applied).toFixed(2)} m NGF`);
+    const zAc = app.bed.meta.quickdraw_only?.z_ac_m_ngf;
+    toast(`Recalage ${signed(applied)} m`
+      + (Number.isFinite(zAc) ? ` — plan d'eau ${(zAc + applied).toFixed(2)} m NGF` : ''));
   }
 }
 
@@ -2109,8 +2030,10 @@ function wireZones() {
     refreshZonesOnMap();
     refreshZonesUi();
     refreshZonePanel();
-    // Volontairement pas de synchronisation : une zone est une interprétation, et le
-    // fichier partagé ne transporte que des points mesurés.
+    // Et se partage, comme une sonde : un îlot que le levé a comblé est exactement ce que
+    // le voisin doit voir avant de passer dessus. Le fichier le range à part des points —
+    // une zone reste une interprétation, pas une mesure.
+    if (!app.suppressPush) scheduleSyncPush();
   });
 }
 
@@ -2447,7 +2370,13 @@ function wireMap() {
   });
   app.lakeMap.addEventListener('zoneclose', closeZoneDraft);
 
-  $('btn-cote').addEventListener('click', () => { location.hash = '#/parametres'; });
+  // La cote du bandeau ouvre l'étiage, et non les réglages : ce qu'on veut en la touchant,
+  // c'est faire varier le niveau pour voir ce qui découvre — la saisie manuelle, elle, se
+  // fait une fois par an. Le panneau d'étiage porte d'ailleurs la cote en grand.
+  $('btn-cote').addEventListener('click', () => {
+    location.hash = '#/';
+    if (!app.simMode) enterSim();
+  });
 
   // Rotation de l'écran : la hauteur disponible change, donc la remontée du rail et son
   // repli. Sans cela, un panneau ouvert avant la bascule laisse le rail au mauvais endroit.
@@ -2482,6 +2411,12 @@ function wireTools() {
     sheet.hidden = !on;
     $('btn-menu').setAttribute('aria-expanded', String(on));
   };
+
+  // « Trajet » remplace l'étalonnage du sondeur, retiré : la place est prise, la fonction
+  // reste à écrire. Une tuile morte vaut mieux qu'une tuile qui ment sur ce qu'elle fait.
+  $('btn-trajet').addEventListener('click', () => {
+    toast('Trajet : enregistrement de la route parcourue — pas encore disponible', 4000);
+  });
 
   $('btn-menu').addEventListener('click', () => open(sheet.hidden));
   $('sheet-scrim').addEventListener('click', () => open(false));
@@ -2556,7 +2491,6 @@ function route() {
   });
   if (target === 'vue-carte') app.lakeMap?.map.resize();
   if (target === 'vue-parametres') refreshSettingsUi();
-  if (target === 'vue-etalonnage') { refreshCalibrationUi(); refreshCalibrationContext(); }
 }
 
 window.addEventListener('hashchange', route);
