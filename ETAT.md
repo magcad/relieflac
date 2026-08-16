@@ -40,6 +40,66 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L11** | **Historique** des sorties : chaque navigation Go laisse sa trace, sa distance et sa durée, revues sur la carte | ✅ terminé le 16/08/2026 (v2026-08-16.5) — voir § 1 |
 | **L12** | Retour de la **première sortie en Navigation** : ré-accrochage après raccourci, chevrons et portion parcourue, commandes de carte en Go, **trajets et sorties partagés** | ✅ terminé le 16/08/2026 (v2026-08-16.6) — voir § 1 |
 | **L13** | Les deux bancs remis au vert — et, dessous, **les traits de palier qui n'étaient jamais tracés** | ✅ terminé le 16/08/2026 (v2026-08-16.8) — voir § 1 |
+| **L14** | Mode Navigation refondu : **la liste des trajets devient le mode**, avec une **vignette** par trajet (silhouette du lac + tracé) | 🟡 spécifié le 16/08/2026, à développer — voir § 1 |
+
+**Lot L14 — la liste des trajets devient le mode** (spécifié le 16/08/2026 avec
+l'utilisateur, **pas encore développé**). Le panneau Navigation portait trois tuiles (Go,
+Trajet, Historique) **et** la liste des trajets, où chaque ligne sait déjà lancer, éditer et
+supprimer. Les tuiles Go et Trajet faisaient donc double emploi avec la liste. Le symptôme
+était dans le code : `startGoFromMenu` ne sait pas faire son travail seul — il essaie le
+dernier trajet, puis le trajet unique, puis renonce en rouvrant le panneau sur la liste. Un
+bouton qui, dans le cas général, ne fait qu'ouvrir une liste est un détour.
+
+**Décision : la liste *est* le mode.** « Navigation » répond à « quel trajet ? », et la
+réponse est une liste. Go et Trajet ne sont pas des objets, ce sont des verbes.
+
+- **La ligne entière lance la navigation** — plus de petit `▶` à viser sur un ponton.
+- **La croix `✕` quitte la liste.** Une commande destructrice dans une liste qu'on fait
+  défiler, avec des trajets qui vont se multiplier et des doigts mouillés, est un piège. La
+  suppression existe déjà dans l'éditeur (`btn-route-del`, double appui) : elle n'existe plus
+  que là. `✎` reste sur la ligne.
+- **Barre d'actions compacte au-dessus de la liste** : `✚ Nouveau trajet` et `Historique` —
+  des boutons, pas des tuiles. L'historique est un autre objet (des sorties, pas des
+  trajets) : il garde une entrée à lui, sans peser autant que le catalogue.
+- **Dernier trajet suivi épinglé en tête**, avec une mention discrète. `loadLastRoute()`
+  existe déjà et sert exactement à cela dans le repli actuel : c'est ce qui remplace le
+  bénéfice réel de l'ancien bouton Go — repartir en un appui sur le trajet habituel.
+- `startGoFromMenu` et ses trois branches disparaissent, ainsi que les tuiles `btn-go` et
+  `btn-trajet`. Le `▶ Go` **de l'éditeur** reste : ce n'est pas un doublon mais la suite
+  naturelle de « je viens de tracer ce trajet ».
+
+**Vignettes** — le texte seul ne discrimine pas : « Tour du lac » et « Tour du lac bis » se
+ressemblent. Une miniature du seul tracé ne ferait pas mieux (deux allers-retours donnent
+deux traits). Ce qui identifie un trajet, c'est **où** il est sur le lac.
+
+- Silhouette du lac en gris sourd, tracé par-dessus en bleu de navigation, point au départ,
+  pointe à l'arrivée. Environ 64 × 44 px, à gauche de la ligne.
+- **Normaliser sur l'emprise du LAC, jamais sur celle du trajet.** C'est tout le mécanisme :
+  cadrer sur le trajet ferait remplir sa vignette à chacun, et ils se ressembleraient de
+  nouveau. L'emprise est déjà chargée — `bed.meta.bounds_wgs84`.
+- Conséquence assumée : un petit parcours devient un pâté de quelques pixels. Ce n'est pas un
+  défaut, sa **position** dans la silhouette est l'information ; épaisseur de trait minimale
+  pour qu'il ne disparaisse pas.
+- **La silhouette vient d'un fichier préparé**, pas de `data/lake.geojson` : 385 Ko et 4 435
+  sommets, aujourd'hui lu par les seuls outils Python et jamais par l'application. Un outil
+  le décime à 200–300 sommets, le projette une fois pour toutes dans un carré normalisé et
+  écrit un **chemin SVG tout fait** (~3 Ko). L'application colle une chaîne, elle ne calcule
+  aucune géométrie de fond.
+- Module **pur** `src/thumb.js` (points → chaîne de chemin), donc vérifiable au banc sans
+  DOM. Employé par `fillRouteList`, et **réutilisable pour l'Historique** : une trace de
+  sortie est une polyligne de plus dans la même silhouette.
+- Rien ne transite en plus par la synchronisation : tout se dessine chez le client.
+
+**Piège signalé par l'utilisateur, à ne pas manquer** : les trajets d'autrui arrivent par
+`syncRoutes()` **après** le premier rendu de la liste. Les vignettes doivent donc être
+**regénérées à chaque `replaceAll`**, et surtout ne pas être mises en cache sur le seul
+identifiant : un trajet partagé peut changer sous le même `id`. Clé de cache = `id` + `at`.
+
+**Aperçu avant de lancer**, sans ajouter d'appui sur le chemin critique : au démarrage de Go,
+la carte cadre le trajet entier une seconde et demie, puis glisse vers la vue de barre —
+« Quitter » reste là si ce n'était pas le bon. Et `✎` ouvre l'éditeur, qui dessine le trajet
+avec ses points de passage : c'est le chemin « regarder de près », il existe déjà. **Pas
+d'appui long** pour prévisualiser : rien ne le signale, personne ne le découvre.
 
 **Lot L13 — les traits de palier n'étaient jamais tracés** (16/08/2026, v2026-08-16.8).
 Neuf points de contrôle échouaient — un au banc du dépôt, huit au banc d'enchaînements. Le
