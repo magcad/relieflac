@@ -2,7 +2,7 @@
   "schema": "relieflac.corrections/1",
   "waterbody": "vassiviere",
   "datum": "NGF-IGN69",
-  "updated_at": "2026-08-16T15:22:22.285Z",
+  "updated_at": "2026-08-16T16:37:06.649Z",
   "zones": [
     {
       "id": "5b8d372e-545f-4970-bc1e-f657a881bb77",
@@ -45,7 +45,7 @@
       "cote_m_ngf": 646.99,
       "transducer_m": 0.3,
       "z_fond_m_ngf": 643.2900000000001,
-      "radius_m": 30,
+      "radius_m": 20,
       "position_source": "gps",
       "at": "2026-08-11T10:17:40.973Z",
       "by": null
@@ -607,6 +607,32 @@
       "radius_m": 20,
       "position_source": "gps",
       "at": "2026-08-16T15:22:20.763Z",
+      "by": null
+    },
+    {
+      "id": "2bb4f918-b144-4928-b9b3-3368d79da88a",
+      "lon": 1.8992398843388698,
+      "lat": 45.78978134358188,
+      "depth_m": 2.6,
+      "cote_m_ngf": 646.99,
+      "transducer_m": 0.3,
+      "z_fond_m_ngf": 644.09,
+      "radius_m": 20,
+      "position_source": "gps",
+      "at": "2026-08-11T10:16:53.936Z",
+      "by": null
+    },
+    {
+      "id": "d11cccb8-f083-451a-8d40-ac2eac4d114a",
+      "lon": 1.8773363514012829,
+      "lat": 45.78837069573021,
+      "depth_m": 1.6,
+      "cote_m_ngf": 646.51,
+      "transducer_m": 0.3,
+      "z_fond_m_ngf": 644.61,
+      "radius_m": 55,
+      "position_source": "map",
+      "at": "2026-08-16T06:31:29.848Z",
       "by": null
     }
   ]
