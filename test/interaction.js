@@ -474,6 +474,63 @@ async function run() {
     back0 && Number.isFinite(restored) && Math.abs(restored - onCommunity) < 0.005,
     `${restored?.toFixed(2)} m NGF`);
 
+  // ------------------------------- raccourci du rail, et non-cumul des deux recalages
+  //
+  // Le bouton du rail est le seul endroit qui dise en permanence quelle carte est sous les
+  // pieds : il doit annoncer celle qui est RÉELLEMENT chargée, et en changer d'un appui.
+  group('Raccourci de carte du rail');
+  check('le rail annonce la carte communautaire',
+    $('tag-bed-source').textContent === 'COM', $('tag-bed-source').textContent);
+  $('btn-bed-source').click();
+  const toSurvey = await until(() => $('tag-bed-source').textContent === '2009', 8000);
+  check('un appui bascule sur le levé de 2009', toSurvey,
+    `${$('tag-bed-source').textContent} · réglage ${settings().bedSource}`);
+  check('et le sélecteur des réglages suit la carte affichée',
+    $('set-bed-source').value === 'ofb2009', $('set-bed-source').value);
+
+  // Chaque carte a son recalage, et un seul agit : celui de la carte affichée. Le recalage
+  // du levé s'appliquait aussi à la communautaire, qui n'en montre pourtant pas la valeur —
+  // le champ disait « +1,72 » et la carte se déplaçait de 1,72 plus autre chose.
+  location.hash = '#/parametres';
+  await sleep(60);
+  $('set-datum').value = '0.60';
+  $('set-datum').dispatchEvent(new Event('change'));
+  const offsetSet = await until(
+    () => Math.abs((settings().calibrationOffset_m ?? 0) - 0.6) < 0.005, 8000);
+  location.hash = '#/';
+  await sleep(60);
+  const surveyRaised = await readModel();
+  check('sur le levé, le recalage remonte bien le fond lu',
+    offsetSet && Number.isFinite(surveyRaised) && Math.abs(surveyRaised - onSurvey - 0.6) < 0.02,
+    `${onSurvey?.toFixed(2)} → ${surveyRaised?.toFixed(2)} m NGF`);
+
+  $('btn-bed-source').click();
+  const toCommunity = await until(() => $('tag-bed-source').textContent === 'COM', 8000);
+  const communityAgain = await readModel();
+  check('le recalage du levé ne déplace pas la carte communautaire',
+    toCommunity && Number.isFinite(communityAgain)
+    && Math.abs(communityAgain - onCommunity) < 0.005,
+    `${communityAgain?.toFixed(2)} m NGF, attendu ${onCommunity?.toFixed(2)}`);
+  check('et le recalage resté sur l\'autre carte est signalé, non appliqué',
+    !$('hint-dormant').hidden && $('hint-dormant').textContent.includes('+0.60'),
+    `${$('hint-dormant').hidden ? 'masqué' : $('hint-dormant').textContent.slice(0, 70)}`);
+
+  // On rend le levé à son recalage d'origine : la suite du banc ne doit pas hériter d'un
+  // réglage posé ici.
+  $('btn-bed-source').click();
+  await until(() => $('tag-bed-source').textContent === '2009', 8000);
+  location.hash = '#/parametres';
+  await sleep(60);
+  $('btn-datum-reset').click();
+  const cleared = await until(() => !settings().calibrationOffset_m, 4000);
+  $('btn-bed-source').click();
+  const home = await until(() => $('tag-bed-source').textContent === 'COM', 8000);
+  check('les deux cartes sont rendues telles qu\'on les a trouvées',
+    cleared && home && $('hint-dormant').hidden,
+    `recalage levé ${settings().calibrationOffset_m}`);
+  location.hash = '#/';
+  await sleep(60);
+
   // ------------------------------------------ effacement en bloc et persistance
   group('Effacement en bloc');
   fire('pinpoint', lngLat);

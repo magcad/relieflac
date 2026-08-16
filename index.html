@@ -210,6 +210,13 @@
     <button class="rail__btn" id="btn-suivi" type="button" title="Suivre le bateau" aria-label="Suivre le bateau" aria-pressed="false">
       <svg class="ico" aria-hidden="true"><use href="#i-locate"/></svg>
     </button>
+    <!-- Quelle carte est sous les pieds, et de quoi en changer d'un doigt. Le rail ne porte
+         que ce qui se touche en barrant : celui-ci y a sa place parce que comparer les deux
+         fonds au-dessus d'un haut-fond est justement une manœuvre de navigation, et parce
+         qu'un réglage enfoui trois écrans plus loin ne dit pas ce qu'on regarde. -->
+    <button class="rail__btn rail__btn--bed" id="btn-bed-source" type="button">
+      <span class="rail__tag" id="tag-bed-source">—</span>
+    </button>
     <button class="rail__btn rail__btn--tools" id="btn-menu" type="button"
             title="Outils et réglages" aria-label="Outils et réglages" aria-expanded="false">
       <svg class="ico" aria-hidden="true"><use href="#i-tools"/></svg>
@@ -477,12 +484,24 @@
         <button class="infobtn" type="button" data-info="note-datum"
                 aria-expanded="false" aria-label="En savoir plus sur le recalage">i</button>
       </p>
+      <!-- Le recalage de l'autre carte, quand il n'est pas nul. Chaque carte a le sien et
+           ils ne s'additionnent jamais : ce champ ne montre que celui de la carte affichée,
+           et sans cette ligne le second travaillerait sans que rien ne le dise. -->
+      <p class="warn" id="hint-dormant" hidden></p>
       <div class="note" id="note-datum" hidden>
         <p>
           Positif = le fond <strong>remonte</strong>, donc moins d'eau et plus de rive
           découverte. Le réglage agit tout de suite, sans rien retélécharger : on le règle sur
           l'eau en regardant le trait de côte. Les îlots mesurés au laser ne bougent pas —
           leur altitude est absolue.
+        </p>
+        <p>
+          <strong>Chaque carte a son recalage, et un seul agit à la fois</strong> : celui de
+          la carte affichée. Ils ne s'additionnent jamais. Ce champ montre toujours celui du
+          fond que vous avez sous les yeux — celui que le bouton du rail annonce.
+          <strong>Vos relevés, eux, ne bougent pas avec lui</strong> : ils portent une
+          altitude mesurée, et c'est la carte qui se déplace autour d'eux. C'est ainsi qu'on
+          juge un recalage.
         </p>
         <p class="only-qd">
           <strong>Recalage de terrain : +1,72 m</strong>, relevé sur l'eau le 15/08/2026 en

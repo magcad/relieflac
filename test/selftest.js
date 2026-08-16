@@ -9,7 +9,7 @@
 // deux implémentations doivent coïncider, sinon l'aperçu de contrôle et le téléphone
 // afficheraient des couleurs différentes pour la même profondeur.
 
-import { BedGrid, correctedAltitude } from '../src/bed.js';
+import { BedGrid, correctedAltitude, rawAltitudeFor } from '../src/bed.js';
 import { angleDelta, CameraFollow, catchUp, deadReckon } from '../src/camera.js';
 import { anchoredMatrix } from '../src/depth-layer.js';
 import { CorrectionsSync } from '../src/sync.js';
@@ -401,6 +401,20 @@ export async function run(base = '..') {
   check('décalage ignoré sur le terrain mesuré au LiDAR',
     near(correctedAltitude(650.61, -1.5, waterPlane), 650.61, 1e-9));
   check('altitude absente reste absente', Number.isNaN(correctedAltitude(NaN, -1.5, waterPlane)));
+
+  // Et l'aller-retour : un relevé déposé dans la grille doit s'y relire à SA valeur, sinon
+  // il se déplacerait chaque fois qu'on touche au recalage — alors qu'il est justement la
+  // seule chose fixe sur laquelle juger celui-ci.
+  for (const offset of [-1.5, -0.4, 0, 0.75, 2]) {
+    const stable = [612, 630, 645.2].every((z) => near(
+      correctedAltitude(rawAltitudeFor(z, offset, waterPlane), offset, waterPlane), z, 1e-9,
+    ));
+    check(`un relevé se relit à sa valeur, recalage ${offset} m`, stable);
+  }
+  check('au-dessus du plan d\'eau, rien n\'est à contre-corriger',
+    near(rawAltitudeFor(651, 0.75, waterPlane), 651, 1e-9));
+  check('sans recalage, la valeur déposée est la valeur relevée',
+    near(rawAltitudeFor(638.6, 0, waterPlane), 638.6, 1e-9));
 
   // --- sondes saisies à la main -----------------------------------------------
   // fond = 647,0 − 8,1 − 0,3 = 638,6 ; le modèle dit 630,0 → il annonçait 17,0 m d'eau

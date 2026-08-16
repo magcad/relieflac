@@ -220,6 +220,12 @@ a { color: var(--accent); }
   box-shadow: var(--shadow);
 }
 .rail__btn.is-on { border-color: var(--accent); color: var(--accent); }
+
+/* Bouton de carte : le seul du rail qui annonce un état plutôt qu'une action. Pas d'icône
+   — deux cartes ne se distinguent par aucun pictogramme évident — mais son nom court, en
+   toutes lettres, lisible d'un coup d'œil sans lâcher la barre. */
+.rail__tag { font: 700 .74rem/1 inherit; letter-spacing: .02em; }
+.rail__btn--bed { border-color: var(--line-strong); }
 .rail__btn--tools {
   width: 50px; height: 50px; border-radius: var(--r-lg);
   border-color: var(--line-strong); background: var(--glass-2);

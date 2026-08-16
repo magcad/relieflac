@@ -1,6 +1,8 @@
 // Assemblage de l'application : chargement des données, carte, réglages, relevés.
 
-import { BedGrid, BED_SOURCES, correctedAltitude, DEFAULT_BED_SOURCE } from './bed.js';
+import {
+  BedGrid, BED_SOURCES, correctedAltitude, rawAltitudeFor, DEFAULT_BED_SOURCE,
+} from './bed.js';
 import { DepthLayer } from './depth-layer.js';
 import { formatSpeed, Geolocator } from './geo.js';
 import { formatAge, Level, LevelSource } from './level.js';
@@ -211,7 +213,29 @@ function currentLevel() {
 }
 
 /**
- * Altitude du fond corrigée du décalage d'étalonnage, en m NGF.
+ * Recalage à appliquer à la lecture de la grille, en mètres — et **un seul à la fois**.
+ *
+ * Chaque carte a le sien, et ils ne s'additionnent pas :
+ *
+ *   • le levé de 2009 se recale par `calibrationOffset_m`, appliqué ici, à la lecture,
+ *     parce qu'il corrige une cote de référence inconnue commune à tout le levé ;
+ *   • la carte communautaire se recale par `quickdrawDatum_m`, appliqué à la grille
+ *     elle-même (BedGrid.setDatumOffset), parce qu'il ne déplace que les cellules encadrées
+ *     par une bande et laisse le terrain LiDAR où il est.
+ *
+ * Les cumuler était le défaut : le recalage du levé continuait d'agir sur la carte
+ * communautaire, qui n'en montre pourtant pas la valeur. Le champ des réglages disait
+ * « +1,72 », la carte se déplaçait de 1,72 + le reste, et rien à l'écran ne le disait. Ce
+ * n'est pas seulement un problème d'affichage : le recalage de la communautaire a été
+ * mesuré sur l'eau, contre le trait de côte réel, il absorbe donc **déjà** tout ce que
+ * l'autre corrigerait.
+ */
+function bedOffset() {
+  return communityBed() ? 0 : app.settings.get('calibrationOffset_m');
+}
+
+/**
+ * Altitude du fond corrigée du recalage, en m NGF.
  *
  * Interpolation bilinéaire, comme le shader : la profondeur annoncée sous le bateau
  * doit être exactement celle que montre la couleur au même endroit.
@@ -219,7 +243,7 @@ function currentLevel() {
 function bedAltitude(lon, lat) {
   return correctedAltitude(
     app.bed.altitudeAt(lon, lat),
-    app.settings.get('calibrationOffset_m'),
+    bedOffset(),
     app.settings.get('waterPlane_m_ngf'),
   );
 }
@@ -242,7 +266,7 @@ function styleFromSettings() {
     bandColors: bandColors(preset),
     lutMax: palette.lut_max_depth_m,
     level: currentLevel().value ?? app.model.lake.normal_level_m_ngf,
-    offset: app.settings.get('calibrationOffset_m'),
+    offset: bedOffset(),
     waterPlane: app.settings.get('waterPlane_m_ngf'),
     safe: app.settings.safetyDepth,
     opacity: app.settings.get('opacity'),
@@ -732,7 +756,7 @@ function refreshLevelUi() {
     // Le complément ne paraît que lorsqu'il porte un avertissement : une cote fraîche et
     // automatique se passe de commentaire, et l'espace du bandeau est compté.
     meta.textContent = manual ? 'saisie' : state.source === LevelSource.STALE ? formatAge(state.ageMs) : '';
-    chip.title = `Cote du lac : ${detail} — toucher pour les réglages`;
+    chip.title = `Cote du lac : ${detail} — toucher pour l'étiage`;
     $('sheet-level').textContent = `Cote du lac ${value.textContent} m NGF — ${detail}`;
     if (state.condition.key === 'forbidden') chip.classList.add('level--forbidden');
     else if (state.condition.key === 'delicate') chip.classList.add('level--delicate');
@@ -863,7 +887,12 @@ function wireSettings() {
     // fond demandé est déjà celui qui est affiché, ce qui est le cas ordinaire.
     if (key == null || key === 'bedSource') applyBedSource(key === 'bedSource');
     if (key == null || key === 'quickdrawDatum_m') applyBedDatum(key === 'quickdrawDatum_m');
-    if (key == null || key === 'correctionRadius_m') applyModelCorrections();
+    // Le recalage du levé se retranche des relevés avant qu'ils ne soient déposés dans la
+    // grille (voir `gridValue`) : le changer oblige à les redéposer, sans quoi ils
+    // dériveraient de la valeur du recalage au lieu de rester où ils ont été mesurés.
+    if (key == null || key === 'correctionRadius_m' || key === 'calibrationOffset_m') {
+      applyModelCorrections();
+    }
   });
 
   wirePaletteEditor();
@@ -1241,9 +1270,16 @@ function recordProbe() {
     transducerDepth: app.settings.get('transducer_m'),
     radius_m: app.settings.get('correctionRadius_m'),
     fixSource: pinned ? 'map' : 'gps',
-    // Comparaison au levé 2009 BRUT (sinon on comparerait la sonde à une carte déjà
-    // corrigée par les sondes précédentes — un écart artificiellement nul).
-    modelBedZ: app.bed.baseAltitudeAt(position.lon, position.lat),
+    // Comparaison au fond SANS LES RELEVÉS (sinon on comparerait la sonde à une carte déjà
+    // corrigée par les sondes précédentes — un écart artificiellement nul), mais **avec le
+    // recalage** de la carte affichée : c'est ce que l'écran annonçait à cet endroit, et
+    // c'est le seul écart qui veuille dire quelque chose. Le mesurer contre une carte non
+    // recalée rendrait le recalage invisible là où il sert précisément à se juger.
+    modelBedZ: correctedAltitude(
+      app.bed.baseAltitudeAt(position.lon, position.lat),
+      bedOffset(),
+      app.settings.get('waterPlane_m_ngf'),
+    ),
   }));
 
   clearPin();
@@ -1716,12 +1752,23 @@ function wireSim() {
 function correctionRecords() {
   const fromProbes = (app.probes?.records ?? [])
     .filter((p) => Number.isFinite(p.bedZ))
-    .map((p) => ({ lon: p.lon, lat: p.lat, bedZ: p.bedZ, radius_m: p.radius_m ?? null }));
-  const fromSim = app.sim?.records ?? [];
+    .map((p) => ({ lon: p.lon, lat: p.lat, bedZ: gridValue(p.bedZ), radius_m: p.radius_m ?? null }));
+  const fromSim = (app.sim?.records ?? [])
+    .filter((p) => Number.isFinite(p.bedZ))
+    .map((p) => ({ lon: p.lon, lat: p.lat, bedZ: gridValue(p.bedZ), radius_m: p.radius_m ?? null }));
   const fromZones = (app.zones?.records ?? [])
     .filter((z) => Number.isFinite(z.bedZ))
-    .map((z) => ({ ring: z.ring, bedZ: z.bedZ, radius_m: z.feather_m ?? DEFAULT_FEATHER_M }));
+    .map((z) => ({ ring: z.ring, bedZ: gridValue(z.bedZ), radius_m: z.feather_m ?? DEFAULT_FEATHER_M }));
   return [...fromProbes, ...fromSim, ...fromZones];
+}
+
+/**
+ * Valeur à inscrire dans la grille pour qu'un relevé se **relise à son altitude**, quel que
+ * soit le recalage en vigueur. Voir `rawAltitudeFor` : le relevé est le point fixe, c'est la
+ * carte qui bouge autour de lui.
+ */
+function gridValue(bedZ) {
+  return rawAltitudeFor(bedZ, bedOffset(), app.settings.get('waterPlane_m_ngf'));
 }
 
 function applyModelCorrections() {
@@ -1742,10 +1789,18 @@ function applyModelCorrections() {
  * carte qui n'est pas celle annoncée.
  */
 async function applyBedSource(announce = false) {
-  const wanted = app.settings.get('bedSource');
-  if (!app.bed || app.bed.source === wanted) return;
+  if (!app.bed || app.bedSwapping) return;
+  app.bedSwapping = true;
   try {
-    if (await app.bed.useSource(wanted)) {
+    // Le raccourci du rail permet d'enchaîner les allers-retours plus vite que ne se
+    // télécharge l'autre grille. On relit donc le réglage après chaque échange, plutôt que
+    // de lancer deux chargements concurrents — ou de laisser affichée une carte qui n'est
+    // plus celle demandée, ce qui est le pire des deux.
+    while (app.settings.get('bedSource') !== app.bed.source) {
+      if (!(await app.bed.useSource(app.settings.get('bedSource')))) break;
+      // Chacun des deux recalages retrouve la carte à laquelle il appartient : celui de la
+      // communautaire déplace la grille, celui du levé s'applique à la lecture, et les
+      // relevés se redéposent en tenant compte de celui qui vaut désormais.
       app.bed.setDatumOffset(app.settings.get('quickdrawDatum_m'));
       applyModelCorrections();
       refreshBedSourceUi();
@@ -1755,6 +1810,9 @@ async function applyBedSource(announce = false) {
   } catch (err) {
     toast(`Fond indisponible : ${err.message}`, 6000);
     app.settings.set('bedSource', app.bed.source);
+    refreshBedSourceUi();
+  } finally {
+    app.bedSwapping = false;
   }
 }
 
@@ -1779,6 +1837,13 @@ function refreshBedSourceUi() {
     : `Levé mesuré au décimètre, sonde à ${meta.coverage?.median_m ?? '—'} m en médiane, `
       + 'interpolé entre les traces.';
 
+  // Le rail dit en permanence quelle carte est réellement affichée — pas celle qui est
+  // demandée : `app.bed.source` est le fond effectivement chargé, et c'est lui qui commande
+  // partout ici, jusqu'au sélecteur des réglages.
+  $('tag-bed-source').textContent = community ? 'COM' : '2009';
+  $('btn-bed-source').title = `Fond : ${source.label} — toucher pour l'autre carte`;
+  $('btn-bed-source').setAttribute('aria-label', `Fond affiché : ${source.label}. Changer de carte.`);
+
   const field = $('set-datum');
   const applied = community ? app.bed.datum : app.settings.get('calibrationOffset_m');
   // On n'écrase pas la saisie en cours : réécrire la valeur pendant que l'utilisateur tape
@@ -1786,6 +1851,20 @@ function refreshBedSourceUi() {
   if (document.activeElement !== field) field.value = applied.toFixed(2);
   field.min = community ? -10 : -5;
   field.max = community ? 10 : 5;
+
+  // Le recalage de l'autre carte, s'il n'est pas nul. Les deux ne se cumulent jamais — un
+  // seul agit, celui de la carte affichée — mais tant que rien ne le disait, un réglage
+  // laissé sur une carte qu'on n'affiche plus passait pour actif.
+  const dormant = community
+    ? app.settings.get('calibrationOffset_m')
+    : (app.settings.get('quickdrawDatum_m') ?? app.bed.builtInDatum);
+  const other = community ? BED_SOURCES.ofb2009.label : BED_SOURCES.quickdraw.label;
+  const dormantLine = $('hint-dormant');
+  dormantLine.hidden = !dormant;
+  if (dormant) {
+    dormantLine.textContent = `« ${other} » garde son propre recalage de ${signed(dormant)} m. `
+      + 'Il ne s\'ajoute pas à celui-ci : seul le recalage de la carte affichée agit.';
+  }
 
   if (community && meta.quickdraw_only) {
     const built = app.bed.builtInDatum;
@@ -1900,7 +1979,7 @@ function addSimPoint(lon, lat) {
   // déjà posée à côté, sinon les corrections s'empileraient à chaque pose.
   const bedZ = correctedAltitude(
     app.bed.baseAltitudeAt(lon, lat),
-    app.settings.get('calibrationOffset_m'),
+    bedOffset(),
     app.settings.get('waterPlane_m_ngf'),
   );
   if (!Number.isFinite(bedZ)) { toast('Hors emprise du modèle'); return; }
@@ -2310,6 +2389,14 @@ function wireMap() {
     app.settings.set('basemap', next);
     refreshBasemapUi();
     toast(next === 'plan' ? 'Plan IGN' : 'Photo aérienne');
+  });
+
+  // Bascule d'un fond bathymétrique à l'autre. C'est le geste qui manquait : les deux
+  // cartes ne se contredisent nulle part autant qu'au-dessus d'un haut-fond, et jusqu'ici
+  // les comparer demandait d'ouvrir les réglages, de descendre jusqu'à « Fond », puis de
+  // revenir — trois écrans pendant lesquels le bateau avance.
+  $('btn-bed-source').addEventListener('click', () => {
+    app.settings.set('bedSource', communityBed() ? 'ofb2009' : 'quickdraw');
   });
 
   $('btn-soleil').addEventListener('click', () => {

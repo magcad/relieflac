@@ -468,12 +468,22 @@ bas et les 295 ha abaissés du fond du levé sont à reprendre.
 **Le recalage est réglable dans l'application** (`quickdrawDatum_m`, `null` = la valeur du
 fichier). `BedGrid.setDatumOffset` déplace les cellules issues d'une bande et laisse le MNT
 où il est ; la grille du fichier n'est pas modifiée et les relevés manuels se réappliquent
-par-dessus. C'est ce qui permet de le **mesurer** au lieu de le deviner : l'écran Étalonnage
-(§ 15.3) calcule ses statistiques par carte — chaque relevé porte sa `bedSource` et le
-recalage en vigueur — et « Appliquer » reporte la médiane sur la cote du levé ou sur le
-recalage communautaire selon la carte affichée. Relever en plusieurs endroits et à des
-profondeurs franchement différentes reste indispensable : c'est la seule façon de distinguer
-un décalage de datum d'une erreur proportionnelle à la profondeur.
+par-dessus. C'est ce qui permet de le **mesurer** au lieu de le deviner : on le règle sur
+l'eau en regardant le trait de côte de la carte rejoindre celui qu'on a sous les yeux
+(l'étalonnage au sondeur, § 15.3, a été retiré le 16/08/2026). Relever en plusieurs endroits
+et à des profondeurs franchement différentes reste indispensable : c'est la seule façon de
+distinguer un décalage de datum d'une erreur proportionnelle à la profondeur.
+
+**Chaque carte a son recalage, et un seul agit à la fois** — celui de la carte affichée. Ce
+n'est pas un détail d'interface : le recalage du levé (`calibrationOffset_m`) est posé à la
+lecture de la grille et s'appliquait donc aussi à la carte communautaire, qui porte pourtant
+déjà le sien, mesuré contre le trait de côte réel et absorbant à ce titre tout ce que l'autre
+corrigerait. Le champ des Paramètres n'en montrant qu'un, la carte se déplaçait d'une valeur
+que rien n'affichait. `bedOffset()` (`src/main.js`) est désormais le seul point d'entrée, et
+il rend zéro sur la communautaire. Corollaire du même ordre : un relevé manuel est déposé
+dans la grille par son **antécédent** (`rawAltitudeFor`, `src/bed.js`), sans quoi la lecture
+lui rajouterait le recalage et le relevé se déplacerait avec lui — alors qu'il est justement
+la seule chose fixe sur laquelle juger celui-ci.
 
 **Licence.** La donnée appartient à Garmin et à ses contributeurs, sous CGU interdisant la
 redistribution, sans licence ouverte. La grille dérivée est publiée en connaissance de

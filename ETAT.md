@@ -2,9 +2,9 @@
 
 **Dernière mise à jour** : 16 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 133 contrôles, un seul en
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 140 contrôles, un seul en
 échec (l'épaisseur des contours au zoom, connu et expliqué au § 1)
-**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 65 gestes, tous passants
+**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 72 gestes, tous passants
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
 Ce document sert à reprendre le travail sans relire tout l'historique, **y compris depuis
@@ -33,6 +33,39 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L6 bis** | Recalage de terrain de +2,72 m sur la carte communautaire, mesuré sur l'eau | ✅ appliqué le 14/08/2026, **non confirmé au sondeur** — voir § 1 |
 | **L6 ter** | Recalage **réglable dans l'application** et mesurable au sondeur, carte par carte | ✅ terminé le 14/08/2026 — voir § 1 |
 | **L7** | Carte communautaire par défaut, recalage à 1,72 m, avertissement d'ouverture, zones partagées, étalonnage retiré | ✅ terminé le 16/08/2026 — voir § 1 |
+| **L8** | Raccourci de carte au rail, et **fin du cumul silencieux des deux recalages** | ✅ terminé le 16/08/2026 — voir § 1 |
+
+**Lot L8 — les recalages ne se cumulent plus, et le rail dit quelle carte on regarde**
+(16/08/2026). Signalé par l'utilisateur en ces termes : « j'ai l'impression qu'il y a un
+problème dans les paramètres de décalage des cartes, cumulés ou non, carte réellement
+affichée ou non ». Il y en avait deux, réels, et du même genre — un réglage qui agit sans
+que rien ne le montre :
+
+- **Le recalage du levé de 2009 s'appliquait aussi à la carte communautaire.** Il est posé à
+  la lecture de la grille (`correctedAltitude`, et le même calcul dans le shader) et ne
+  regardait pas quelle carte était affichée. Le champ des Paramètres, lui, n'en montre qu'un
+  seul à la fois : on lisait « +1,72 » pendant que la carte se déplaçait de 1,72 **plus** le
+  reste. Les deux ne doivent pas s'additionner — le recalage de la communautaire a été mesuré
+  contre le trait de côte réel, il absorbe donc déjà ce que l'autre corrigerait. Un seul agit
+  désormais, celui de la carte affichée (`bedOffset()` dans `src/main.js`), et celui qui dort
+  sur l'autre carte est **écrit en toutes lettres sous le champ** (`#hint-dormant`).
+- **Les relevés manuels dérivaient avec le recalage.** Un relevé porte une altitude mesurée
+  et se dépose telle quelle dans la grille — laquelle est ensuite relue à travers le
+  recalage, qui la lui rajoutait. Le haut-fond mesuré à 640,10 m s'affichait donc ailleurs
+  qu'où il avait été mesuré, et bougeait à chaque retouche du réglage. On dépose maintenant
+  l'antécédent (`rawAltitudeFor` dans `src/bed.js`) : le relevé est le point fixe, la carte
+  bouge autour de lui, et c'est précisément ce qui permet de juger un recalage à l'œil. Même
+  raison pour l'écart « modèle − mesure » d'une sonde, désormais compté contre la carte
+  recalée : le mesurer contre une carte non recalée rendait le réglage invisible là où il sert.
+- **Bouton de carte au rail** (`#btn-bed-source`, étiquette **COM** ou **2009**) : il annonce
+  en permanence le fond *réellement chargé* — `app.bed.source`, pas le réglage souhaité — et
+  bascule d'un appui. Comparer les deux cartes au-dessus d'un haut-fond est une manœuvre de
+  navigation ; elle demandait jusqu'ici trois écrans de réglages. `applyBedSource` relit le
+  réglage après chaque échange, sinon deux appuis plus rapides que le téléchargement de la
+  grille laissaient affichée une carte qui n'était plus la demandée.
+- Sept vérifications ajoutées, dont celle qui aurait attrapé le défaut : poser la même sonde
+  au même point sur chaque carte, avec un recalage du levé non nul, et exiger que la
+  communautaire ne bouge **pas**.
 
 **Lot L7 — ce que voit un nouvel arrivant** (16/08/2026). Sept changements demandés par
 l'utilisateur, tous tournés vers celui qui ouvre l'application sans rien savoir du projet :
@@ -83,7 +116,7 @@ piège désamorcé au passage : **l'immersion du transducteur ne doit pas être 
 quand rien n'est immergé, sinon 30 cm d'erreur systématique dans le sens dangereux, et
 précisément sur les points où le modèle est déjà le plus faux (§ 2 ci-dessous). La règle
 tient dans `bedAltitude()` ([`src/probes.js`](src/probes.js)), reprise par
-`src/calibration.js` et par `tools/import_soundings.py` — qui conserve maintenant les
+`tools/import_soundings.py` — qui conserve maintenant les
 profondeurs négatives au lieu de les jeter, tout en continuant d'écarter le zéro exact
 (signature d'un sondeur qui décroche). Doctrine au § 15.2 de la spécification.
 

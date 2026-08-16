@@ -574,3 +574,27 @@ export function correctedAltitude(raw, offset, waterPlane) {
   if (!Number.isFinite(raw)) return NaN;
   return raw < waterPlane ? raw + offset : raw;
 }
+
+/**
+ * Antécédent de `correctedAltitude` : la valeur à **inscrire** dans la grille pour qu'elle
+ * s'y relise à `target`.
+ *
+ * La grille n'est jamais lue nue — le shader applique le même décalage que la fonction
+ * ci-dessus. Un relevé manuel y déposé tel quel ressortirait donc à `bedZ + décalage` : le
+ * haut-fond mesuré s'afficherait ailleurs qu'où il a été mesuré, et se déplacerait à chaque
+ * retouche du recalage. Le relevé doit au contraire rester le point fixe autour duquel la
+ * carte bouge — c'est ce qui permet de juger un recalage à l'œil.
+ *
+ * La correction n'est pas inversible partout : elle déplace ce qui est sous le plan d'eau et
+ * laisse ce qui est dessus, si bien que sur une bande de |décalage| mètres, certaines
+ * altitudes n'ont aucun antécédent. On y rend la valeur la plus proche atteignable, et le
+ * relevé s'y relit à quelques décimètres près — seul endroit où la carte ne rend pas
+ * exactement ce qui a été mesuré, et il ne concerne que les relevés faits à la ligne d'eau.
+ */
+export function rawAltitudeFor(target, offset, waterPlane) {
+  if (!Number.isFinite(target) || !offset) return target;
+  const shifted = target - offset;
+  if (shifted < waterPlane) return shifted; // sera recalé à la lecture, et retombera sur target
+  if (target >= waterPlane) return target;  // au-dessus du plan d'eau : rien n'est recalé
+  return waterPlane;
+}

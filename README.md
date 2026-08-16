@@ -113,7 +113,15 @@ du lac d'autant donnent le même dessin à l'écran :
 voir `data/mesuresEtalonnage/Garmin/ANALYSE.md` § 12.5.
 
 Le champ « Recalage de la carte » des Paramètres corrige **la carte affichée** : le plan d'eau
-des bandes sur la communautaire, la cote du jour du levé sur celle de 2009.
+des bandes sur la communautaire, la cote du jour du levé sur celle de 2009. Chaque carte garde
+le sien, **un seul agit à la fois**, et ils ne s'additionnent jamais — celui de la carte qu'on
+n'affiche pas est signalé en toutes lettres sous le champ. Vos relevés, eux, ne bougent pas
+avec : ils portent une altitude mesurée, et c'est la carte qui se déplace autour d'eux. C'est
+ce qui permet de juger un recalage à l'œil.
+
+Le bouton du rail de la carte — **COM** ou **2009** — dit en permanence quelle carte est
+affichée, et bascule de l'une à l'autre d'un appui : comparer les deux au-dessus d'un
+haut-fond est une manœuvre de navigation, pas un réglage.
 
 Le correctif complet existe : un levé multifaisceaux à couverture totale a été réalisé en
 2011 par ENSTA Bretagne, Gand, la HCU Hamburg et le CIDCO pour EDF. Il reste à l'obtenir —
