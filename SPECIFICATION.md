@@ -682,10 +682,13 @@ contours reste de 2 à 3 px pour un rapport de zoom de 5.
   la fois l'empilement des panneaux entre eux et la position du rail. Quand la place
   manque au-dessus, il replie sa capsule de zoom avant de glisser sous le bandeau de cap :
   le pincement remplace le zoom, rien ne remplace le bouton « Outils ».
-- **Feuille « Outils »** : tout ce qui ne se touche pas en barrant — relever une sonde,
-  tracer une zone émergée, mode étiage, bascule du fond de carte, Trajet (à écrire),
-  Paramètres, À propos. Tuiles **libellées**, et non des glyphes : ▲ et ◎ n'étaient interprétables par
-  personne, et leur rendu variait d'un appareil à l'autre. La feuille se referme dès qu'une
+- **Menu à modes** (ex-feuille « Outils ») : tout ce qui ne se touche pas en barrant, rangé
+  par métier. Depuis L10 (§ 6.6) la feuille est devenue une **barre de modes** —
+  Carte / Navigation / Pêche / Ski / Réglages — mais la doctrine est la même : « Carte »
+  réunit relever une sonde, tracer une zone émergée, mode étiage, bascule du fond de carte ;
+  « Navigation » porte le Trajet, le mode Go et l'Historique ; « Réglages » les Paramètres et
+  l'À propos. Tuiles **libellées**, et non des glyphes : ▲ et ◎ n'étaient interprétables par
+  personne, et leur rendu variait d'un appareil à l'autre. Le menu se referme dès qu'une
   tuile agit — ouvrir un mode de correction, c'est vouloir la carte, pas rester au menu.
 
 Cette répartition ramène la chrome permanente de **29 % à 20 % de la surface** d'un écran
@@ -895,6 +898,35 @@ Le lac est en zone de couverture réseau inégale. L'application doit rester uti
 ### 6.5 Page « À propos / Données »
 
 Sources, dates de levé, licences, méthode de calcul, limites connues, et un **avertissement de sécurité** non escamotable au premier lancement (§ 11).
+
+### 6.6 Modes et Navigation — Trajet, Go, Historique (L10-L11, 16/08/2026)
+
+L'application s'organise en **modes par métier**, sélectionnés dans une barre à cinq
+segments : Carte, Navigation, Pêche, Ski, Réglages. Pêche et Ski restent à spécifier. Le mode
+**Navigation** ajoute la préparation et le suivi d'une route, puis la mémoire de ce qui a été
+parcouru. Le détail d'implémentation, fichier par fichier, est tenu dans
+[ETAT.md](ETAT.md) § 1 (lots L10 et L11) ; on n'en garde ici que le « pourquoi ».
+
+- **Trajet** — un trajet est une **intention modifiable** (liste ordonnée de points de
+  passage), donc **personnel à l'appareil et non partagé**, à la différence d'une sonde ou
+  d'une zone qui sont des mesures versées à la communauté. Il se trace, se nomme, se reprend
+  et se supprime comme une zone (trois états : liste / tracé / édition). Sa longueur et sa
+  durée estimée (à `CRUISE_KMH = 20`) sont **recalculées à l'affichage** et jamais rangées à
+  côté de la géométrie — un chiffre dérivé finit toujours par mentir dès que la donnée bouge.
+- **Go** — le suivi plein écran d'un trajet. C'est un **état de l'application**, pas une vue
+  distincte : la carte reste la même, on lui ajoute une chase-cam inclinée, un fond atténué et
+  un HUD. La solution de navigation (`nav.js`, sans dépendance carte ni DOM, donc
+  vérifiable seule) donne le **cap à tenir**, l'**écart de route signé** (positif à droite),
+  la distance restante et l'avancement séquentiel des points de passage (arrivée à 20 m). Le
+  suivi et le cap-en-haut sont **forcés sans modifier les réglages** de l'utilisateur, et
+  restaurés à la sortie : la navigation emprunte la caméra, elle ne la confisque pas.
+- **Historique** — une **sortie** est le fait révolu d'une navigation : la trace réellement
+  parcourue en Go, entre un départ et une arrivée. Immuable, donc on range la trace GPS brute
+  et l'on recalcule la distance à l'affichage ; seule la **durée**, qui ne se déduit pas de la
+  géométrie, est conservée via ses deux horodatages. Une sortie n'est enregistrée que
+  **au-delà de 50 m parcourus** (pas de sortie fantôme à quai) et reste, elle aussi,
+  personnelle à l'appareil. Le panneau liste les sorties passées avec date, distance, durée et
+  distance totale, et rejoue chaque tracé sur la carte.
 
 ---
 

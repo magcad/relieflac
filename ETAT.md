@@ -39,6 +39,79 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L7** | Carte communautaire par défaut, recalage à 1,72 m, avertissement d'ouverture, zones partagées, étalonnage retiré | ✅ terminé le 16/08/2026 — voir § 1 |
 | **L8** | Raccourci de carte au rail, et **fin du cumul silencieux des deux recalages** | ✅ terminé le 16/08/2026 — voir § 1 |
 | **L9** | Courbe de l'évolution de la cote dans « Étiage », et historique tenu par l'appareil | ✅ terminé le 16/08/2026 — voir § 1 |
+| **L10** | Menu à **modes** (Carte/Navigation/Pêche/Ski/Réglages), constructeur de **Trajet** et mode **Go** plein écran (chase-cam, HUD vitesse/gouverne) | ✅ terminé le 16/08/2026 (v2026-08-16.4) — voir § 1 |
+| **L11** | **Historique** des sorties : chaque navigation Go laisse sa trace, sa distance et sa durée, revues sur la carte | ✅ terminé le 16/08/2026 (v2026-08-16.5) — voir § 1 |
+
+**Lot L11 — l'Historique se souvient des sorties** (16/08/2026, v2026-08-16.5). Une fois
+qu'on sait suivre une route (L10), reste la question d'après : qu'a-t-on réellement
+parcouru ? Nouveau module [`src/trips.js`](src/trips.js) — store `Trips` (localStorage
+`relieflac.trips.v1`, même patron `EventTarget` que `Probes`/`Zones`, mais **non partagé**,
+comme les trajets : une sortie ne regarde que cet appareil).
+
+- **Une sortie est un fait révolu, jamais retouché** — d'où le droit d'y ranger la trace
+  GPS brute et de laisser la distance se recalculer à l'affichage (`routeLength`), fidèle à
+  la règle des trajets (« un chiffre dérivé rangé à côté de la donnée finit par mentir »).
+  Seule exception : la **durée** ne se déduit pas de la géométrie, donc on garde les **deux
+  horodatages** (`at`/`endedAt`) et `tripDuration` fait la différence.
+- **La trace s'accumule pendant Go** dans `app.go.track`, un point tous les
+  `MIN_TRACK_SPACING_M = 4` m — on n'a pas repris `LakeMap.trail`, plafonné à 600 points et
+  donc amputé au début d'une longue sortie. `finishTrip()` la verse en tête d'`exitGo`, mais
+  **seulement si la distance dépasse `MIN_TRIP_M = 50` m** : ouvrir puis fermer Go à quai,
+  ou tester sur un ordinateur sans GPS, ne laisse aucune sortie fantôme.
+- **Consultation** (`histMode`) : panneau `#hist` **ambre** (jeton `--trip: #ffb454`,
+  volontairement distinct du bleu des trajets — une sortie n'est pas une route à suivre). La
+  liste va de la plus récente à la plus ancienne, chaque ligne porte date, distance et durée,
+  et le total (`Trips.totalDistance`) coiffe l'ensemble. **Toucher une ligne** rappelle son
+  tracé sur la carte (`reviewTrip` → `LakeMap.showTrip` : source/couches
+  `trip`/`trip-glow`/`trip-line`, départ ⚑ et arrivée ◎ en marqueurs, cadrage `#fitTo`) ;
+  ✕ supprime.
+- S'exclut des autres modes **dans les deux sens** (`exitHistMode` appelé par
+  `enterSim`/`enterZoneMode`/`enterRouteMode`/`editRoute`/`startGo`/l'ouverture de la
+  saisie ; réciproquement `enterHistMode` quitte tout). `#hist` ajouté à `stackBottomBars`
+  et à la règle de masquage `body.mode-go`.
+
+**Lot L10 — l'application passe aux modes, et la Navigation sait suivre une route**
+(16/08/2026, v2026-08-16.4). La feuille « Outils » (`#sheet`) devient une **barre de modes**
+(`#modes`) : cinq segments par métier, chacun sa couleur — Carte (vert), Navigation
+(bleu #4c8dff), Pêche (jaune), Ski (rouge), Réglages (cyan). Le corps n'affiche qu'un
+`.modepane` à la fois (`setMenuMode()`, `wireMenu()` a remplacé `wireTools()`). « Carte »
+reprend les gestes d'avant (relever un point/une zone, Étiage, fond de carte — ids
+`btn-saisie`/`btn-zone`/`btn-sim`/`btn-fond` inchangés) ; Pêche et Ski sont des panneaux
+`.soon` (boutons présents, **fonction encore à spécifier par l'utilisateur**) ; Réglages
+porte le lien `#/parametres` et l'à-propos.
+
+- **Deux modules neufs, sans DOM au cœur** (pour rester vérifiables hors navigateur, comme
+  `camera.js`) :
+  - [`src/nav.js`](src/nav.js) — `navSolution(points, boat, {fromIndex, arriveRadiusM})`
+    rend le cap à tenir, l'**écart de route signé** (`crossM`, positif à droite dans le sens
+    du segment), l'avancement séquentiel des points de passage (rayon d'arrivée 20 m), la
+    distance restante et `arrived`. Plus `projectOnSegment` et `angleDelta`.
+  - [`src/routes.js`](src/routes.js) — classe `Routes` (localStorage `relieflac.routes.v1`,
+    `EventTarget` comme `Probes`/`Zones`, mais **non partagée** : un trajet est une
+    intention, pas une mesure), `routeLength`, `estimatedDuration` (`CRUISE_KMH = 20`),
+    `formatDistance`/`formatDuration`.
+- **Trajet** (constructeur, `wireRoutes`/`refreshRoutePanel`, panneau `#route`) : trois
+  états comme les zones (liste / tracé / édition). Clic carte → `routevertex` →
+  `addRouteVertex` ; toucher un sommet du brouillon le retire (`wptselect`). `fillRouteList()`
+  peuple le sélecteur `#route-picker` du menu Navigation.
+- **Go** (navigation plein écran, `wireGo`/`startGo`/`exitGo`/`updateGoHud`/`updateGoSteer`,
+  overlay `#go`) : **pas une route de hash, un état** — `document.body.classList.add('mode-go')`
+  masque dock/rail/panneaux, l'overlay `#go` se pose sur la carte inchangée. La carte bascule
+  en chase-cam (`LakeMap.enterNavCam(55)` = `map.setPitch`, **net et non animé** pour ne pas
+  être annulé par le `jumpTo` du suivi), fond atténué, suivi et cap-en-haut **forcés sans
+  toucher aux réglages** (restaurés par `refreshCameraUi()` à la sortie). Route dessinée en
+  corridor lumineux (source `route`, couches `route-glow/line/flow/chevrons`, flux animé par
+  `line-dasharray`), points de passage en marqueurs HTML, porte visée pulsante. HUD : gros
+  compteur de **vitesse**, cadran de **gouverne** (`angleDelta(cap, course)`), repère de cap
+  cible sur le ruban de boussole, objectif/distance/reste/progression/écart de route. Dernier
+  trajet retenu dans `relieflac.lastRoute.v1`.
+- **Réserve honnête sur les tests** : `nav.js`, `routes.js` et `trips.js` **ne sont pas
+  encore au banc** du dépôt (`test/selftest.js`, `test/interaction.js` — les 161 contrôles et
+  83 gestes du bandeau ci-dessus ne les couvrent pas). Leur logique a été vérifiée **hors
+  dépôt** (copies `.mjs` dans un scratchpad, `package.json` étant en `type: commonjs`, plus
+  import dynamique en direct) ; le HUD piloté par la position et le rendu des tracés se
+  valident **sur l'eau**, faute de GPS et de compositeur dans le panneau de test. C'est le
+  premier chantier de reprise si l'on veut ces modules couverts au banc.
 
 **Lot L9 — voir ce que fait le lac, pas seulement ce qu'il vaut** (16/08/2026). Demandé par
 l'utilisateur : « sauvegarder la cote du lac actuelle afin de pouvoir constater l'évolution
@@ -140,8 +213,8 @@ l'utilisateur, tous tournés vers celui qui ouvre l'application sans rien savoir
   l'appareil d'en face, donc une autre carte.
 - **L'étalonnage au sondeur est retiré** (`src/calibration.js` supprimé, écran, couche de
   repères, tests). L'Eagle du bord est informatif et ne se cale pas ; la tuile devient
-  « Trajet », fonction à écrire. Le recalage, lui, se règle à la main et se juge sur le trait
-  de côte.
+  « Trajet », fonction à écrire (**écrite depuis en L10**). Le recalage, lui, se règle à la
+  main et se juge sur le trait de côte.
 - La cote du bandeau ouvre désormais **l'étiage** et non les Paramètres.
 
 Mode **« Sonde »** (saisie manuelle) livré le 11/08/2026 : le sondeur du bord est un
