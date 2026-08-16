@@ -2,7 +2,7 @@
   "schema": "relieflac.corrections/1",
   "waterbody": "vassiviere",
   "datum": "NGF-IGN69",
-  "updated_at": "2026-08-16T07:49:48.906Z",
+  "updated_at": "2026-08-16T07:50:33.988Z",
   "zones": [
     {
       "id": "7db1e67c-f2dd-45ab-baf0-53ce429ac7f6",
@@ -32,8 +32,8 @@
           45.7880092046579
         ]
       ],
-      "ground_m_ngf": 644.51,
-      "height_m": -2.1,
+      "ground_m_ngf": 644.71,
+      "height_m": -1.9,
       "cote_m_ngf": 646.61,
       "feather_m": 10,
       "at": "2026-08-15T13:07:59.384Z",
