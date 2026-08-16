@@ -14,7 +14,7 @@ sous le bateau — recalculée en continu à partir de la cote du lac pilotée p
 |---|---|
 | Reprendre le travail | [ETAT.md](ETAT.md) |
 | Spécification complète | [SPECIFICATION.md](SPECIFICATION.md) |
-| Vérifications | [/test/](https://magcad.github.io/relieflac/test/) — 161 contrôles · [/test/interaction.html](https://magcad.github.io/relieflac/test/interaction.html) — 83 enchaînements |
+| Vérifications | [/test/](https://magcad.github.io/relieflac/test/) — 174 contrôles · [/test/interaction.html](https://magcad.github.io/relieflac/test/interaction.html) — 83 enchaînements |
 
 ---
 
