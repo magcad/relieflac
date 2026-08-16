@@ -649,8 +649,16 @@ d'un mince liseré.
 **Vérification** — `test/shader.js` rend le shader hors MapLibre, dans un canvas WebGL2
 piloté directement, et mesure les deux propriétés : le rendu s'accorde avec l'interpolation
 bilinéaire calculée côté processeur (21 pixels sur 23, contre 2 sur 23 pour le plus proche
-voisin, sur des pixels choisis pour départager les deux hypothèses), et l'épaisseur des
-contours reste de 2 à 3 px pour un rapport de zoom de 5.
+voisin, sur des pixels choisis pour départager les deux hypothèses), et l'épaisseur d'un
+trait **isolé** reste de 1,3 à 1,6 px pour un rapport de zoom de 10.
+
+L'épaisseur se mesure sur **une seule** limite de bande, et par la formule de Crofton — aire
+divisée par longueur, la longueur venant du nombre de traversées en lignes et en colonnes.
+Mesurer la palette entière le long des seules lignes, comme on le faisait, revient à mesurer
+le resserrement des isobathes et l'orientation du fond : c'est ce qui a laissé passer cinq
+mois durant un défaut où **aucun trait de palier n'était tracé**, `fwidth()` étant appelé
+depuis l'intérieur de la boucle des paliers, donc en flux non uniforme. Un second contrôle
+vérifie maintenant que ces traits existent, et pas seulement celui de la rive.
 
 ---
 
@@ -861,8 +869,10 @@ Les dégradés sont interpolés dans l'espace perceptuel **OKLab** et non en RVB
 `tools/palette.py` est la référence de calcul ; l'application en porte l'équivalent en
 JavaScript.
 
-Les contours de bande sont obtenus dans le shader en comparant l'indice de bande des
-pixels voisins — pas de géométrie vectorielle à produire.
+Les contours de bande sont obtenus dans le shader en normalisant l'écart au seuil par la
+pente à l'écran (`fwidth`) — pas de géométrie vectorielle à produire. Cette pente se calcule
+**une fois pour toutes dans `main()`**, hors boucle et hors condition, puis se passe en
+paramètre : une dérivée prise en flux non uniforme rend zéro, et le trait disparaît.
 
 #### Réglages complémentaires de la page
 

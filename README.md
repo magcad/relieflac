@@ -14,7 +14,7 @@ sous le bateau — recalculée en continu à partir de la cote du lac pilotée p
 |---|---|
 | Reprendre le travail | [ETAT.md](ETAT.md) |
 | Spécification complète | [SPECIFICATION.md](SPECIFICATION.md) |
-| Vérifications | [/test/](https://magcad.github.io/relieflac/test/) — 174 contrôles · [/test/interaction.html](https://magcad.github.io/relieflac/test/interaction.html) — 83 enchaînements |
+| Vérifications | [/test/](https://magcad.github.io/relieflac/test/) — 175 contrôles · [/test/interaction.html](https://magcad.github.io/relieflac/test/interaction.html) — 83 enchaînements |
 
 ---
 
@@ -212,7 +212,7 @@ vendor/                     MapLibre GL JS 6.3, vendorisé en .js
 config/                     model.json (calage, grille) · palette.json (couleurs)
 tools/                      chaîne de préparation et outils de diagnostic
 data/                       grille, couverture, sondes, cote — versionnés
-test/                       161 vérifications (dont le shader rendu hors MapLibre)
+test/                       175 vérifications (dont le shader rendu hors MapLibre)
                             et 83 enchaînements de l'interface
 .github/workflows/          relevé horaire de la cote, reconstruction du modèle
 ```

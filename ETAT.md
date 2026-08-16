@@ -2,13 +2,10 @@
 
 **Dernière mise à jour** : 16 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 161 contrôles, un seul en
-échec (l'épaisseur des contours au zoom, connu et expliqué au § 1)
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 175 contrôles, **tous au
+vert**
 **Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 83 gestes,
-dont **8 en échec** depuis le 15/08/2026, et **pas du fait de l'application** : le banc vide
-localStorage au démarrage mais `initSync` va ensuite chercher `data/corrections/vassiviere.json`,
-qui contient désormais une vraie zone publiée. Le groupe « Zone émergée » compte des valeurs
-absolues et en trouve deux. À isoler du fichier partagé, ou à faire compter en delta.
+**tous au vert**
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
 Ce document sert à reprendre le travail sans relire tout l'historique, **y compris depuis
@@ -42,6 +39,41 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L10** | Menu à **modes** (Carte/Navigation/Pêche/Ski/Réglages), constructeur de **Trajet** et mode **Go** plein écran (chase-cam, HUD vitesse/gouverne) | ✅ terminé le 16/08/2026 (v2026-08-16.4) — voir § 1 |
 | **L11** | **Historique** des sorties : chaque navigation Go laisse sa trace, sa distance et sa durée, revues sur la carte | ✅ terminé le 16/08/2026 (v2026-08-16.5) — voir § 1 |
 | **L12** | Retour de la **première sortie en Navigation** : ré-accrochage après raccourci, chevrons et portion parcourue, commandes de carte en Go, **trajets et sorties partagés** | ✅ terminé le 16/08/2026 (v2026-08-16.6) — voir § 1 |
+| **L13** | Les deux bancs remis au vert — et, dessous, **les traits de palier qui n'étaient jamais tracés** | ✅ terminé le 16/08/2026 (v2026-08-16.8) — voir § 1 |
+
+**Lot L13 — les traits de palier n'étaient jamais tracés** (16/08/2026, v2026-08-16.8).
+Neuf points de contrôle échouaient — un au banc du dépôt, huit au banc d'enchaînements. Le
+second était une erreur de mesure ; le premier cachait un vrai défaut de la carte.
+
+- **Le shader.** `fwidth()` était appelé **depuis l'intérieur** de la boucle des paliers,
+  dans `contourLine()`. Or une dérivée ne se prend qu'en flux uniforme : le pilote rendait
+  zéro, la pente tombait sur son plancher de 1e-7, la distance au seuil devenait
+  astronomique et **aucun trait de palier ne sortait, à aucun zoom**. Seul le trait de rive,
+  appelé hors de toute boucle, était dessiné — et il suffisait à donner le change. La
+  fonction reçoit désormais la pente en paramètre, celle que `main()` calculait déjà dans
+  `slopePx` sans jamais s'en servir : le commentaire « les dérivées doivent être évaluées
+  hors de tout branchement » était là depuis le début, la variable aussi, et le câblage
+  manquait. Conséquence visible : le préréglage **marine** (celui par défaut) montre enfin
+  ses six isobathes à 1, 2, 3, 5, 10 et 20 m. Le contour de sécurité magenta, lui, était
+  déjà tracé — vérifié en remisant le correctif et en recomptant les pixels : 765 contre
+  770, l'écart tenant aux traits neufs qui le recouvrent par endroits.
+- **La mesure qui l'avait laissé passer.** L'ancien contrôle mesurait la palette **entière**
+  et la longueur des segments **le long des lignes**. Deux biais qui se compensaient : au
+  zoom large les limites de bandes se rapprochent jusqu'à se toucher, et un amas est plus
+  épais que chacun de ses traits ; un trait couché donne des segments horizontaux d'autant
+  plus longs qu'il est couché. Le contrôle mesurait donc l'orientation du fond et le
+  resserrement des isobathes, jamais le shader. Il rend maintenant **une seule limite**, en
+  rouge franc, ne retient que les pixels dont la profondeur recalculée l'approche (ce qui
+  écarte la rive), et estime l'épaisseur par la **formule de Crofton** — aire divisée par
+  longueur, la longueur venant du nombre de traversées en lignes *et* en colonnes. Résultat :
+  1,55 px à 120 m contre 1,33 px à 1200 m, soit un rapport de zoom de ×10 pour 0,22 px
+  d'écart. Un contrôle jumeau vérifie désormais que **les traits de palier existent**, et
+  pas seulement celui de la rive.
+- **Les huit enchaînements de zones.** Le banc comparait à des valeurs absolues (`=== 1`)
+  alors que la zone publiée dans `data/corrections/vassiviere.json` lui arrive par
+  `initSync()` — le fichier publié se lit sans jeton, mettre le stockage local de côté n'y
+  change rien. Il compte maintenant en delta depuis un `zonesFond` relevé avant le tracé, et
+  vise sa zone par identifiant. Aucune ligne d'application n'a bougé.
 
 **Lot L12 — ce que la première sortie en Navigation a appris** (16/08/2026, v2026-08-16.6).
 Neuf points rapportés de l'eau, tous traités. Deux touchent la justesse de la navigation, deux
@@ -96,8 +128,7 @@ son dessin, deux son partage, deux le ménage entre les modes.
   ressortait à la sortie de Go. Trois verrous : `refreshCaptureUi` ferme la question tant que
   `app.go.active`, `beginProbeEdit` refuse d'ouvrir en navigation, et `setMenuMode` replie la
   saisie dès qu'on quitte le mode Carte.
-- **Au banc, cette fois** : 13 contrôles neufs dans `test/selftest.js` (174 au total, dont
-  l'unique échec préexistant sur l'épaisseur des contours) couvrent le ré-accrochage, le
+- **Au banc, cette fois** : 13 contrôles neufs dans `test/selftest.js` couvrent le ré-accrochage, le
   garde-fou de cap, l'orientation et le pas des chevrons, la découpe fait/à faire et les
   formats de partage. Le parcours complet a par ailleurs été **joué dans le navigateur** avec
   des positions simulées : raccourci ré-accroché (WP 5/5, 16 chevrons sur 20 au vert,
@@ -506,11 +537,11 @@ ports sortaient de l'eau. Les deux étaient fondés.
 **Deux prix à connaître.** D'abord le **terrassement** : une source en bandes produit des
 paliers plats, et la surface concernée passe de 121 à 404 ha — 20 altitudes couvrent 95,6 %
 des zones abaissées. C'est la forme honnête de la donnée, pas un défaut de calcul, mais cela
-se voit sur les courbes de niveau. Ensuite, **une vérification sur 128 échoue** :
-« épaisseur des contours constante d'un zoom à l'autre », 1,55 d'écart pour un seuil de 1,5,
-au point de sonde 45,79884 / 1,84400. Le shader n'a pas changé ; ce sont les isobathes qui
-s'y resserrent depuis que la zone est terrassée, et la mesure fusionne des traits voisins.
-Le seuil n'a **pas** été desserré pour faire passer le test.
+se voit sur les courbes de niveau. Ensuite, **une vérification échouait** : « épaisseur des
+contours constante d'un zoom à l'autre », 1,55 d'écart pour un seuil de 1,5, au point de
+sonde 45,79884 / 1,84400. Le seuil n'a **pas** été desserré pour faire passer le test — et
+bien lui en a pris : l'échec ne venait ni du terrassement ni de la mesure, mais d'un vrai
+défaut du shader, resté cinq mois invisible (§ « Traits de palier », plus bas).
 
 **Ce que ces deux défauts enseignent.** Aucun n'était visible depuis le dépôt : le premier
 demandait de confronter la couche à une source indépendante, le second de savoir à quoi
@@ -1013,7 +1044,7 @@ mauvaise donne une carte fausse sans aucun signe extérieur (§ 3.5).
 
 ### Vérifications
 
-Ouvrir `/test/`. 174 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 175 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
 simulation**, **forme de la correction (plateau, fondu, indépendance à l'ordre) et zones
@@ -1029,7 +1060,7 @@ bilinéairement : les comparer revient à comparer deux choses différentes.
 Après toute modification de `config/palette.json` ou de la grille, relancer
 `python tools/dump_reference.py`, sinon les tests comparent à une référence périmée.
 
-Ouvrir aussi `/test/interaction.html`. 53 enchaînements : l'application entière démarre
+Ouvrir aussi `/test/interaction.html`. 83 enchaînements : l'application entière démarre
 avec [`test/stub-map.js`](test/stub-map.js) à la place de MapLibre — substitué par une
 carte d'import, le reste du code ne voit pas la différence — et le banc provoque les mêmes
 événements que la vraie carte (`pinpoint`, `probeselect`, `zonevertex`…). Le balisage est
@@ -1047,12 +1078,16 @@ met de côté toutes les clés `relieflac.*` du stockage local — jeton compris
 sonde d'essai partirait vers le dépôt comme une vraie — et les restitue à la fin, même en
 cas d'échec ou de page quittée en route. Le rapport le confirme en dernière ligne.
 
-**Huit enchaînements de zones y échouent depuis quelque temps** — « la zone est enregistrée
-— 2 » au lieu de 1, et la suite. Vérifié le 16/08/2026 en remisant l'arbre de travail : ces
-échecs sont **antérieurs** au lot L12. L'hypothèse à instruire d'abord est que la zone
-publiée dans `data/corrections/vassiviere.json` arrive par `initSync()` pendant que le banc
-compte les siennes — le fichier publié se lit sans jeton, et la mise à l'écart du stockage
-local n'y change donc rien.
+**Le groupe « Zone émergée » compte en delta, et c'est indispensable** (corrigé le
+16/08/2026). Il échouait huit fois — « la zone est enregistrée — 2 » au lieu de 1, et la
+suite — parce qu'il comparait à des valeurs absolues : la zone publiée dans
+`data/corrections/vassiviere.json` arrive par `initSync()`, le fichier publié se lisant sans
+jeton, et la mise à l'écart du stockage local n'y change rien. Le banc relève donc
+`zonesFond` avant de tracer, vérifie `zonesFond + 1`, et vise sa propre zone par
+identifiant (la dernière du tableau, la liste étant présentée à l'envers) plutôt que par
+rang. Règle générale pour ce banc : **ne jamais compter ce que l'appareil contient, toujours
+ce que le banc ajoute** — sinon publier une donnée communautaire casse des enchaînements qui
+n'ont rien à voir avec elle.
 
 **Rejouer une navigation Go sans GPS**, dans le panneau navigateur : la page y est masquée,
 donc rien ne démarre tant qu'on n'a pas posé le shim de visibilité + `requestAnimationFrame`

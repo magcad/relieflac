@@ -135,12 +135,20 @@ float bedAltitude(vec2 uv, out float coverage) {
 
 // Trait d'épaisseur constante à l'écran, quel que soit le zoom.
 //
-// fwidth(value) donne la variation de la profondeur d'un pixel écran au suivant :
-// diviser l'écart au seuil par cette pente convertit une distance en mètres d'eau en
-// une distance en pixels. C'est ce qui remplace le contour vectoriel — le trait reste
-// fin et net en zoomant, au lieu de s'épaissir avec les cellules de la grille.
-float contourLine(float value, float target, float widthPx) {
-  float slope = max(fwidth(value), 1e-7);
+// La pente vient du dehors — c'est fwidth(depth), la variation de la profondeur d'un
+// pixel écran au suivant : diviser l'écart au seuil par cette pente convertit une
+// distance en mètres d'eau en une distance en pixels. C'est ce qui remplace le contour
+// vectoriel — le trait reste fin et net en zoomant, au lieu de s'épaissir avec les
+// cellules de la grille.
+//
+// Elle est passée en paramètre, et non calculée ici, parce que cette fonction est
+// appelée depuis la boucle des paliers et depuis un test sur la profondeur : une
+// dérivée ne se prend qu'en flux uniforme, faute de quoi le pilote rend zéro. C'est ce
+// qui arrivait — la pente valait alors le plancher de 1e-7, la distance au seuil
+// devenait astronomique et **aucun trait de palier n'était tracé**, à aucun zoom. Seul
+// le trait de rive, appelé hors de toute boucle, sortait — au point que la carte
+// paraissait n'avoir que lui.
+float contourLine(float value, float target, float widthPx, float slope) {
   float distancePx = abs(value - target) / slope;
   return 1.0 - smoothstep(widthPx * 0.5 - 0.5, widthPx * 0.5 + 0.5, distancePx);
 }
@@ -151,7 +159,8 @@ void main() {
   if (coverage <= 0.001) { fragColor = vec4(0.0); return; }
   float depth = u_level - bed;
 
-  // Les dérivées doivent être évaluées hors de tout branchement.
+  // La seule dérivée du shader, prise ici et nulle part ailleurs : hors boucle, hors
+  // condition, et une fois pour toutes. Tous les traits s'en servent.
   float slopePx = max(fwidth(depth), 1e-7);
 
   vec4 colour;
@@ -170,10 +179,10 @@ void main() {
 
   if (u_showOutlines) {
     // Trait de rive à la limite d'eau, puis un trait par palier de profondeur.
-    float line = contourLine(depth, 0.0, 1.6);
+    float line = contourLine(depth, 0.0, 1.6, slopePx);
     for (int i = 0; i < ${MAX_BANDS}; i++) {
       if (i >= u_bandCount - 1) break;
-      line = max(line, contourLine(depth, u_bands[i], 1.2));
+      line = max(line, contourLine(depth, u_bands[i], 1.2, slopePx));
     }
     colour = mix(colour, u_outline, line * u_outline.a);
   }
@@ -182,7 +191,8 @@ void main() {
   // de la zone peu profonde et non le rivage — où la profondeur passe de toute façon
   // sous le seuil, ce qui en ferait un simple liseré décoratif.
   if (u_showSafety && depth > 0.0) {
-    colour = mix(colour, u_safetyColor, contourLine(depth, u_safe, 2.4) * u_safetyColor.a);
+    colour = mix(colour, u_safetyColor,
+                 contourLine(depth, u_safe, 2.4, slopePx) * u_safetyColor.a);
   }
 
   // Zones non sondées, hachurées à la manière des cartes marines.

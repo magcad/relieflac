@@ -225,6 +225,12 @@ async function run() {
 
   // ------------------------------------------------------------- zones émergées
   group('Zone émergée : tracé, sélection, suppression');
+  // Le dépôt publie ses propres zones, et l'application les reprend au démarrage : le banc
+  // ne part donc pas d'une carte vierge, même après avoir mis le stockage de côté. On
+  // compte ce que ce banc ajoute, jamais ce que l'appareil contient — sans quoi publier une
+  // seule zone communautaire ferait échouer huit enchaînements qui n'ont rien à voir avec
+  // elle. Même raison pour viser la zone par son identifiant plutôt que par son rang.
+  const zonesFond = zones().length;
   $('btn-zone').click();
   check('le panneau s\'ouvre sur la liste, sans commencer à tracer',
     map.zoneMode === true && map.tracing === false
@@ -239,10 +245,14 @@ async function run() {
   check('la fermeture devient possible', $('btn-zone-close').disabled === false);
 
   fire('zoneclose');
-  check('la zone est enregistrée', zones().length === 1, `${zones().length}`);
+  check('la zone est enregistrée', zones().length === zonesFond + 1,
+    `${zones().length} pour ${zonesFond} au départ`);
   check('elle est reprise en réglage aussitôt', $('btn-zone-del').hidden === false);
-  check('son contour est affiché', map.zones.length === 1 && map.zones[0].selected === true);
-  const zoneId = zones()[0]?.id;
+  // Les zones sont rangées de la plus ancienne à la plus récente : celle qu'on vient de
+  // refermer est la dernière.
+  const zoneId = zones().at(-1)?.id;
+  check('son contour est affiché', map.zones.length === zonesFond + 1
+    && map.zones.find((z) => z.id === zoneId)?.selected === true);
 
   // Sortir du mode puis y revenir pour reprendre une zone posée plus tôt : c'est le geste
   // courant, et le chemin vers sa suppression depuis la carte.
@@ -273,30 +283,32 @@ async function run() {
 
   // La liste du panneau : la reprise qui ne dépend d'aucun visé.
   check('la zone figure dans la liste du panneau',
-    $('zone-list').children.length === 1,
+    $('zone-list').children.length === zonesFond + 1,
     `${$('zone-list').children.length} ligne(s) · « ${$('zone-list').textContent.trim().slice(0, 30)} »`);
   $('btn-zone-exit').click();
   location.hash = '#/parametres';
   await sleep(60);
   check('et dans celle des Paramètres',
-    $('zone-records').children.length === 1,
+    $('zone-records').children.length === zonesFond + 1,
     `${$('zone-records').children.length} ligne(s)`);
   location.hash = '#/';
   await sleep(60);
 
-  // Suppression par la liste du panneau, sans passer par la carte du tout.
+  // Suppression par la liste du panneau, sans passer par la carte du tout. La liste va de
+  // la plus récente à la plus ancienne : la première ligne est bien celle du banc.
   $('btn-zone').click();
   $('zone-list').children[0].querySelector('.zone__del').click();
-  check('la croix de la liste supprime la zone', zones().length === 0, `${zones().length}`);
+  check('la croix de la liste supprime la zone',
+    zones().length === zonesFond && zones().every((z) => z.id !== zoneId), `${zones().length}`);
 
   // Puis la même chose par le gros bouton, sur une zone tracée à neuf.
   $('btn-zone-new').click();
   for (const [lng, lat] of ring) fire('zonevertex', { lngLat: { lng, lat }, zoneId: null });
   fire('zoneclose');
-  check('une seconde zone se trace après une suppression', zones().length === 1);
+  check('une seconde zone se trace après une suppression', zones().length === zonesFond + 1);
   press('btn-zone-del');
-  check('la zone est supprimée du stockage', zones().length === 0, `${zones().length}`);
-  check('son contour disparaît de la carte', map.zones.length === 0);
+  check('la zone est supprimée du stockage', zones().length === zonesFond, `${zones().length}`);
+  check('son contour disparaît de la carte', map.zones.length === zonesFond);
   check('le panneau repasse à la liste', $('btn-zone-del').hidden === true
     && $('zone-list').hidden === false && map.tracing === false);
   $('btn-zone-exit').click();

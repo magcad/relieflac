@@ -206,31 +206,86 @@ export async function runShaderChecks(base = '..', check) {
       && Math.abs(pixels[o + 2] - target[2]) < 45;
   };
 
-  // Longueur moyenne des segments de contour rencontrés le long des lignes, sur toute
-  // l'image : c'est l'épaisseur apparente du trait. Elle doit rester la même quel que
-  // soit le zoom — c'est précisément ce qu'apporte la normalisation par fwidth().
-  const measure = (spanMeters) => {
+  const outlinePixels = (spanMeters) => {
     const pixels = renderWindow(layer, gl, canvas, { ...probe, spanMeters, size });
     let hits = 0;
-    let runs = 0;
     for (let y = 0; y < size; y += 1) {
-      let inside = false;
+      for (let x = 0; x < size; x += 1) if (isOutline(pixels, x, y)) hits += 1;
+    }
+    return hits;
+  };
+  check('contours effectivement tracés', outlinePixels(120) > 50 && outlinePixels(600) > 50,
+    `${outlinePixels(120)} px à 120 m · ${outlinePixels(600)} px à 600 m`);
+
+  // --- épaisseur d'un trait, mesurée sur UN trait -------------------------------
+  //
+  // Deux précautions, chacune payée par un vrai défaut.
+  //
+  // **Un seul trait.** Mesurer la palette entière ne dit rien du shader : au zoom large,
+  // les limites de bandes se rapprochent jusqu'à se toucher, et l'amas qui en résulte est
+  // plus épais que chacun des traits qui le composent. On rend donc une palette à deux
+  // bandes dont l'unique limite tombe sur la profondeur du point de mesure, en rouge
+  // franc, contour de sécurité éteint ; et l'on ne retient que les pixels dont la
+  // profondeur, recalculée ici, approche cette limite — ce qui écarte le trait de rive.
+  //
+  // **Sans dépendre de l'orientation.** Compter la longueur des segments rouges le long
+  // des lignes donne une largeur d'autant plus grande que le trait est couché : c'est
+  // l'orientation du fond qu'on mesurerait, pas le shader. On mesure donc l'aire, puis la
+  // longueur par la formule de Crofton — le nombre de traversées en lignes *et* en
+  // colonnes, dont la moyenne sur les directions vaut 4/π fois la longueur du trait.
+  // L'épaisseur est le rapport des deux.
+  //
+  // Ce couple a mis au jour ce que l'ancienne mesure masquait : `fwidth()` appelé depuis
+  // la boucle des paliers renvoyait zéro, et aucun trait de palier n'était tracé.
+  const BAND_DEPTH = 5;
+  layer.setStyle(styleFor(palette, 'marine', level, {
+    bands: [BAND_DEPTH, 999],
+    bandColors: [[1, 1, 1, 1], [0.4, 0.4, 0.4, 1]],
+    outline: [1, 0, 0, 1],
+    showSafety: false,
+  }));
+
+  const measure = (spanMeters) => {
+    const win = { ...probe, spanMeters };
+    const pixels = renderWindow(layer, gl, canvas, { ...win, size });
+    const mark = new Uint8Array(size * size);
+    for (let y = 0; y < size; y += 1) {
       for (let x = 0; x < size; x += 1) {
-        const hit = isOutline(pixels, x, y);
-        if (hit) { hits += 1; if (!inside) runs += 1; }
-        inside = hit;
+        const [lon, lat] = pixelToLngLat(win, x, y);
+        if (!(Math.abs(level - bed.altitudeAt(lon, lat) - BAND_DEPTH) < 2)) continue;
+        const o = ((size - 1 - y) * size + x) * 4;
+        if (pixels[o + 3] > 200 && pixels[o] > 150
+          && pixels[o + 1] < 120 && pixels[o + 2] < 120) mark[y * size + x] = 1;
       }
     }
-    return { hits, runs, width: runs ? hits / runs : 0 };
+    let hits = 0;
+    let crossings = 0;
+    for (let a = 0; a < size; a += 1) {
+      let inRow = false;
+      let inColumn = false;
+      for (let b = 0; b < size; b += 1) {
+        const row = mark[a * size + b] === 1;
+        if (row) { hits += 1; if (!inRow) crossings += 1; }
+        inRow = row;
+        const column = mark[b * size + a] === 1;
+        if (column && !inColumn) crossings += 1;
+        inColumn = column;
+      }
+    }
+    const length = (Math.PI / 4) * crossings;
+    return { hits, width: length ? hits / length : 0 };
   };
 
   const close = measure(120);
-  const far = measure(600);
-  check('contours effectivement tracés', close.hits > 50 && far.hits > 50,
-    `${close.hits} px à 120 m · ${far.hits} px à 600 m`);
-  check('épaisseur des contours constante d\'un zoom à l\'autre',
-    close.width > 0 && far.width > 0 && Math.abs(close.width - far.width) < 1.5,
-    `${close.width.toFixed(2)} px à 120 m de large · ${far.width.toFixed(2)} px à 600 m (rapport de zoom ×5)`);
+  const far = measure(1200);
+  check('les traits de palier sont tracés, et pas seulement celui de la rive',
+    close.hits > 50 && far.hits > 50,
+    `${close.hits} px à 120 m · ${far.hits} px à 1200 m`);
+  check('épaisseur du trait constante d\'un zoom à l\'autre',
+    close.width > 0 && far.width > 0 && Math.abs(close.width - far.width) < 0.5,
+    `${close.width.toFixed(2)} px à 120 m · ${far.width.toFixed(2)} px à 1200 m (rapport de zoom ×10)`);
+
+  layer.setStyle(styleFor(palette, 'marine', level));
 
   // --- hors du lac ------------------------------------------------------------
   const outside = renderWindow(layer, gl, canvas, { lon: 1.75, lat: 45.70, spanMeters: 400, size });
