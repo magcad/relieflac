@@ -1,7 +1,7 @@
 {
   "schema": "relieflac.routes/1",
   "waterbody": "vassiviere",
-  "updated_at": "2026-08-16T21:58:22.954Z",
+  "updated_at": "2026-08-16T21:59:22.623Z",
   "routes": [
     {
       "id": "f0cdb997-161c-4bf5-8597-1ee757fee201",
@@ -110,7 +110,7 @@
     {
       "id": "4159245c-1dad-49c7-bbd7-a8741738b38a",
       "name": "Resto Broussat",
-      "at": "2026-08-16T21:58:21.442Z",
+      "at": "2026-08-16T21:59:21.112Z",
       "points": [
         [
           1.89921478246643,
