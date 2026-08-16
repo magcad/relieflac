@@ -1,18 +1,6 @@
 {
   "schema": "relieflac.trips-index/1",
   "waterbody": "vassiviere",
-  "updated_at": "2026-08-16T18:31:59.637Z",
-  "trips": [
-    {
-      "id": "121a44cd-c840-42ca-8602-b9990d106169",
-      "name": "Pêche",
-      "at": "2026-08-16T15:57:27.200Z",
-      "ended_at": "2026-08-16T16:45:10.138Z",
-      "length_m": 191,
-      "points": 19,
-      "route_id": "2e90715c-60e4-4058-94e6-5047dd726d9a",
-      "by": null,
-      "file": "121a44cd-c840-42ca-8602-b9990d106169.json"
-    }
-  ]
+  "updated_at": "2026-08-16T20:26:38.413Z",
+  "trips": []
 }
