@@ -593,6 +593,20 @@ Format `data/level.json` :
 
 Le cron GitHub Actions n'est pas garanti à la minute près et peut être suspendu après 60 jours d'inactivité du dépôt : l'app doit donc **toujours afficher l'âge de la donnée** et permettre la **saisie manuelle de la cote** (§ 6.4). Le lac bougeant typiquement de quelques cm/jour (jusqu'à ~10 cm/jour en période de lâchers), une donnée vieille de quelques heures reste parfaitement exploitable.
 
+**L'appareil tient sa propre part de l'historique** (`src/level-history.js`, réserve
+`relieflac.levelhist.v1`, depuis le 16/08/2026). À chaque ouverture, la cote qui vient
+d'être lue est inscrite localement ; `LevelHistory` fusionne ensuite cette réserve avec
+`data/level-history.json`. Deux raisons, et la première est celle du paragraphe ci-dessus :
+la suspension du cron ne doit pas arrêter la courbe, et une sortie faite hors ligne ne passe
+par aucun workflow. La clé de fusion est **l'instant de mesure en millisecondes**, jamais la
+chaîne ISO : le fichier écrit `2026-08-16T07:00:00Z` là où JavaScript écrirait
+`2026-08-16T07:00:00.000Z`, et comparer les textes ferait deux points au même instant. Ce
+que le dépôt finit par savoir est retiré de la réserve locale, bornée à un an d'heures.
+
+Ce qui n'y entre pas : une cote périmée (elle n'apprend rien de neuf) et une cote **saisie à
+la main**, qui est une lecture d'échelle faite par une personne et non une mesure du
+barrage — elle n'a rien à faire dans une courbe censée montrer ce qu'a fait le lac.
+
 ### 5.4 Rendu de la coloration
 
 Le shader de l'overlay raster reçoit la texture Terrain-RGB, la cote courante, le décalage
@@ -723,6 +737,37 @@ première et plus visible que rien.
 `BedGrid.soundingDistanceAt()` et `BedGrid.communityBoundAt()` exposent les deux canaux au
 reste de l'application. Une `coverage.png` à un seul canal — les versions antérieures — se
 lit toujours : `G` y vaut 0 partout, ce qui revient à « aucun encadrement ».
+
+### 6.1 quater Panneau « Étiage » — la courbe d'abord, la saisie derrière un crayon
+
+Depuis le 16/08/2026, ce panneau montre d'abord **l'évolution de la cote** : une courbe
+ambre épaisse, sur un jour, une semaine (par défaut), un mois ou un an. Le curseur de cote,
+qui l'occupait entièrement, passe derrière un crayon (`#btn-sim-manual`), avec le bouton
+« Cote EDF » — ce retour à la valeur publiée ne veut rien dire tant qu'on ne l'a pas
+quittée, il paraît donc avec le crayon et s'efface avec lui. C'est le bon ordre : savoir si
+le lac monte ou descend est ce qu'on vient chercher neuf fois sur dix ; la saisie manuelle
+est le geste rare, et celui qui fausse **toutes** les profondeurs quand on l'oublie en place.
+
+Quatre décisions de lecture, toutes dictées par l'usage sur l'eau, écran au soleil :
+
+- **L'échelle verticale se cale sur les extrêmes de la fenêtre affichée**, pas sur la plage
+  de manœuvre du barrage : le lac descend de 10 m dans l'année mais de 2 cm dans une
+  journée, et une échelle fixe écraserait la semaine en une ligne droite.
+- **Ces deux extrêmes sont tracés en pointillés et chiffrés en marge.** Sans eux, une courbe
+  qui se met elle-même à l'échelle laisse croire à une variation dix fois plus forte
+  qu'elle. La courbe passe entre les deux, et la légende annonce la variation en centimètres.
+- **La fenêtre est ancrée sur le dernier relevé connu**, jamais sur l'instant présent : un
+  téléphone rallumé après trois jours sans réseau afficherait sinon un cadre vide en
+  « Jour » alors qu'il a la donnée en cache. L'axe des dates dit de quand elles datent.
+- **Elle cède la place, jamais la sortie.** La courbe demande jusqu'à la moitié de la hauteur
+  d'écran ; le rail de caméra en occupe déjà 250 px. `fitChartToRoom()` mesure ce qui reste
+  et rabote la courbe d'autant — sans quoi le panneau recouvre le bas du rail, donc
+  « Outils », le seul moyen de ressortir des modes de correction.
+
+Un doigt posé sur la courbe affiche la cote et l'instant du relevé le plus proche. Le tracé
+est allégé à un point par colonne de pixels (`samplePerColumn`) : une année d'historique
+horaire fait 8 760 points pour 300 px de large. Les extrêmes chiffrés, eux, restent calculés
+sur la série entière — c'est le tracé qu'on allège, pas la mesure.
 
 ### 6.1 ter Actions destructrices — aucune boîte de dialogue
 

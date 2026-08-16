@@ -15,6 +15,10 @@ import { anchoredMatrix } from '../src/depth-layer.js';
 import { CorrectionsSync } from '../src/sync.js';
 import { bearing, distanceMeters, formatSpeed } from '../src/geo.js';
 import { formatAge, Level } from '../src/level.js';
+import { LevelHistory } from '../src/level-history.js';
+import {
+  chartGeometry, nearestPoint, renderChart, samplePerColumn, ticksFor, windowOf,
+} from '../src/level-chart.js';
 import { applyPaletteOverride, bandLimits, buildLut, LUT_SIZE, lutIndex } from '../src/palette.js';
 import { Probes, makeProbe } from '../src/probes.js';
 import { SimPoints } from '../src/sim.js';
@@ -664,6 +668,86 @@ export async function run(base = '..') {
   level.setManual(null);
 
   check('âge formaté', formatAge(90 * 60e3) === 'il y a 2 h', formatAge(90 * 60e3));
+
+  // --- historique de la cote et sa courbe ---------------------------------------
+  // La réserve locale est de la vraie donnée d'usage : on la met de côté le temps du banc.
+  const histKey = 'relieflac.levelhist.v1';
+  const histBackup = localStorage.getItem(histKey);
+  localStorage.removeItem(histKey);
+  try {
+    const history = new LevelHistory(base);
+    await history.load();
+    const known = history.entries();
+    check('historique du dépôt chargé et trié',
+      known.length > 24 && known.every((e, i) => i === 0 || e.t >= known[i - 1].t),
+      `${known.length} relevé(s)`);
+
+    // Ce que l'appareil relève lui-même : inscrit une fois, et une seule.
+    const futur = new Date(known[known.length - 1].t + 3600e3).toISOString();
+    check('une cote inconnue est inscrite', history.record(futur, 646.42) === true);
+    check('la même cote n\'est pas inscrite deux fois', history.record(futur, 646.42) === false);
+    check('une cote déjà connue du dépôt n\'encombre pas la mémoire locale',
+      history.record(new Date(known[0].t).toISOString(), known[0].v) === false);
+    check('une cote invalide est refusée',
+      history.record(futur, NaN) === false && history.record('pas une date', 646) === false);
+    check('le relevé local rejoint la série', history.entries().length === known.length + 1);
+
+    // Fenêtre : ancrée sur le DERNIER relevé, pour qu'un cache vieux de trois jours montre
+    // quand même quelque chose plutôt qu'un cadre vide.
+    const t0 = Date.UTC(2026, 0, 1);
+    const serie = Array.from({ length: 24 * 40 }, (_, i) => ({
+      t: t0 + i * 3600e3,
+      v: 645 + Math.sin(i / 40),
+    }));
+    const semaine = windowOf(serie, 'W');
+    check('fenêtre « semaine » : 7 jours depuis le dernier relevé',
+      semaine.length === 24 * 7 + 1 && semaine[semaine.length - 1] === serie[serie.length - 1],
+      `${semaine.length} points`);
+    check('fenêtre « année » : toute la série quand elle est plus courte',
+      windowOf(serie, 'Y').length === serie.length);
+    check('fenêtre sur une série vide', windowOf([], 'W').length === 0);
+
+    const box = { width: 320, height: 200 };
+    const g = chartGeometry(semaine, box);
+    const values = semaine.map((p) => p.v);
+    check('géométrie : le tracé tient dans la boîte',
+      g.ok && values.every((v) => g.yOf(v) >= g.y0 && g.yOf(v) <= g.y1));
+    check('géométrie : les extrêmes sont ceux de la fenêtre',
+      near(g.min, Math.min(...values), 1e-9) && near(g.max, Math.max(...values), 1e-9));
+    check('géométrie : le plus haut se dessine au-dessus du plus bas', g.yOf(g.max) < g.yOf(g.min));
+    check('géométrie : la série va de bord à bord',
+      near(g.xOf(g.t0), g.x0, 1e-9) && near(g.xOf(g.t1), g.x1, 1e-9));
+    check('géométrie : rien à tracer sans donnée', chartGeometry([], box).ok === false);
+
+    // Une année d'historique horaire pour 300 px : le chemin doit maigrir sans perdre ses
+    // extrémités, sinon la courbe ne touche plus les bords du cadre.
+    const allege = samplePerColumn(serie, 300);
+    check('allègement : un point par colonne au plus',
+      allege.length <= 302 && allege.length < serie.length, `${serie.length} → ${allege.length}`);
+    check('allègement : les deux bouts sont conservés',
+      allege[0] === serie[0] && allege[allege.length - 1] === serie[serie.length - 1]);
+
+    const jour = windowOf(serie, 'D');
+    const graduations = ticksFor('D', jour[0].t, jour[jour.length - 1].t);
+    check('graduations « jour » : toutes les 6 h, dans la fenêtre',
+      graduations.length >= 3 && graduations.length <= 5
+      && graduations.every((tick) => tick.t >= jour[0].t && tick.t <= jour[jour.length - 1].t),
+      graduations.map((t) => t.label).join(' '));
+    check('graduations : rien sur une fenêtre nulle', ticksFor('W', 5, 5).length === 0);
+
+    const vise = semaine[10];
+    check('point le plus proche du doigt',
+      nearestPoint(semaine, vise.t + 900e3) === vise);
+
+    const svg = renderChart(semaine, 'W', box);
+    check('tracé : une courbe, un aplat, deux pointillés',
+      svg.includes('chart__line') && svg.includes('chart__area')
+      && (svg.match(/chart__lim"/g) ?? []).length === 2);
+    check('tracé : vide quand il n\'y a rien à montrer', renderChart([], 'W', box) === '');
+  } finally {
+    if (histBackup == null) localStorage.removeItem(histKey);
+    else localStorage.setItem(histKey, histBackup);
+  }
 
   // --- géométrie ----------------------------------------------------------------
   check('distance est-ouest à 45,8°',

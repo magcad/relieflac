@@ -6,6 +6,11 @@ import {
 import { DepthLayer } from './depth-layer.js';
 import { formatSpeed, Geolocator } from './geo.js';
 import { formatAge, Level, LevelSource } from './level.js';
+import { LevelHistory } from './level-history.js';
+import {
+  chartGeometry, DEFAULT_RANGE, formatCote, formatMoment, LEVEL_RANGES,
+  nearestPoint, rangeOf, renderChart, windowOf,
+} from './level-chart.js';
 import { Compass } from './compass.js';
 import { LakeMap } from './map.js';
 import { applyPaletteOverride, bandColors, bandLimits, buildLut, depthColor, hexToVec4, legendEntries } from './palette.js';
@@ -26,6 +31,8 @@ const app = {
   palette: null, model: null, bed: null, soundings: null,
   settings: null, level: null, geo: null, probes: null,
   sim: null, compass: null, zones: null,
+  // Historique de la cote, et durée affichée par la courbe du panneau d'étiage.
+  levelHistory: null, chartRange: DEFAULT_RANGE, chartWindow: [],
   lakeMap: null, depthLayer: null,
   alarmActive: false, lastAlarmAt: 0,
   editingProbeId: null, editingSimId: null, simMode: false,
@@ -77,6 +84,7 @@ async function boot() {
     app.zones = new Zones();
     app.compass = new Compass();
     app.level = new Level('.');
+    app.levelHistory = new LevelHistory('.');
     app.geo = new Geolocator();
 
     // Un réglage mémorisé peut désigner un fond que ce déploiement-ci ne contient pas
@@ -91,6 +99,10 @@ async function boot() {
       app.bed = await BedGrid.load('.', DEFAULT_BED_SOURCE);
     }
     await app.level.refresh();
+    noteLevelInHistory();
+    // L'historique du dépôt n'est pas sur le chemin critique : la carte s'ouvre sans lui, et
+    // la courbe se remplit quand il arrive. Hors ligne, la réserve locale la trace seule.
+    app.levelHistory.load().then(refreshLevelChart, () => {});
 
     // MapLibre s'initialise depuis sa boucle de rendu, suspendue tant que la page est
     // masquée : lancée dans un onglet en arrière-plan, la carte ne se construirait
@@ -144,7 +156,7 @@ async function boot() {
 
     // La cote bouge de quelques centimètres par heure : un rafraîchissement toutes les
     // dix minutes suffit largement, et le fichier est servi depuis le cache si inchangé.
-    setInterval(() => app.level.refresh().then(refreshLevelUi), 10 * 60e3);
+    setInterval(refreshLevelFromEdf, 10 * 60e3);
 
     if (Number.isFinite(app.simLevelDropped)) {
       toast(`Cote de simulation ${app.simLevelDropped.toFixed(2)} m abandonnée — `
@@ -776,6 +788,134 @@ function refreshLevelUi() {
   if (app.simMode) refreshSimReadout();
 }
 
+// ------------------------------------------------- historique de la cote
+
+/** Relève la cote auprès du relais, l'inscrit dans l'historique, et met l'écran à jour. */
+async function refreshLevelFromEdf() {
+  await app.level.refresh();
+  noteLevelInHistory();
+  refreshLevelUi();
+}
+
+/**
+ * Inscrit dans l'historique local la cote que cet appareil vient de lire.
+ *
+ * C'est ce qui permet à la courbe de continuer d'avancer quand le workflow horaire ne
+ * tourne pas — GitHub suspend les tâches planifiées d'un dépôt resté inactif — et de garder
+ * la trace d'une sortie faite hors ligne. Une cote périmée n'apprend rien de neuf ; une cote
+ * saisie à la main n'est pas une mesure du barrage : ni l'une ni l'autre n'entre ici.
+ */
+function noteLevelInHistory() {
+  const data = app.level?.data;
+  if (!data || data.stale || !app.levelHistory) return;
+  if (app.levelHistory.record(data.measured_at, data.level_m_ngf)) refreshLevelChart();
+}
+
+function wireLevelChart() {
+  const ranges = $('chart-ranges');
+  for (const range of LEVEL_RANGES) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.range = range.key;
+    button.textContent = range.label;
+    button.title = `Afficher ${range.title}`;
+    button.addEventListener('click', () => setChartRange(range.key));
+    ranges.append(button);
+  }
+  setChartRange(app.chartRange);
+
+  // Lecture au doigt : la courbe seule donne la forme, pas les valeurs. `pan-y` en CSS
+  // laisse le panneau défiler verticalement pendant qu'on suit la courbe du doigt.
+  const plot = $('chart-plot');
+  plot.addEventListener('pointerdown', scrubChart);
+  plot.addEventListener('pointermove', (event) => { if (event.buttons) scrubChart(event); });
+  plot.addEventListener('pointerup', endScrub);
+  plot.addEventListener('pointercancel', endScrub);
+  plot.addEventListener('pointerleave', endScrub);
+
+  // Le tracé est en pixels réels, pas en unités élastiques : une rotation d'écran le
+  // laisserait étiré tant qu'on ne le redessine pas.
+  window.addEventListener('resize', () => refreshLevelChart());
+}
+
+function setChartRange(key) {
+  app.chartRange = key;
+  for (const button of $('chart-ranges').children) {
+    const on = button.dataset.range === key;
+    button.classList.toggle('is-on', on);
+    button.setAttribute('aria-pressed', String(on));
+  }
+  refreshLevelChart();
+}
+
+/** Redessine la courbe. Sans objet tant que le panneau d'étiage est fermé : il n'a pas de taille. */
+function refreshLevelChart() {
+  const plot = $('chart-plot');
+  if (!plot || !app.levelHistory || $('sim').hidden) return;
+
+  const box = plot.getBoundingClientRect();
+  const width = Math.round(box.width);
+  const height = Math.round(box.height);
+  app.chartWindow = windowOf(app.levelHistory.entries(), app.chartRange);
+
+  const svg = $('chart-svg');
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.innerHTML = width > 1 && height > 1
+    ? renderChart(app.chartWindow, app.chartRange, { width, height })
+    : '';
+
+  const empty = $('chart-empty');
+  empty.hidden = app.chartWindow.length > 0;
+  empty.textContent = app.levelHistory.loaded
+    ? 'Pas encore de relevé sur cette durée.'
+    : 'Historique en cours de chargement…';
+  describeChart();
+}
+
+/** Légende par défaut de la courbe : ce que le lac a fait sur la période affichée. */
+function describeChart() {
+  const read = $('chart-read');
+  const points = app.chartWindow;
+  const range = rangeOf(app.chartRange);
+  if (!points.length) {
+    read.textContent = `Cote du lac sur ${range.title}`;
+    return;
+  }
+  const cm = Math.round((points[points.length - 1].v - points[0].v) * 100);
+  const sign = cm > 0 ? '+' : cm < 0 ? '−' : '';
+  read.innerHTML = `Sur ${range.title} : <strong>${sign}${Math.abs(cm)} cm</strong>`;
+}
+
+function scrubChart(event) {
+  const points = app.chartWindow;
+  if (!points.length) return;
+  const box = $('chart-plot').getBoundingClientRect();
+  const g = chartGeometry(points, { width: box.width, height: box.height });
+  const cursor = $('chart-cursor');
+  if (!g.ok || !cursor) return;
+
+  const x = Math.min(Math.max(event.clientX - box.left, g.x0), g.x1);
+  const ratio = g.x1 > g.x0 ? (x - g.x0) / (g.x1 - g.x0) : 0;
+  const point = nearestPoint(points, g.t0 + ratio * (g.t1 - g.t0));
+
+  cursor.removeAttribute('hidden');
+  const cx = g.xOf(point.t).toFixed(1);
+  const line = cursor.querySelector('line');
+  line.setAttribute('x1', cx);
+  line.setAttribute('x2', cx);
+  const dot = cursor.querySelector('circle');
+  dot.setAttribute('cx', cx);
+  dot.setAttribute('cy', g.yOf(point.v).toFixed(1));
+
+  $('chart-read').innerHTML =
+    `<strong>${formatCote(point.v)} m</strong> · ${formatMoment(point.t, app.chartRange)}`;
+}
+
+function endScrub() {
+  $('chart-cursor')?.setAttribute('hidden', '');
+  describeChart();
+}
+
 // --------------------------------------------------------------- réglages
 
 function wireSettings() {
@@ -838,8 +978,7 @@ function wireSettings() {
       : `Cote EDF ${state.value.toFixed(2)} m NGF`);
   });
   $('btn-refresh-level').addEventListener('click', async () => {
-    await app.level.refresh();
-    refreshLevelUi();
+    await refreshLevelFromEdf();
     toast('Cote rafraîchie');
   });
 
@@ -1117,6 +1256,7 @@ function refreshCaptureUi() {
  * ligne de sélection du mode « Étiage » démentirait dès qu'elle paraît.
  */
 function stackBottomBars() {
+  const resized = fitChartToRoom();
   let offset = 0;
   for (const id of ['sim', 'zone', 'capture']) {
     const element = $(id);
@@ -1127,6 +1267,35 @@ function stackBottomBars() {
     offset += element.offsetHeight + 8;
   }
   liftRail(offset);
+  if (resized) refreshLevelChart(); // le tracé est en pixels : il se refait à la nouvelle taille
+}
+
+/**
+ * Rend à la courbe la hauteur que la place libre autorise, et pas un pixel de plus.
+ *
+ * La courbe demande jusqu'à 40 % de l'écran ; le rail de caméra en occupe déjà 250 px.
+ * Laissée à sa hauteur souhaitée, elle poussait le panneau par-dessus le bas du rail, donc
+ * par-dessus le bouton « Outils » — le seul moyen de ressortir. On mesure ce qui reste et
+ * l'on rabote la courbe d'autant : c'est elle qui cède, jamais la sortie.
+ */
+function fitChartToRoom() {
+  const sim = $('sim');
+  const plot = $('chart-plot');
+  const rail = document.querySelector('.rail');
+  const view = $('vue-carte');
+  const root = document.documentElement;
+  const before = root.style.getPropertyValue('--chart-h');
+
+  root.style.removeProperty('--chart-h'); // repartir de la hauteur souhaitée
+  if (sim?.hidden !== false || !plot || !rail || !view) return before !== '';
+
+  const strip = document.querySelector('.navstrip')?.offsetHeight ?? 0;
+  const dock = document.querySelector('.dock')?.offsetHeight ?? 0;
+  const room = view.clientHeight - strip - dock - rail.offsetHeight - 26;
+  const excess = sim.offsetHeight - room;
+  const after = excess > 0 ? `${Math.max(150, Math.round(plot.offsetHeight - excess))}px` : '';
+  if (after) root.style.setProperty('--chart-h', after);
+  return after !== before;
 }
 
 /**
@@ -1148,9 +1317,11 @@ function liftRail(stack) {
 
   const strip = document.querySelector('.navstrip')?.offsetHeight ?? 0;
   const dock = document.querySelector('.dock')?.offsetHeight ?? 0;
+  // La hauteur du rail dépend de sa compacité : on tranche d'abord, on mesure ensuite.
+  // Le panneau d'étiage porte une courbe haute et replie la capsule sans discuter — le
+  // pincement zoome aussi bien, et c'est la place qu'il faut à la courbe.
+  rail.classList.toggle('is-compact', $('sim')?.hidden === false);
   const room = () => view.clientHeight - strip - dock - rail.offsetHeight - 18;
-
-  rail.classList.remove('is-compact');
   if (stack > room()) rail.classList.add('is-compact');
   const lift = Math.max(0, Math.min(stack, room()));
   document.documentElement.style.setProperty('--stack', `${lift}px`);
@@ -1719,6 +1890,11 @@ function wireSim() {
   });
   $('sim-slider').addEventListener('input', (e) => setSimLevel(Number(e.target.value)));
 
+  // Le curseur de cote n'est plus la première chose qu'on voit : il se déplie au crayon.
+  // Ce qu'on vient chercher ici neuf fois sur dix, c'est la courbe.
+  $('btn-sim-manual').addEventListener('click', () => showManualLevel($('sim-manual').hidden));
+  wireLevelChart();
+
   // « + » = plus profond : la profondeur mesurée augmente, donc le fond (bedZ) descend.
   $('btn-sim-up').addEventListener('click', () => nudgeSimPoint(-0.25));
   $('btn-sim-down').addEventListener('click', () => nudgeSimPoint(0.25));
@@ -1930,9 +2106,20 @@ function enterSim() {
   const slider = $('sim-slider');
   slider.min = 641; slider.max = 651; slider.step = 0.05;
   slider.value = app.simBaseLevel;
+  showManualLevel(false); // le curseur repart replié à chaque ouverture
   setSimLevel(app.simBaseLevel);
   refreshSimOnMap();
-  toast('Simulation : glissez le niveau, touchez la carte pour poser un témoin');
+  // Le panneau vient d'être démasqué : il a enfin une taille, la courbe peut se dessiner.
+  refreshLevelChart();
+  toast('Étiage : la courbe donne l’évolution, le crayon règle la cote');
+}
+
+/** Déplie ou replie la saisie manuelle de la cote, derrière le crayon. */
+function showManualLevel(open) {
+  $('sim-manual').hidden = !open;
+  $('btn-sim-reset').hidden = !open;
+  $('btn-sim-manual').setAttribute('aria-pressed', String(open));
+  stackBottomBars(); // le curseur déplié change la hauteur du panneau
 }
 
 function exitSim() {
@@ -1943,6 +2130,7 @@ function exitSim() {
   $('sim').hidden = true;
   refreshCaptureUi();
   $('sim-sel').hidden = true;
+  showManualLevel(false);
   app.settings.update({
     manualLevel: app.simEnteredWithManual ?? null,
     manualFromSim: false,

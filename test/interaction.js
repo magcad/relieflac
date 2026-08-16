@@ -353,6 +353,58 @@ async function run() {
     !$('btn-cote').classList.contains('level--manual') && coteShown() !== coteSim,
     `bandeau ${coteShown()} (simulation ${coteSim})`);
 
+  // ------------------------------------------------- courbe de l'évolution de la cote
+  //
+  // Ce qu'on vient chercher dans « Étiage » neuf fois sur dix, c'est de savoir si le lac
+  // monte ou descend. La courbe est donc au premier plan, et le curseur de saisie — le
+  // geste rare, et celui qui fausse toutes les profondeurs quand on l'oublie en place —
+  // passe derrière un crayon.
+  group('Courbe de la cote du lac');
+  $('btn-sim').click();
+  const drawn = await until(() => $('chart-svg').querySelector('.chart__line'), 8000);
+  check('ouvrir l\'étiage dessine la courbe',
+    drawn && $('chart-empty').hidden,
+    `${$('chart-svg').innerHTML.length} caractères de tracé`);
+  check('les extrêmes de la période sont chiffrés en marge',
+    $('chart-svg').querySelectorAll('.chart__limlab').length === 2);
+  check('la semaine est la durée proposée d\'emblée',
+    $('chart-ranges').querySelector('[data-range="W"]').getAttribute('aria-pressed') === 'true',
+    $('chart-read').textContent);
+
+  check('la saisie manuelle et le retour à la cote EDF sont repliés',
+    $('sim-manual').hidden && $('btn-sim-reset').hidden);
+  $('btn-sim-manual').click();
+  check('le crayon déplie le curseur, et le bouton « Cote EDF » avec lui',
+    !$('sim-manual').hidden && !$('btn-sim-reset').hidden
+    && $('btn-sim-manual').getAttribute('aria-pressed') === 'true');
+  $('btn-sim-manual').click();
+  check('un second appui les replie', $('sim-manual').hidden && $('btn-sim-reset').hidden);
+
+  // Le panneau a grandi : il ne doit jamais recouvrir le bas du rail, où se trouve
+  // « Outils » — le seul moyen de ressortir des modes de correction.
+  const railBottom = document.querySelector('.rail').getBoundingClientRect().bottom;
+  const panelTop = $('sim').getBoundingClientRect().top;
+  check('la courbe ne mange jamais le bas du rail',
+    panelTop >= railBottom - 1,
+    `rail jusqu'à ${railBottom.toFixed(0)} px, panneau à partir de ${panelTop.toFixed(0)} px`);
+  check('et il lui reste une hauteur utile',
+    $('chart-plot').offsetHeight >= 150, `${$('chart-plot').offsetHeight} px`);
+
+  const weekRead = $('chart-read').textContent;
+  $('chart-ranges').querySelector('[data-range="D"]').click();
+  check('changer de durée redessine et le dit',
+    $('chart-read').textContent !== weekRead && $('chart-read').textContent.includes('24 h'),
+    $('chart-read').textContent);
+  $('chart-ranges').querySelector('[data-range="W"]').click();
+
+  check('l\'ouverture a inscrit la cote dans l\'historique de l\'appareil',
+    localStorage.getItem('relieflac.levelhist.v1') !== null);
+
+  $('btn-sim-exit').click();
+  check('quitter l\'étiage replie la saisie manuelle',
+    $('sim-manual').hidden && $('btn-sim-reset').hidden
+    && $('btn-sim-manual').getAttribute('aria-pressed') === 'false');
+
   // -------------------------------------------- retour à la cote EDF depuis les réglages
   //
   // Le chemin que suit quelqu'un qui trouve une cote manuelle en place et veut s'en

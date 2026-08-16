@@ -14,7 +14,7 @@ sous le bateau — recalculée en continu à partir de la cote du lac pilotée p
 |---|---|
 | Reprendre le travail | [ETAT.md](ETAT.md) |
 | Spécification complète | [SPECIFICATION.md](SPECIFICATION.md) |
-| Vérifications | [/test/](https://magcad.github.io/relieflac/test/) — 128 contrôles · [/test/interaction.html](https://magcad.github.io/relieflac/test/interaction.html) — 44 enchaînements |
+| Vérifications | [/test/](https://magcad.github.io/relieflac/test/) — 161 contrôles · [/test/interaction.html](https://magcad.github.io/relieflac/test/interaction.html) — 83 enchaînements |
 
 ---
 
@@ -56,6 +56,10 @@ mise à jour d'uniforme.
   porter à sa hauteur hors d'eau — il découvre ou se noie ensuite avec la cote ; sondes et
   zones partent ensemble dans le fichier partagé `data/corrections/<lac>.json`, rangées à
   part l'une de l'autre ;
+- **courbe de la cote** dans « Étiage » : l'évolution du niveau du lac sur un jour, une
+  semaine (par défaut), un mois ou un an, avec les extrêmes de la période en pointillés et
+  la valeur lue au doigt. La cote se règle toujours à la main, mais derrière un crayon —
+  c'est le geste rare, et celui qui fausse toutes les profondeurs quand on l'oublie ;
 - **clic droit** : poser un point à l'endroit montré, sans signal GPS (essais au bureau) ;
 - paramètres complets, export/import de profil.
 
@@ -139,7 +143,16 @@ voir [`data/2011 ENSTA/ANALYSE.md`](data/2011%20ENSTA/ANALYSE.md).
 | Fonds de carte | IGN Géoplateforme | Etalab 2.0 |
 
 L'API EDF ne renvoie **aucun en-tête CORS** : elle ne peut pas être appelée depuis la page
-publiée. Un workflow GitHub Actions la relève toutes les heures et commite `data/level.json`.
+publiée. Un workflow GitHub Actions la relève toutes les heures et commite `data/level.json`,
+en ajoutant chaque mesure à `data/level-history.json` — c'est cet historique que trace la
+courbe d'étiage.
+
+L'appareil complète : à chaque ouverture, l'application inscrit dans sa propre réserve
+(`relieflac.levelhist.v1`) la cote qu'elle vient de lire, puis fusionne les deux séries sur
+l'instant de mesure. La courbe continue donc d'avancer quand le workflow ne tourne pas —
+GitHub suspend les tâches planifiées d'un dépôt resté inactif — et une sortie faite hors
+ligne laisse quand même sa trace. Ce que le dépôt finit par savoir est retiré de la réserve
+locale, qui ne garde que son avance.
 
 La ligne Quickdraw est la seule qui ne soit pas sous licence ouverte : la donnée appartient
 à Garmin et à ses contributeurs, dont les CGU interdisent la redistribution. La grille
@@ -192,7 +205,7 @@ vendor/                     MapLibre GL JS 6.3, vendorisé en .js
 config/                     model.json (calage, grille) · palette.json (couleurs)
 tools/                      chaîne de préparation et outils de diagnostic
 data/                       grille, couverture, sondes, cote — versionnés
-test/                       128 vérifications (dont le shader rendu hors MapLibre)
-                            et 44 enchaînements de l'interface
+test/                       161 vérifications (dont le shader rendu hors MapLibre)
+                            et 83 enchaînements de l'interface
 .github/workflows/          relevé horaire de la cote, reconstruction du modèle
 ```

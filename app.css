@@ -576,6 +576,9 @@ button.is-arming {
   padding: .7rem .8rem .8rem; border-radius: var(--r-lg);
   background: var(--glass-2); border: 1px solid #f59e0b55;
   box-shadow: var(--shadow); backdrop-filter: var(--blur);
+  /* Depuis que la courbe est là, le panneau peut être haut. Il ne doit jamais passer sous
+     le bandeau de cap : au-delà, il défile au lieu de déborder. */
+  max-height: calc(100dvh - var(--strip) - var(--dock) - 1rem); overflow-y: auto;
 }
 .sim[hidden] { display: none; }
 .sim__head { display: flex; align-items: center; justify-content: space-between; }
@@ -594,6 +597,72 @@ button.is-arming {
 .sim__delta--up { color: var(--accent); }
 .sim__slider { width: 100%; margin: .3rem 0 .1rem; accent-color: #f59e0b; }
 .sim__scale { display: flex; justify-content: space-between; font-size: .62rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sim__manual[hidden] { display: none; }
+
+/* Crayon de saisie manuelle : posé contre la cote, à la hauteur du chiffre. Allumé tant que
+   le curseur est déplié, pour qu'on sache d'un coup d'œil d'où vient la cote affichée. */
+.sim__edit {
+  align-self: center; display: grid; place-items: center; flex: none;
+  width: 32px; height: 32px; margin-left: .15rem; border-radius: var(--r-sm); cursor: pointer;
+  background: none; border: 1px solid var(--line); color: var(--muted);
+}
+.sim__edit .ico { width: 17px; height: 17px; }
+.sim__edit[aria-pressed="true"] { background: #f59e0b22; border-color: #f59e0b88; color: var(--warn); }
+.sim__revert { align-self: center; flex: none; }
+.sim__revert[hidden] { display: none; }
+
+/* ------------------------------------------------ courbe de la cote du lac */
+
+/* Le lac bouge de quelques centimètres par jour : la courbe n'a d'intérêt que si elle est
+   grande. Elle prend donc jusqu'à 40 % de la hauteur d'écran, davantage que tout le reste
+   du panneau réuni, et le tracé est en ambre épais pour se lire à bout de bras au soleil. */
+.chart { margin: .55rem 0 0; }
+.chart__head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .5rem; flex-wrap: wrap; margin-bottom: .35rem;
+}
+/* La légende passe SOUS les boutons de durée, sur toute la largeur : elle change à chaque
+   doigt posé sur la courbe, et une valeur coupée en deux au milieu d'un nombre se relit mal
+   à bout de bras. */
+.chart__read {
+  order: 2; flex: 1 1 100%; min-width: 0; font-size: .78rem; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.chart__read strong { color: var(--warn); font-weight: 700; }
+
+.chart__ranges { order: 1; display: flex; flex: none; margin-left: auto; gap: 2px; padding: 2px; border-radius: var(--r-pill); background: var(--surface); border: 1px solid var(--line); }
+.chart__ranges button {
+  min-width: 2.6rem; padding: .3rem .5rem; border: 0; border-radius: var(--r-pill); cursor: pointer;
+  background: none; color: var(--muted); font: inherit; font-size: .72rem; line-height: 1.1;
+}
+.chart__ranges button.is-on { background: var(--surface-3); color: var(--text); font-weight: 600; }
+
+/* Jusqu'à la moitié de la hauteur d'écran ; `--chart-h`, posé par `fitChartToRoom`, la
+   rabote quand le panneau menacerait de recouvrir le bas du rail — sur un téléphone, c'est
+   le rail qui fixe le plafond réel. */
+.chart__plot { position: relative; height: var(--chart-h, clamp(150px, 50vh, 420px)); touch-action: pan-y; }
+.chart__svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.chart__empty {
+  position: absolute; inset: 0; margin: 0; display: grid; place-items: center;
+  font-size: .76rem; color: var(--faint); text-align: center;
+}
+.chart__empty[hidden] { display: none; }
+
+/* Extrêmes de la fenêtre : en pointillés, chiffrés en marge. Sans eux, une courbe qui se
+   met elle-même à l'échelle laisse croire à une variation dix fois plus forte qu'elle. */
+.chart__lim { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 3.5; }
+.chart__limlab { fill: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+.chart__grid { stroke: var(--line); stroke-width: 1; opacity: .55; }
+.chart__xlab { fill: var(--faint); font-size: 10px; }
+
+.chart__area { fill: url(#chart-fill); stroke: none; }
+.chart__line { fill: none; stroke: #fbbf24; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.chart__last { fill: #fbbf24; stroke: var(--glass-2); stroke-width: 2; }
+
+.chart__cursor line { stroke: var(--text); stroke-width: 1; opacity: .45; }
+.chart__cursor circle { fill: var(--text); stroke: #fbbf24; stroke-width: 2.5; }
+.chart__cursor[hidden] { display: none; }
+
 .sim__sel {
   display: flex; align-items: center; justify-content: space-between; gap: .5rem;
   flex-wrap: wrap; /* le rayon passe à la ligne plutôt que d'écraser les boutons */

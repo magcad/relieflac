@@ -96,6 +96,13 @@
     </g>
   </symbol>
 
+  <!-- Édition manuelle : la cote qu'on saisit soi-même, contre celle qu'EDF publie. -->
+  <symbol id="i-pencil" viewBox="0 0 24 24">
+    <path d="M4.4 19.6h3.2L18.9 8.3a2.1 2.1 0 0 0 0-3l-.2-.2a2.1 2.1 0 0 0-3 0L4.4 16.4z"
+          stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/>
+    <path d="M14.6 6.1l3.3 3.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  </symbol>
+
   <symbol id="i-layers" viewBox="0 0 24 24">
     <g stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none">
       <path d="M12 3.2 20.6 8 12 12.8 3.4 8z"/>
@@ -234,10 +241,36 @@
     <div class="sim__level">
       <output class="sim__cote" id="sim-cote">—</output>
       <span class="sim__unit">m&nbsp;NGF</span>
+      <!-- La cote se règle encore à la main — pour simuler un étiage, ou pour reprendre une
+           lecture d'échelle au port — mais c'est devenu le geste rare : le curseur reste
+           replié derrière ce crayon, et la place va à la courbe. -->
+      <button class="sim__edit" id="btn-sim-manual" type="button" aria-pressed="false"
+              aria-controls="sim-manual" title="Régler la cote à la main"
+              aria-label="Régler la cote à la main">
+        <svg class="ico" aria-hidden="true"><use href="#i-pencil"/></svg>
+      </button>
+      <!-- Le retour à la cote publiée ne veut rien dire tant qu'on ne l'a pas quittée : il
+           paraît avec le crayon, contre lui, et s'efface avec lui. -->
+      <button class="sim__reset sim__revert" id="btn-sim-reset" type="button" hidden>Cote EDF</button>
       <span class="sim__delta" id="sim-delta"></span>
     </div>
-    <input class="sim__slider" id="sim-slider" type="range" min="640" max="650" step="0.05" aria-label="Cote d'eau simulée">
-    <div class="sim__scale"><span>640</span><span>645</span><span>650</span></div>
+    <div class="sim__manual" id="sim-manual" hidden>
+      <input class="sim__slider" id="sim-slider" type="range" min="640" max="650" step="0.05" aria-label="Cote d'eau simulée">
+      <div class="sim__scale"><span>640</span><span>645</span><span>650</span></div>
+    </div>
+
+    <!-- Évolution de la cote : ce que le lac a fait ces derniers jours. -->
+    <figure class="chart" id="sim-chart">
+      <figcaption class="chart__head">
+        <span class="chart__read" id="chart-read">Évolution de la cote</span>
+        <div class="chart__ranges" id="chart-ranges" role="group" aria-label="Durée affichée"></div>
+      </figcaption>
+      <div class="chart__plot" id="chart-plot">
+        <svg class="chart__svg" id="chart-svg" role="img"
+             aria-label="Courbe de l'évolution de la cote du lac"></svg>
+        <p class="chart__empty" id="chart-empty" hidden>Historique en cours de chargement…</p>
+      </div>
+    </figure>
     <div class="sim__sel" id="sim-sel" hidden>
       <span class="sim__sel-label" id="sim-sel-label">Relevé</span>
       <label class="sim__sel-radius">
@@ -253,7 +286,6 @@
     </div>
     <div class="sim__foot">
       <span class="sim__hint" id="sim-hint">Touchez la carte pour poser un relevé qui corrige la carte.</span>
-      <button class="sim__reset" id="btn-sim-reset" type="button">Cote EDF</button>
       <button class="sim__reset sim__reset--danger" id="btn-sim-clear" type="button" hidden>Effacer les points</button>
     </div>
   </div>

@@ -2,9 +2,13 @@
 
 **Dernière mise à jour** : 16 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 140 contrôles, un seul en
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 161 contrôles, un seul en
 échec (l'épaisseur des contours au zoom, connu et expliqué au § 1)
-**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 72 gestes, tous passants
+**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 83 gestes,
+dont **8 en échec** depuis le 15/08/2026, et **pas du fait de l'application** : le banc vide
+localStorage au démarrage mais `initSync` va ensuite chercher `data/corrections/vassiviere.json`,
+qui contient désormais une vraie zone publiée. Le groupe « Zone émergée » compte des valeurs
+absolues et en trouve deux. À isoler du fichier partagé, ou à faire compter en delta.
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
 Ce document sert à reprendre le travail sans relire tout l'historique, **y compris depuis
@@ -34,6 +38,46 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L6 ter** | Recalage **réglable dans l'application** et mesurable au sondeur, carte par carte | ✅ terminé le 14/08/2026 — voir § 1 |
 | **L7** | Carte communautaire par défaut, recalage à 1,72 m, avertissement d'ouverture, zones partagées, étalonnage retiré | ✅ terminé le 16/08/2026 — voir § 1 |
 | **L8** | Raccourci de carte au rail, et **fin du cumul silencieux des deux recalages** | ✅ terminé le 16/08/2026 — voir § 1 |
+| **L9** | Courbe de l'évolution de la cote dans « Étiage », et historique tenu par l'appareil | ✅ terminé le 16/08/2026 — voir § 1 |
+
+**Lot L9 — voir ce que fait le lac, pas seulement ce qu'il vaut** (16/08/2026). Demandé par
+l'utilisateur : « sauvegarder la cote du lac actuelle afin de pouvoir constater l'évolution
+du niveau du lac avec les jours ».
+
+- **L'historique existait déjà côté serveur** — `data/level-history.json`, écrit toutes les
+  heures par `tools/fetch_level.py` depuis le 09/08/2026 — mais rien ne le montrait. Il est
+  désormais tracé. L'appareil le complète : à chaque ouverture, `noteLevelInHistory()`
+  inscrit dans `relieflac.levelhist.v1` la cote qui vient d'être lue, et `LevelHistory`
+  fusionne les deux séries **sur l'instant de mesure**, jamais sur la chaîne de caractères —
+  le fichier écrit « 2026-08-16T07:00:00Z » là où JavaScript écrirait
+  « …T07:00:00.000Z », et comparer les textes ferait deux points au même instant. Ce que le
+  dépôt finit par savoir est retiré de la réserve locale, qui ne garde que son avance. Cette
+  avance est réelle : GitHub suspend les tâches planifiées d'un dépôt resté inactif, et une
+  sortie hors ligne ne passe par aucun workflow.
+- **Le panneau « Étiage » est retourné.** La courbe prend la place du curseur de cote, qui
+  passe derrière un crayon (`#btn-sim-manual`) avec le bouton « Cote EDF » — ce retour ne
+  veut rien dire tant qu'on n'a pas quitté la cote publiée, il paraît donc avec le crayon et
+  s'efface avec lui. C'est le bon ordre des choses : la saisie manuelle est le geste rare, et
+  celui qui fausse **toutes** les profondeurs quand on l'oublie en place (§ 6).
+- **L'échelle verticale se cale sur les extrêmes de la fenêtre affichée**, pas sur la plage
+  de manœuvre du barrage : Vassivière descend de 10 m dans l'année mais de 2 cm dans une
+  journée, et une échelle fixe écraserait la semaine en une ligne droite. Ces deux extrêmes
+  sont donc matérialisés en pointillés et **chiffrés** — sans quoi une courbe qui se met
+  elle-même à l'échelle laisse croire à une variation dix fois plus forte qu'elle.
+- **La fenêtre est ancrée sur le dernier relevé connu**, pas sur l'instant : un téléphone
+  rallumé après trois jours sans réseau afficherait sinon un cadre vide en « Jour » alors
+  qu'il a la donnée en cache.
+- **La courbe cède la place, jamais la sortie.** Elle demande jusqu'à la moitié de l'écran ;
+  le rail de caméra en occupe déjà 250 px. `fitChartToRoom()` mesure ce qui reste et rabote
+  la courbe d'autant, faute de quoi le panneau recouvrait le bas du rail — donc « Outils »,
+  le seul moyen de ressortir des modes de correction. Une vérification d'enchaînement le
+  garde : `panelTop >= railBottom`.
+- **Un an d'historique horaire fait 8 760 points pour 300 px de large.** `samplePerColumn`
+  ramène le tracé à un point par colonne ; les extrêmes chiffrés, eux, restent calculés sur
+  la série entière — c'est le tracé qu'on allège, pas la mesure.
+- Deux modules neufs, sans DOM au cœur pour être vérifiables au banc : `src/level-history.js`
+  (fusion des deux sources) et `src/level-chart.js` (géométrie, graduations, tracé).
+  Vingt-et-une vérifications unitaires et onze enchaînements ajoutés.
 
 **Lot L8 — les recalages ne se cumulent plus, et le rail dit quelle carte on regarde**
 (16/08/2026). Signalé par l'utilisateur en ces termes : « j'ai l'impression qu'il y a un
