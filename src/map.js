@@ -78,6 +78,9 @@ const EMPTY = { type: 'FeatureCollection', features: [] };
 /** Bleu de navigation : la couleur du mode, celle de la route et de son corridor. */
 const ROUTE_COLOR = '#4c8dff';
 
+/** Ambre des sorties passées : distingue une trace parcourue (révolue) d'une route à suivre. */
+const TRIP_COLOR = '#ffb454';
+
 /**
  * Plafond de finesse de rendu.
  *
@@ -384,6 +387,34 @@ export class LakeMap extends EventTarget {
       source: 'route-draft',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': ROUTE_COLOR, 'line-width': 2.5, 'line-dasharray': [2, 2], 'line-opacity': 0.9 },
+    });
+
+    // Sortie passée (revue dans l'Historique) : trait ambre plein, doublé d'un halo doux
+    // pour rester lisible sur n'importe quel fond. Ambre et non bleu : c'est une trace
+    // parcourue, un fait révolu, pas une route à suivre.
+    map.addSource('trip', { type: 'geojson', data: EMPTY });
+    map.addLayer({
+      id: 'trip-glow',
+      type: 'line',
+      source: 'trip',
+      layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' },
+      paint: {
+        'line-color': TRIP_COLOR,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 16],
+        'line-blur': ['interpolate', ['linear'], ['zoom'], 12, 4, 16, 10],
+        'line-opacity': 0.3,
+      },
+    });
+    map.addLayer({
+      id: 'trip-line',
+      type: 'line',
+      source: 'trip',
+      layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' },
+      paint: {
+        'line-color': TRIP_COLOR,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 12, 2.5, 16, 5, 19, 7],
+        'line-opacity': 0.95,
+      },
     });
 
     const element = document.createElement('div');
@@ -835,6 +866,47 @@ export class LakeMap extends EventTarget {
   clearRouteDraft() {
     this.map.getSource('route-draft')?.setData(EMPTY);
     this.#renderWaypointMarkers('draftMarkers', [], { active: false });
+  }
+
+  // -------------------------------------------------------------- sorties (Historique)
+
+  /**
+   * Affiche la trace d'une sortie passée et cadre la carte dessus. Départ et arrivée sont
+   * marqués (⚑ / ◎), mais pas les points intermédiaires : une trace en compte des centaines,
+   * les numéroter la rendrait illisible.
+   */
+  showTrip(points) {
+    const coords = points.map((p) => [p[0], p[1]]);
+    this.map.getSource('trip').setData(coords.length >= 2
+      ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }
+      : EMPTY);
+    for (const id of ['trip-glow', 'trip-line']) {
+      this.map.setLayoutProperty(id, 'visibility', coords.length >= 2 ? 'visible' : 'none');
+    }
+    const ends = coords.length >= 2 ? [coords[0], coords[coords.length - 1]] : [];
+    this.#renderWaypointMarkers('tripMarkers', ends, { active: false });
+    if (coords.length >= 2) this.#fitTo(coords);
+  }
+
+  clearTrip() {
+    this.map.getSource('trip')?.setData(EMPTY);
+    for (const id of ['trip-glow', 'trip-line']) {
+      this.map.setLayoutProperty(id, 'visibility', 'none');
+    }
+    this.#renderWaypointMarkers('tripMarkers', [], { active: false });
+  }
+
+  /** Cadre la carte sur une suite de points, avec une marge, sans zoomer à l'excès. */
+  #fitTo(coords) {
+    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+    for (const [lon, lat] of coords) {
+      if (lon < w) w = lon;
+      if (lon > e) e = lon;
+      if (lat < s) s = lat;
+      if (lat > n) n = lat;
+    }
+    if (!(e >= w) || !(n >= s)) return;
+    this.map.fitBounds([[w, s], [e, n]], { padding: 56, maxZoom: 16, duration: 600 });
   }
 
   /** En mode construction, le clic pose un point de passage au lieu de sonder. */

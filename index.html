@@ -489,7 +489,7 @@
           <button class="tile" id="btn-hist" type="button">
             <svg class="ico ico--tile" aria-hidden="true"><use href="#i-history"/></svg>
             <span class="tile__label">Historique</span>
-            <span class="tile__sub">bientôt</span>
+            <span class="tile__sub">sorties passées</span>
           </button>
         </div>
         <p class="modepane__hint" id="nav-hint">Vos trajets enregistrés :</p>
@@ -551,6 +551,20 @@
       <button class="sim__reset" id="btn-route-go" type="button" hidden>▶ Go</button>
       <button class="sim__reset sim__reset--danger" id="btn-route-del" type="button" hidden>Supprimer</button>
     </div>
+  </div>
+
+  <!-- Historique : les sorties réellement parcourues. On liste leur date, leur distance et
+       leur durée, on totalise la distance, et l'on peut revoir chaque tracé sur la carte. -->
+  <div class="route hist" id="hist" hidden>
+    <div class="sim__head">
+      <span class="route__title" id="hist-title">Sorties</span>
+      <button class="sim__close" id="btn-hist-exit" type="button" aria-label="Fermer l'historique">
+        <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg>
+      </button>
+    </div>
+    <p class="route__hint" id="hist-hint">Vos sorties parcourues.</p>
+    <p class="route__meta hist__total" id="hist-total"></p>
+    <ol class="routelist hist__list" id="hist-list"></ol>
   </div>
 
   <!--

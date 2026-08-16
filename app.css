@@ -36,6 +36,8 @@
   --m-peche: #f2c744;
   --m-ski: #f4514c;
   --m-param: #35c2ff;
+  /* Ambre des sorties passées : une trace parcourue, non une route à suivre. */
+  --trip: #ffb454;
 
   /* Verre : le fond translucide des surfaces posées sur la carte. En plein soleil, les
      deux jetons basculent en noir franc et flou nul — d'où l'absence de règle par
@@ -845,6 +847,22 @@ button.is-arming {
 .route__btns .sim__reset { flex: 1; min-width: 6rem; }
 #btn-route-go { color: var(--m-nav); border-color: color-mix(in srgb, var(--m-nav) 55%, transparent); font-weight: 700; }
 
+/* Historique : même panneau que le constructeur, mais en ambre — les sorties sont des faits
+   révolus, pas des routes à suivre — et le tracé revu sur la carte reprend ce même ambre. */
+.hist { border-color: color-mix(in srgb, var(--trip) 55%, transparent); }
+.hist .route__title { color: var(--trip); }
+.hist__total { color: var(--text); font-weight: 600; margin: .1rem 0 .45rem; }
+.hist__total:empty { display: none; }
+.hist__list .route__go {
+  background: color-mix(in srgb, var(--trip) 22%, var(--surface-3));
+  border-color: var(--trip); color: var(--trip);
+}
+.hist__list li.is-clickable { cursor: pointer; }
+.hist__list li.is-selected {
+  border-color: var(--trip);
+  background: color-mix(in srgb, var(--trip) 16%, var(--surface-2));
+}
+
 /* Point de passage posé sur la carte : pastille bleue numérotée, départ et arrivée marqués. */
 .wpt-mark {
   display: grid; place-items: center; width: 24px; height: 24px;
@@ -1080,6 +1098,7 @@ body.mode-go .capture,
 body.mode-go .sim,
 body.mode-go .zone,
 body.mode-go .route,
+body.mode-go .hist,
 body.mode-go .maplibregl-ctrl-bottom-left { display: none !important; }
 body.mode-go .navstrip { border-bottom-color: color-mix(in srgb, var(--m-nav) 45%, transparent); }
 

@@ -4,7 +4,7 @@ import {
   BedGrid, BED_SOURCES, correctedAltitude, rawAltitudeFor, DEFAULT_BED_SOURCE,
 } from './bed.js';
 import { DepthLayer } from './depth-layer.js';
-import { formatSpeed, Geolocator } from './geo.js';
+import { distanceMeters, formatSpeed, Geolocator } from './geo.js';
 import { formatAge, Level, LevelSource } from './level.js';
 import { LevelHistory } from './level-history.js';
 import {
@@ -19,6 +19,7 @@ import {
   CRUISE_KMH, estimatedDuration, formatDistance, formatDuration, Routes, routeLength,
 } from './routes.js';
 import { angleDelta, navSolution } from './nav.js';
+import { Trips, tripDuration, tripLabel } from './trips.js';
 import { SimPoints } from './sim.js';
 import { CorrectionsSync, getToken, setToken } from './sync.js';
 import { Soundings } from './soundings.js';
@@ -56,9 +57,12 @@ const app = {
   // (`routeMode`), tracé en cours (`routeTracing`), trajet repris pour réglage (`editingRouteId`).
   routes: null,
   routeMode: false, routeTracing: false, routeDraft: [], editingRouteId: null,
+  // Sorties parcourues, et le mode Historique qui les revoit sur la carte.
+  trips: null, histMode: false, histReviewId: null,
   // Menu à modes : quel métier de l'application est affiché dans la feuille.
   menuMode: 'carte',
-  // Mode Go : navigation le long d'un trajet. `fromIndex` = dernier point de passage franchi.
+  // Mode Go : navigation le long d'un trajet. `fromIndex` = dernier point de passage franchi ;
+  // `track` accumule la trace réellement parcourue, versée à l'Historique à la sortie.
   go: { active: false, routeId: null, points: null, fromIndex: 0, arrived: false },
 };
 
@@ -95,6 +99,7 @@ async function boot() {
     app.sim = new SimPoints();
     app.zones = new Zones();
     app.routes = new Routes();
+    app.trips = new Trips();
     app.compass = new Compass();
     app.level = new Level('.');
     app.levelHistory = new LevelHistory('.');
@@ -147,6 +152,7 @@ async function boot() {
     wireMenu();
     wireRoutes();
     wireGo();
+    wireHist();
     wireQuickNav();
     route();
 
@@ -1215,7 +1221,7 @@ function wireProbes() {
   // navigation seule. Fermer annule aussi une correction en cours.
   $('btn-saisie').addEventListener('click', () => {
     app.captureOpen = !app.captureOpen;
-    if (app.captureOpen) { if (app.go.active) exitGo(); if (app.routeMode) exitRouteMode(); }
+    if (app.captureOpen) { if (app.go.active) exitGo(); if (app.routeMode) exitRouteMode(); if (app.histMode) exitHistMode(); }
     else { clearPin(); if (app.editingProbeId) endProbeEdit(); }
     refreshCaptureUi();
   });
@@ -1278,7 +1284,7 @@ function refreshCaptureUi() {
 function stackBottomBars() {
   const resized = fitChartToRoom();
   let offset = 0;
-  for (const id of ['sim', 'zone', 'route', 'capture']) {
+  for (const id of ['sim', 'zone', 'route', 'hist', 'capture']) {
     const element = $(id);
     if (element.hidden) continue;
     element.style.bottom = offset
@@ -2112,6 +2118,7 @@ function applyBedDatum(announce = false) {
 function enterSim() {
   if (app.go.active) exitGo();
   if (app.routeMode) exitRouteMode();
+  if (app.histMode) exitHistMode();
   app.simMode = true;
   // Cote réelle du moment, référence des écarts ; et réglage manuel d'avant la simulation,
   // à restaurer en sortie pour ne pas détourner durablement l'affichage.
@@ -2340,6 +2347,7 @@ function wireZones() {
 function enterZoneMode() {
   if (app.go.active) exitGo();
   if (app.routeMode) exitRouteMode();
+  if (app.histMode) exitHistMode();
   app.zoneMode = true;
   app.zoneTracing = false;
   app.zoneDraft = [];
@@ -2788,6 +2796,7 @@ function wireRoutes() {
 
 function enterRouteMode() {
   if (app.go.active) exitGo();
+  if (app.histMode) exitHistMode();
   if (app.simMode) exitSim();
   if (app.zoneMode) exitZoneMode();
   app.captureOpen = false;
@@ -2829,6 +2838,7 @@ function editRoute(id) {
   const route = app.routes.get(id);
   if (!route) return;
   if (app.go.active) exitGo();
+  if (app.histMode) exitHistMode();
   app.routeMode = true;
   app.routeTracing = true;
   app.editingRouteId = id;
@@ -3016,16 +3026,40 @@ function fillRouteList(el, primaryGo) {
 const ARRIVE_RADIUS_M = 20;
 /** Écart de route à partir duquel on l'affiche explicitement. */
 const XTE_SHOW_M = 8;
+/** Pas minimal entre deux points de la trace enregistrée (m) : borne la taille, filtre le bruit. */
+const MIN_TRACK_SPACING_M = 4;
+/** En deçà, une navigation ne laisse pas de sortie : un essai à quai n'a rien parcouru. */
+const MIN_TRIP_M = 50;
 
 function wireGo() {
   $('btn-go').addEventListener('click', startGoFromMenu);
   $('btn-go-exit').addEventListener('click', exitGo);
-  $('btn-hist').addEventListener('click', () => {
-    toast('Historique des trajets parcourus — bientôt disponible', 3500);
-  });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && app.go.active) exitGo();
   });
+}
+
+/**
+ * Verse à l'Historique la trace parcourue pendant la navigation qui s'achève.
+ *
+ * Rien n'est enregistré tant qu'on n'a pas vraiment bougé : une navigation ouverte puis
+ * refermée à quai — ou lancée sur un ordinateur, sans GPS — ne doit pas laisser de sortie
+ * fantôme longue de zéro mètre. Le nom et le trajet suivi sont figés au départ (`app.go`),
+ * pour survivre à la suppression du trajet entre-temps.
+ */
+function finishTrip() {
+  const track = app.go.track;
+  if (!Array.isArray(track) || track.length < 2) return;
+  const distance = routeLength(track);
+  if (distance < MIN_TRIP_M) return;
+  app.trips.add({
+    name: app.go.routeName,
+    routeId: app.go.routeId,
+    points: track,
+    startedAt: app.go.startedAt,
+    endedAt: new Date().toISOString(),
+  });
+  toast(`Sortie enregistrée · ${formatDistance(distance)}`, 3500);
 }
 
 /** « Go » depuis la tuile : reprend le dernier trajet suivi, ou laisse choisir dans la liste. */
@@ -3050,6 +3084,7 @@ function startGo(routeId) {
   if (app.simMode) exitSim();
   if (app.zoneMode) exitZoneMode();
   if (app.routeMode) exitRouteMode();
+  if (app.histMode) exitHistMode();
   app.captureOpen = false;
   clearPin();
   if (app.editingProbeId) endProbeEdit();
@@ -3057,7 +3092,12 @@ function startGo(routeId) {
   closeSheet();
   location.hash = '#/';
 
-  app.go = { active: true, routeId, points: route.points.map((p) => [p[0], p[1]]), fromIndex: 0, arrived: false, lastSol: null };
+  app.go = {
+    active: true, routeId, routeName: route.name,
+    points: route.points.map((p) => [p[0], p[1]]),
+    fromIndex: 0, arrived: false, lastSol: null,
+    track: [], startedAt: new Date().toISOString(),
+  };
   saveLastRoute(routeId);
 
   document.body.classList.add('mode-go');
@@ -3087,6 +3127,7 @@ function startGo(routeId) {
 
 function exitGo() {
   if (!app.go.active) return;
+  finishTrip(); // verse à l'Historique la trace parcourue, si elle vaut la peine
   app.go.active = false;
   app.go.lastSol = null;
   document.body.classList.remove('mode-go');
@@ -3103,6 +3144,17 @@ function exitGo() {
 function updateGoHud(position) {
   if (!app.go.active) return;
   const boat = [position.lon, position.lat];
+
+  // Trace réellement parcourue : gardée pour l'Historique. Le pas minimal borne sa taille
+  // et absorbe le tremblement du GPS à l'arrêt, qui gonflerait la distance sans qu'on bouge.
+  const track = app.go.track;
+  if (track) {
+    const prev = track[track.length - 1];
+    if (!prev || distanceMeters(prev[0], prev[1], boat[0], boat[1]) >= MIN_TRACK_SPACING_M) {
+      track.push([boat[0], boat[1]]);
+    }
+  }
+
   const sol = navSolution(app.go.points, boat, { fromIndex: app.go.fromIndex, arriveRadiusM: ARRIVE_RADIUS_M });
   if (!sol) return;
   app.go.fromIndex = sol.fromIndex;
@@ -3234,6 +3286,111 @@ function saveLastRoute(id) {
 
 function loadLastRoute() {
   try { return localStorage.getItem('relieflac.lastRoute.v1'); } catch { return null; }
+}
+
+// ------------------------------------------------------------ historique (sorties)
+
+/**
+ * Historique : les sorties réellement parcourues. Une sortie s'enregistre seule à la fin
+ * d'une navigation Go (voir `finishTrip`) ; ce mode ne fait que les revoir — liste des
+ * distances et durées, distance totale, et rappel de chaque tracé sur la carte. C'est un
+ * mode de consultation, il prend donc la carte comme Go, à cette différence près qu'il n'y
+ * a rien à barrer : on regarde ce qui a déjà été fait.
+ */
+function wireHist() {
+  $('btn-hist').addEventListener('click', () => (app.histMode ? exitHistMode() : enterHistMode()));
+  $('btn-hist-exit').addEventListener('click', exitHistMode);
+  app.trips.addEventListener('change', () => { if (app.histMode) refreshHistPanel(); });
+}
+
+function enterHistMode() {
+  if (app.go.active) exitGo();
+  if (app.simMode) exitSim();
+  if (app.zoneMode) exitZoneMode();
+  if (app.routeMode) exitRouteMode();
+  app.captureOpen = false;
+  clearPin();
+  if (app.editingProbeId) endProbeEdit();
+  refreshCaptureUi();
+
+  app.histMode = true;
+  app.histReviewId = null;
+  refreshHistPanel();
+  if (!app.trips.count) {
+    toast('Aucune sortie encore — elles s’enregistrent à la fin d’une navigation Go', 4500);
+  }
+}
+
+function exitHistMode() {
+  app.histMode = false;
+  app.histReviewId = null;
+  app.lakeMap.clearTrip();
+  disarmAll();
+  refreshHistPanel();
+}
+
+/** Revoit une sortie : rappelle son tracé sur la carte et surligne sa ligne dans la liste. */
+function reviewTrip(id) {
+  const trip = app.trips.get(id);
+  if (!trip) return;
+  app.histReviewId = id;
+  app.lakeMap.showTrip(trip.points);
+  for (const li of $('hist-list').children) {
+    li.classList.toggle('is-selected', li.dataset.id === id);
+  }
+}
+
+function refreshHistPanel() {
+  $('hist').hidden = !app.histMode;
+  $('btn-hist').classList.toggle('is-on', app.histMode);
+  if (!app.histMode) { stackBottomBars(); return; }
+
+  const n = app.trips.count;
+  $('hist-title').textContent = 'Sorties enregistrées';
+  $('hist-hint').textContent = n
+    ? 'Touchez une sortie pour revoir son tracé sur la carte.'
+    : 'Aucune sortie. Elles s’enregistrent à la fin d’une navigation Go.';
+  $('hist-total').textContent = n
+    ? `${n} sortie${n > 1 ? 's' : ''} · total ${formatDistance(app.trips.totalDistance)}`
+    : '';
+  fillTripList($('hist-list'));
+  stackBottomBars();
+}
+
+/** Liste des sorties, la plus récente en tête. Toute la ligne rappelle le tracé ; ✕ supprime. */
+function fillTripList(el) {
+  el.replaceChildren(...app.trips.records.slice().reverse().map((t) => {
+    const dist = routeLength(t.points);
+    const li = document.createElement('li');
+    li.dataset.id = t.id;
+    li.classList.add('is-clickable');
+    if (t.id === app.histReviewId) li.classList.add('is-selected');
+    li.addEventListener('click', () => reviewTrip(t.id));
+
+    const name = document.createElement('span');
+    name.className = 'route__name';
+    name.textContent = t.name;
+    const stat = document.createElement('span');
+    stat.className = 'route__stat';
+    stat.textContent = `${tripLabel(t.at)} · ${formatDistance(dist)} · ${formatDuration(tripDuration(t))}`;
+    name.append(stat);
+    li.append(name);
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'route__del';
+    del.textContent = '✕';
+    del.title = 'Supprimer cette sortie';
+    del.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (app.histReviewId === t.id) { app.histReviewId = null; app.lakeMap.clearTrip(); }
+      app.trips.remove(t.id);
+      toast('Sortie supprimée');
+    });
+
+    li.append(del);
+    return li;
+  }));
 }
 
 /**
