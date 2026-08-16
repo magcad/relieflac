@@ -1,7 +1,7 @@
 {
   "schema": "relieflac.routes/1",
   "waterbody": "vassiviere",
-  "updated_at": "2026-08-16T19:44:26.470Z",
+  "updated_at": "2026-08-16T20:12:10.288Z",
   "routes": [
     {
       "id": "f0cdb997-161c-4bf5-8597-1ee757fee201",
@@ -50,7 +50,7 @@
     {
       "id": "013637c4-3112-4d79-98fa-913394055d2a",
       "name": "Charlène Paddle Auphelle",
-      "at": "2026-08-16T19:43:11.310Z",
+      "at": "2026-08-16T20:12:08.784Z",
       "points": [
         [
           1.8954958027137536,
