@@ -664,11 +664,17 @@ async function run() {
   await sleep(60);
   // Même règle que plus haut, et elle vient de se rappeler à nous : depuis que le ski existe,
   // de VRAIS couloirs ont été tracés sur le lac et descendent du dépôt. Le banc ne compte donc
-  // pas les entrées, il vérifie que chacune est bien un couloir et que la sienne y est.
+  // pas les entrées. Il ne les compare pas non plus au contenu de `localStorage` — première
+  // rustine, et fausse : ce que le menu affiche vient de la mémoire, et la copie stockée peut
+  // avoir été écrite par une version d'avant le métier. Ce qui se vérifie, c'est l'ÉCRAN : les
+  // deux listes sont disjointes, la nôtre est du bon côté, et chaque entrée y est marquée ski.
   const skiNames = names('ski-picker');
-  const skiStored = new Set(stored('relieflac.routes.v1').filter((r) => r.kind === 'ski').map((r) => r.name));
+  const skiItems = [...document.querySelectorAll('#ski-picker li')];
   check('et le menu Ski ne montre que les couloirs',
-    skiNames.includes('Couloir de slalom') && skiNames.every((n) => skiStored.has(n)),
+    skiNames.includes('Couloir de slalom')
+    && skiItems.length === skiNames.length
+    && skiItems.every((li) => li.classList.contains('is-ski'))
+    && !skiNames.some((n) => names('route-picker').includes(n)),
     skiNames.join(' · '));
   check('la vignette d’un couloir est corail, pas bleue',
     Boolean(document.querySelector('#ski-picker .thumb__route--ski'))
