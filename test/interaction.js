@@ -662,9 +662,14 @@ async function run() {
     names('route-picker').join(' · '));
   $('mode-ski').click();
   await sleep(60);
+  // Même règle que plus haut, et elle vient de se rappeler à nous : depuis que le ski existe,
+  // de VRAIS couloirs ont été tracés sur le lac et descendent du dépôt. Le banc ne compte donc
+  // pas les entrées, il vérifie que chacune est bien un couloir et que la sienne y est.
+  const skiNames = names('ski-picker');
+  const skiStored = new Set(stored('relieflac.routes.v1').filter((r) => r.kind === 'ski').map((r) => r.name));
   check('et le menu Ski ne montre que les couloirs',
-    names('ski-picker').length === 1 && names('ski-picker')[0] === 'Couloir de slalom',
-    names('ski-picker').join(' · '));
+    skiNames.includes('Couloir de slalom') && skiNames.every((n) => skiStored.has(n)),
+    skiNames.join(' · '));
   check('la vignette d’un couloir est corail, pas bleue',
     Boolean(document.querySelector('#ski-picker .thumb__route--ski'))
     && !document.querySelector('#route-picker .thumb__route--ski'));
