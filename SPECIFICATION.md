@@ -912,7 +912,8 @@ Sources, dates de levé, licences, méthode de calcul, limites connues, et un **
 ### 6.6 Modes et Navigation — Trajet, Go, Historique (L10-L12, 16/08/2026)
 
 L'application s'organise en **modes par métier**, sélectionnés dans une barre à cinq
-segments : Carte, Navigation, Pêche, Ski, Réglages. Pêche et Ski restent à spécifier. Le mode
+segments : Carte, Navigation, Pêche, Ski, Réglages. **Ski** est spécifié au § 6.6 ter ; Pêche
+reste à spécifier. Le mode
 **Navigation** ajoute la préparation et le suivi d'une route, puis la mémoire de ce qui a été
 parcouru. Le détail d'implémentation, fichier par fichier, est tenu dans
 [ETAT.md](ETAT.md) § 1 (lots L10 à L12) ; on n'en garde ici que le « pourquoi ».
@@ -1015,6 +1016,82 @@ seul.
 cadre le trajet entier une seconde et demie, à plat, puis passe à la vue de barre — « Quitter »
 reste là si ce n'était pas le bon. Pas d'appui long pour prévisualiser : rien ne le signale,
 personne ne le découvre.
+
+### 6.6 ter Le mode Ski nautique (L15, 17/08/2026)
+
+Le ski nautique reprend presque tout de la Navigation — un couloir de ski **est** un trajet
+(même constructeur, même partage, même vignette), la session prend l'écran par la même
+surcouche, avec la même caméra de barre, la même trace enregistrée et la même sortie versée à
+l'Historique. Une seule chose sépare les deux métiers, et elle commande tout le reste : **on
+ne suit pas une ligne, on tient une vitesse**, pendant qu'un chrono tourne.
+
+**L'enveloppe de vitesse.** Chaque activité tractée a sa plage, différente selon que la
+personne est un enfant ou un adulte. Le tableau est une **donnée**, pas du code éparpillé : il
+vit dans un module pur, et la grille de choix en est engendrée.
+
+| Activité | Enfant | Adulte | Vitesse typique |
+| --- | ---: | ---: | ---: |
+| 🛟 Bouée / Donut | 15–25 km/h | 20–30 km/h | 8–16 nds |
+| 🏄 Wakeskate | 25–30 km/h | 28–32 km/h | 15–17 nds |
+| 🏄 Wakeboard | 20–25 km/h | 28–32 km/h | 11–17 nds |
+| 🎿 Ski nautique 2 skis | 20–28 km/h | 28–34 km/h | 11–18 nds |
+| 🎿 Monoski | 25–30 km/h | 32–38 km/h | 14–21 nds |
+| 🎿 Ski slalom | 30–40 km/h | 35–55+ km/h | 19–30+ nds |
+
+La colonne en nœuds est gardée **telle quelle**, jamais recalculée : ce n'est pas exactement
+l'union des deux plages (le wakeskate et le slalom s'en écartent), c'est un usage constaté, et
+la recalculer l'aurait faussée au nom de la cohérence. Le « 55+ » du slalom adulte est ouvert
+vers le haut : au-delà du maximum on n'est pas hors plage, on est dans le haut du sport. Et la
+plage reste **corrigeable à la main** — un tableau décrit un usage, pas la personne qui est au
+bout de la corde ce jour-là.
+
+- **Le compteur de vitesse est l'instrument.** Il se colore selon l'écart à la plage, et une
+  jauge montre où l'on se situe. La plage y occupe **toujours le tiers central**, quelle que
+  soit sa largeur : à échelle absolue, une plage étroite (wakeskate, 28–32) se réduirait à un
+  trait pendant que la bouée (15–30) tiendrait toute la barre.
+- **L'écart de route disparaît, et le couloir s'élargit.** Le bateau zigzague pour rendre l'eau
+  plate au skieur ou lui donner de la vague : sortir de l'axe est le geste même du ski, pas une
+  faute à signaler. Le corridor est trois fois plus large qu'en navigation, et d'une autre
+  couleur — on ne se trompe pas de mode sans le voir. Atteindre le bout du couloir n'est pas
+  « arriver » : on fait demi-tour et l'on repasse.
+- **Le chrono décompte**, parce que ce qu'on veut savoir en tirant, c'est ce qu'il **reste** à
+  tirer. Trois durées d'un appui (10, 15, 30 min) ou une saisie libre. Il part à la main, ou
+  **de lui-même après dix secondes de vitesse tenue** — à ce moment-là le barreur a les deux
+  mains prises. S'*approcher* de la cible suffit à armer le compte : le skieur est déjà debout
+  et tire avant que l'aiguille n'entre franchement dans la plage. La pause est possible.
+- **La fin sonne**, et c'est fait pour être entendu par-dessus un hors-bord : trois notes qui
+  montent puis une tenue, plus une vibration. Puis le chrono **se réarme seul** : le passage
+  suivant le relancera sans qu'on cherche un bouton avec les mains mouillées.
+- **Les chutes se comptent** à l'arrêt de récupération : le bateau s'immobilise franchement,
+  et le reste, après avoir tiré. Il faut les trois conditions — un ralentissement de virage, un
+  creux de vague ou un trou de signal descendent la vitesse à zéro sans que personne ne soit
+  tombé. La détection restant une présomption, un appui sur la pastille en ajoute une.
+- **Le fond s'affiche, mais à l'écart** : en ski, on regarde l'eau et le skieur. Le chiffre est
+  une pastille discrète, loin du bateau, et non le grand compteur du mode Carte.
+- **Sortie libre**, sans couloir : on tourne où l'on veut sur le lac. Le cadran montre alors la
+  direction suivie plutôt qu'un cap à tenir — il y a toujours une direction, même sans route.
+- **La synthèse est ce qu'on relit le soir**, pas le tracé : activité, personne, plage tenue,
+  chrono cumulé, nombre de passages, chutes, vitesse moyenne, pointe, et **part du temps passée
+  dans la plage** — la seule note qui dise si le skieur a été tiré comme il fallait. Elle
+  accompagne la sortie dans l'Historique **et dans le partage**, catalogue compris : un résumé
+  de session se lit d'un autre bateau sans télécharger la trace. Les cumuls de ski sont tenus
+  **à part** des cumuls généraux : une heure de balade à 20 km/h et dix minutes de slalom à 35
+  ne font pas une moyenne — et cette moyenne porte sur les distances et les durées cumulées,
+  jamais sur les moyennes.
+
+### 6.6 quater Le partage se rafraîchit tout seul (L15, 17/08/2026)
+
+Voir le relevé ou le trajet d'un autre bateau demandait d'ouvrir les Paramètres et d'appuyer
+sur « Récupérer » — un geste qu'on ne fait pas en naviguant, si bien que deux téléphones sur le
+même lac s'ignoraient toute la journée. La récupération est désormais automatique : à cadence
+régulière, au retour dans l'application, et au retour du réseau.
+
+Trois garde-fous, chacun payé par un défaut prévisible : un **intervalle minimal** entre deux
+récupérations (une bascule d'onglet répétée martèlerait le dépôt) ; **rien pendant une sortie**
+(aucune donnée du dépôt ne sert à barrer, et redessiner les relevés sous le HUD coûterait des
+images — le retard est rattrapé en rentrant) ; et **la fusion n'est adoptée que si elle apporte
+quelque chose**, sans quoi tout le rendu accroché aux changements se relancerait pour rien à
+chaque tour.
 
 ---
 

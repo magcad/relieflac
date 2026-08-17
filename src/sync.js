@@ -387,6 +387,9 @@ export class TripsSync {
         count: Number.isFinite(t.points) ? t.points : null,
         routeId: t.route_id ?? null,
         by: t.by ?? null,
+        // Synthèse de session de ski, absente des sorties de navigation et des fichiers
+        // publiés avant le L15 : `null` alors, et la sortie s'affiche sans elle.
+        ski: t.ski ?? null,
       }));
   }
 
@@ -404,6 +407,7 @@ export class TripsSync {
         points: Number.isFinite(t.count) ? t.count : null,
         route_id: t.routeId ?? null,
         by: t.by ?? null,
+        ski: t.ski ?? null,
         file: `${t.id}.json`,
       })),
     };
@@ -419,6 +423,7 @@ export class TripsSync {
       ended_at: trip.endedAt ?? null,
       route_id: trip.routeId ?? null,
       by: trip.by ?? null,
+      ski: trip.ski ?? null,
       points: trip.points.map((p) => [p[0], p[1]]),
     };
   }

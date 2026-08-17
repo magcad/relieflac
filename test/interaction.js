@@ -94,6 +94,13 @@ async function boot() {
   });
   window.__dialogs = () => dialogs;
 
+  // GPS simulé. On capture l'instance de géolocalisation SANS armer le matériel : dans un
+  // navigateur de banc, l'autorisation est refusée et aucun point n'arriverait jamais — or
+  // tout le mode ski se joue sur la vitesse, donc sur des points. Le banc les pousse ensuite
+  // par le même événement que la vraie puce.
+  const { Geolocator } = await import('../src/geo.js');
+  Geolocator.prototype.start = function start() { window.__geo = this; };
+
   // Adresses relatives à CE module (et non à la base du document) : c'est ainsi que se
   // résout un import dynamique. La carte d'import de la page les renvoie sur le leurre.
   const { LakeMap } = await import('../src/map.js');
@@ -610,6 +617,131 @@ async function run() {
   check('aucune suppression n\'a eu besoin d\'une boîte de dialogue', window.__dialogs() === 0,
     `${window.__dialogs()} appel(s) à confirm()`);
   location.hash = '#/';
+  await sleep(60);
+
+  // ------------------------------------------------- ski nautique : session complète
+  //
+  // Le mode ski est celui dont la mise au point sur l'eau coûte le plus cher : on ne
+  // débogue pas avec quelqu'un au bout d'une corde. Ce qui est vérifié ici, c'est la chaîne
+  // complète — tracer un couloir, préparer la session, la lancer, tenir la vitesse, arrêter
+  // — et surtout ce qu'il en reste dans l'Historique une fois rentré.
+  group('Ski nautique : couloir, préparation, session, synthèse');
+
+  const gps = (lon, lat, speedKmh) => window.__geo?.dispatchEvent(new CustomEvent('position', {
+    detail: {
+      lon, lat, accuracy: 5, speed: speedKmh / 3.6, heading: 90, timestamp: Date.now(),
+    },
+  }));
+
+  // Un couloir se trace comme un trajet : mêmes gestes, même constructeur.
+  $('mode-ski').click();
+  check('le mode Ski montre son panneau et son catalogue',
+    !$('pane-ski').hidden && $('pane-nav').hidden && $('ski-picker') !== null);
+  $('btn-ski-new').click();
+  for (const [lng, lat] of [[1.8700, 45.7930], [1.8730, 45.7930], [1.8760, 45.7930]]) {
+    fire('routevertex', { lng, lat });
+  }
+  $('route-name').value = 'Couloir de slalom';
+  $('btn-route-save').click();
+  // Le catalogue n'est pas vide pour autant : `initSync` a déjà descendu les trajets
+  // partagés du dépôt. C'est le nôtre qu'on cherche, pas un compte.
+  const couloir = stored('relieflac.routes.v1').find((r) => r.name === 'Couloir de slalom');
+  check('le couloir est enregistré comme un trajet ordinaire',
+    Boolean(couloir) && couloir.points.length === 3,
+    `${stored('relieflac.routes.v1').length} trajet(s) au catalogue`);
+  $('btn-route-exit').click();
+
+  // Préparation : c'est ici que le tableau des vitesses entre en jeu.
+  $('btn-menu').click();
+  $('mode-ski').click();
+  await sleep(60);
+  document.querySelector('#ski-picker .route__open').click();
+  check('toucher un couloir ouvre la préparation, et ne lance rien',
+    !$('skilaunch').hidden && !document.body.classList.contains('mode-go'),
+    $('skilaunch-route').textContent);
+
+  document.querySelector('#ski-activities [data-act="monoski"]').click();
+  document.querySelector('#ski-who [data-who="adulte"]').click();
+  check('activité et personne fixent la plage du tableau',
+    $('ski-env').textContent === '32 – 38 km/h', $('ski-env').textContent);
+  document.querySelector('#ski-who [data-who="enfant"]').click();
+  check('changer de personne change la plage, sans changer d’activité',
+    $('ski-env').textContent === '25 – 30 km/h', $('ski-env').textContent);
+  document.querySelector('#ski-who [data-who="adulte"]').click();
+  document.querySelector('#ski-chrono-choice [data-chrono="600"]').click();
+  check('le chrono se choisit d’un appui', $('btn-ski-start').textContent.includes('10 min'),
+    $('btn-ski-start').textContent);
+
+  $('btn-ski-start').click();
+  check('la session part en plein écran, avec son HUD et son couloir élargi',
+    document.body.classList.contains('mode-ski') && !$('ski-hud').hidden
+    && map.routeStyle === 'ski' && map.goMode === true,
+    `allure ${map.routeStyle}`);
+  check('le chrono affiche la durée demandée, en décompte',
+    $('ski-time').textContent === '10:00', $('ski-time').textContent);
+
+  // Vitesse tenue : le compteur se colore de l'écart à la plage, la jauge suit.
+  gps(1.8700, 45.7930, 35);
+  await sleep(30);
+  check('dans la plage, le compteur passe au vert et la jauge au centre',
+    $('go-speed').classList.contains('is-in')
+    && Math.abs(parseFloat($('ski-cursor').style.left) - 50) < 1,
+    `${$('go-speed').textContent} km/h, curseur à ${$('ski-cursor').style.left}`);
+  gps(1.8705, 45.7930, 12);
+  await sleep(30);
+  check('trop lent, le compteur le dit', $('go-speed').classList.contains('is-slow'));
+  gps(1.8710, 45.7930, 48);
+  await sleep(30);
+  check('trop vite aussi', $('go-speed').classList.contains('is-fast'));
+
+  // Chrono à la main : le départ automatique, lui, demande dix secondes de vitesse tenue —
+  // il est vérifié seconde par seconde dans selftest.js, sans attendre.
+  $('btn-ski-chrono').click();
+  // Plus d'une demi-seconde : le décompte s'affiche à la seconde, et « 9:59 » n'apparaît
+  // qu'une fois passé l'arrondi.
+  await sleep(1200);
+  const running = $('ski-time').textContent;
+  check('le chrono lancé à la main décompte',
+    running !== '10:00' && $('ski-card').classList.contains('is-run')
+    && $('btn-ski-chrono').textContent.includes('Pause'), running);
+  $('btn-ski-chrono').click();
+  const paused = $('ski-time').textContent;
+  await sleep(700);
+  check('la pause l’arrête vraiment', $('ski-time').textContent === paused
+    && $('btn-ski-chrono').textContent.includes('Reprendre'), paused);
+  $('btn-ski-chrono').click();
+
+  $('ski-falls').click();
+  $('ski-falls').click();
+  check('les chutes se corrigent d’un appui', $('ski-falls-num').textContent === '2');
+
+  // Fin de session : la trace part à l'Historique AVEC sa synthèse, et le partage la portera.
+  gps(1.8740, 45.7930, 34);
+  gps(1.8770, 45.7930, 33);
+  await sleep(30);
+  $('btn-go-exit').click();
+  const trips = stored('relieflac.trips.v1');
+  const session = trips[trips.length - 1];
+  check('la session est versée à l’Historique avec sa synthèse',
+    Boolean(session?.ski) && session.ski.activityName === 'Monoski' && session.ski.who === 'adulte'
+    && session.ski.falls === 2 && session.ski.min_kmh === 32 && session.ski.target_s === 600,
+    JSON.stringify(session?.ski ?? null).slice(0, 120));
+  check('quitter la session rend la carte à la navigation',
+    !document.body.classList.contains('mode-ski') && $('ski-hud').hidden
+    && map.routeStyle === 'nav' && map.goMode === false);
+
+  // Et l'Historique la montre, chiffres de ski compris.
+  $('btn-menu').click();
+  $('mode-nav').click();
+  $('btn-nav-hist').click();
+  await sleep(60);
+  check('l’Historique affiche les cumuls de ski à part',
+    $('hist-ski').textContent.startsWith('dont ski : 1 session'),
+    `${$('hist-total').textContent} | ${$('hist-ski').textContent}`);
+  check('la ligne de la sortie porte sa synthèse',
+    document.querySelector('#hist-list .route__stat--ski')?.textContent.includes('Monoski'),
+    document.querySelector('#hist-list .route__stat--ski')?.textContent ?? 'aucune ligne');
+  $('btn-hist-exit').click();
 
   render();
 }

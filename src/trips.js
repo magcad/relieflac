@@ -39,8 +39,14 @@ export class Trips extends EventTarget {
   /**
    * Enregistre une sortie. `startedAt`/`endedAt` sont des ISO 8601 ; `points` la trace
    * parcourue [[lon, lat], …]. Le nom reprend celui du trajet suivi, à défaut la date.
+   *
+   * `ski` est la synthèse d'une session de ski nautique quand la sortie en était une
+   * (activité, personne, plage tenue, chrono, chutes — voir `skiSummary` dans ski.js).
+   * Elle est rangée telle quelle : une synthèse est un fait révolu, comme la trace, et se
+   * recalculer serait impossible — la vitesse instantanée n'est pas dans la trace, qui ne
+   * garde que des positions.
    */
-  add({ name, routeId = null, points, startedAt, endedAt }) {
+  add({ name, routeId = null, points, startedAt, endedAt, ski = null }) {
     const at = startedAt || new Date().toISOString();
     const entry = {
       id: crypto.randomUUID(),
@@ -49,6 +55,7 @@ export class Trips extends EventTarget {
       name: (name && name.trim()) || defaultName(at),
       routeId,
       points: points.map((p) => [p[0], p[1]]),
+      ...(ski ? { ski } : {}),
     };
     this.records.push(entry);
     this.#persist();
@@ -119,6 +126,7 @@ export class Trips extends EventTarget {
           points: r.points.length,
           started_at: r.at,
           ended_at: r.endedAt,
+          ...(r.ski ? { ski: r.ski } : {}),
         },
       })),
     }, null, 2);

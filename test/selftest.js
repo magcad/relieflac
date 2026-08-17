@@ -26,6 +26,11 @@ import { applyPaletteOverride, bandLimits, buildLut, LUT_SIZE, lutIndex } from '
 import { Probes, makeProbe } from '../src/probes.js';
 import { SimPoints } from '../src/sim.js';
 import { Soundings } from '../src/soundings.js';
+import {
+  AUTO_START_HOLD_MS, autoStartTracker, averageKmh, envelopeLabel, envelopeState, fallTracker,
+  formatChrono, gaugePosition, GAUGE_BAND, manualEnvelope, SKI_ACTIVITIES, skiSummary,
+  skiTotals, speedEnvelope,
+} from '../src/ski.js';
 import { LAKE_OUTLINE } from '../src/lake-outline.js';
 import { projectPoint, thumbKey, thumbSvg } from '../src/thumb.js';
 import { closeRing, dedupeRing, groundAltitude, ringArea, Zones } from '../src/zones.js';
@@ -782,6 +787,139 @@ export async function run(base = '..') {
   check('vignette : la clé de cache suit l’horodatage, pas le seul identifiant',
     thumbKey({ id: 'a', at: '2026-08-16T10:00:00Z' }) !== thumbKey({ id: 'a', at: '2026-08-16T11:00:00Z' })
     && thumbKey({ id: 'a', at: 'x' }) === thumbKey({ id: 'a', at: 'x' }));
+
+  // --- ski nautique -----------------------------------------------------------
+  // Rien de ce qui suit n'est vérifiable sur l'eau : un chrono qui part une seconde trop
+  // tôt, une chute comptée deux fois, une plage lue à l'envers — cela se constate en tirant
+  // quelqu'un derrière le bateau, donc au pire moment pour ouvrir un débogueur.
+
+  check('tableau des activités : 6 activités, plages ordonnées et enfant sous adulte',
+    SKI_ACTIVITIES.length === 6
+    && SKI_ACTIVITIES.every((a) => a.enfant[0] < a.enfant[1] && a.adulte[0] < a.adulte[1])
+    && SKI_ACTIVITIES.every((a) => a.enfant[0] <= a.adulte[0] && a.enfant[1] <= a.adulte[1]),
+    SKI_ACTIVITIES.map((a) => a.id).join(', '));
+
+  const mono = speedEnvelope('monoski', 'adulte');
+  const monoEnfant = speedEnvelope('monoski', 'enfant');
+  check('enveloppe : le monoski suit le tableau, enfant comme adulte',
+    mono.minKmh === 32 && mono.maxKmh === 38
+    && monoEnfant.minKmh === 25 && monoEnfant.maxKmh === 30);
+  // Le « 55+ » du slalom ne vaut que pour l'adulte : au-delà on n'est pas hors plage, on
+  // est dans le haut du sport. La plage enfant, elle, est bel et bien fermée à 40.
+  const slalom = speedEnvelope('slalom', 'adulte');
+  check('enveloppe : le slalom adulte est ouvert vers le haut, pas celui de l’enfant',
+    slalom.openEnded && envelopeState(70, slalom) === 'in'
+    && !speedEnvelope('slalom', 'enfant').openEnded
+    && envelopeState(45, speedEnvelope('slalom', 'enfant')) === 'fast');
+
+  check('enveloppe : trop lent, dans la plage, trop vite — et l’inconnu à part',
+    envelopeState(30, mono) === 'slow' && envelopeState(35, mono) === 'in'
+    && envelopeState(41, mono) === 'fast' && envelopeState(NaN, mono) === 'unknown');
+  check('enveloppe saisie à la main : bornes remises dans l’ordre',
+    manualEnvelope(34, 28).minKmh === 28 && manualEnvelope(34, 28).maxKmh === 34);
+  check('enveloppe : annoncée en km/h et en nœuds',
+    envelopeLabel(mono) === '32 – 38 km/h' && envelopeLabel(slalom).endsWith('55+ km/h'),
+    `${envelopeLabel(mono)} · ${envelopeLabel(mono, 'kn')}`);
+
+  // La jauge : l'enveloppe occupe le tiers central quelle que soit sa largeur. C'est ce qui
+  // rend lisible aussi bien la bouée (15–30, large) que le wakeskate (28–32, étroit) —
+  // à échelle absolue, cette dernière se réduirait à un trait.
+  const wake = speedEnvelope('wakeskate', 'adulte');
+  const bouee = speedEnvelope('bouee', 'adulte');
+  check('jauge : la plage occupe le tiers central, large ou étroite',
+    near(gaugePosition(wake.minKmh, wake), GAUGE_BAND.start, 1e-9)
+    && near(gaugePosition(wake.maxKmh, wake), GAUGE_BAND.end, 1e-9)
+    && near(gaugePosition(bouee.minKmh, bouee), GAUGE_BAND.start, 1e-9)
+    && near(gaugePosition(bouee.maxKmh, bouee), GAUGE_BAND.end, 1e-9));
+  check('jauge : bornée aux extrémités, jamais hors du rail',
+    gaugePosition(0, mono) === 0 && gaugePosition(200, mono) === 1);
+
+  check('chrono : minutes et secondes, puis les heures',
+    formatChrono(0) === '0:00' && formatChrono(65) === '1:05'
+    && formatChrono(900) === '15:00' && formatChrono(3725) === '1:02:05',
+    formatChrono(3725));
+
+  // Départ automatique : dix secondes de vitesse tenue, pas neuf. Et un seul front, sinon
+  // le chrono repartirait à chaque point GPS tant que la vitesse reste bonne.
+  let auto = null;
+  let fires = 0;
+  for (let t = 0; t <= 14000; t += 1000) {
+    auto = autoStartTracker(auto, { speedKmh: 34, env: mono, atMs: t });
+    if (auto.fire) fires += 1;
+  }
+  check('départ automatique : un seul déclenchement, après 10 s de vitesse tenue',
+    fires === 1 && auto.heldMs === 14000, `${fires} déclenchement(s)`);
+
+  let armed = autoStartTracker(null, { speedKmh: 34, env: mono, atMs: 0 });
+  armed = autoStartTracker(armed, { speedKmh: 34, env: mono, atMs: 9000 });
+  const dropped = autoStartTracker(armed, { speedKmh: 5, env: mono, atMs: 9500 });
+  const rearmed = autoStartTracker(dropped, { speedKmh: 34, env: mono, atMs: 10000 });
+  check('départ automatique : lâcher la vitesse remet le compte à zéro',
+    !armed.fire && dropped.since === null && rearmed.since === 10000 && !rearmed.fire);
+  // « S'approchant de la vitesse cible » : à 28 km/h pour une plage 32–38, le skieur est
+  // déjà debout et tire. Exiger l'entrée franche dans la plage retarderait le départ.
+  check('départ automatique : la seule approche de la plage arme le compte',
+    autoStartTracker(null, { speedKmh: mono.minKmh * 0.9, env: mono, atMs: 0 }).since === 0
+    && autoStartTracker(null, { speedKmh: mono.minKmh * 0.5, env: mono, atMs: 0 }).since === null,
+    `seuil ${(mono.minKmh * 0.85).toFixed(1)} km/h`);
+  check('départ automatique : le seuil est bien à 10 s', AUTO_START_HOLD_MS === 10000);
+
+  // Chutes : un arrêt franc APRÈS une traction établie, et tenu. Un ralentissement de
+  // virage ou un trou de GPS d'une seconde ne sont pas des chutes.
+  const fall = (samples) => {
+    let state = null;
+    let count = 0;
+    for (const [speedKmh, atMs] of samples) {
+      state = fallTracker(state, { speedKmh, env: mono, atMs });
+      if (state.fell) count += 1;
+    }
+    return count;
+  };
+  check('chutes : un arrêt tenu après traction en compte une',
+    fall([[35, 0], [35, 4000], [1, 8000], [0, 12000], [0, 14000]]) === 1);
+  check('chutes : un ralentissement bref n’en compte aucune',
+    fall([[35, 0], [1, 4000], [35, 6000], [35, 10000]]) === 0);
+  check('chutes : un arrêt sans traction préalable n’en compte aucune',
+    fall([[2, 0], [0, 5000], [0, 12000], [0, 20000]]) === 0);
+  check('chutes : deux arrêts tenus en comptent deux',
+    fall([[35, 0], [0, 6000], [0, 12000], [35, 16000], [35, 20000], [0, 26000], [0, 33000]]) === 2);
+
+  check('vitesse moyenne : distance sur durée, et zéro sans durée',
+    near(averageKmh(10000, 1800), 20, 1e-9) && averageKmh(1000, 0) === 0);
+  // La moyenne générale porte sur les distances et les durées cumulées, jamais sur les
+  // moyennes : dix minutes de slalom et deux heures de balade ne pèsent pas pareil.
+  const totals = skiTotals([
+    { distanceM: 6000, durationS: 600, falls: 2, chronoS: 300 },
+    { distanceM: 10000, durationS: 7200, falls: 1, chronoS: 900 },
+  ]);
+  check('cumuls de ski : moyenne pondérée par les durées, pas moyenne des moyennes',
+    totals.count === 2 && totals.distanceM === 16000 && totals.falls === 3
+    && near(totals.avgKmh, 16 / (7800 / 3600), 1e-9),
+    `${totals.avgKmh.toFixed(2)} km/h (et non ${((36 + 5) / 2).toFixed(2)})`);
+
+  const summary = skiSummary({
+    activity: 'monoski', who: 'adulte', env: mono, targetS: 900, chronoS: 873.4,
+    chronoRuns: 2, falls: 3, avgKmh: 27.456, topKmh: 41.2, inZonePct: 78.6,
+  });
+  check('synthèse de session : arrondie, nommée, prête pour le partage',
+    summary.activityName === 'Monoski' && summary.min_kmh === 32 && summary.max_kmh === 38
+    && summary.chrono_s === 873 && summary.avg_kmh === 27.46 && summary.in_zone_pct === 79,
+    JSON.stringify(summary));
+
+  // Le partage doit emporter la synthèse : sans elle, une session de ski vue d'un autre
+  // bateau ne serait qu'une trace de plus, et tout le mode perdrait son intérêt commun.
+  const skiSync = new TripsSync({ repo: 'x/y', dir: 'data/trips/vassiviere', waterbody: 'vassiviere' });
+  const skiIndex = skiSync.toIndex([{
+    id: 't1', name: 'Session', at: '2026-08-17T09:00:00Z', endedAt: '2026-08-17T09:30:00Z',
+    length_m: 8000, count: 300, routeId: null, ski: summary,
+  }]);
+  const skiBack = TripsSync.entriesFromIndex(skiIndex);
+  check('partage : la synthèse de ski fait l’aller-retour par le catalogue',
+    skiBack[0].ski?.activityName === 'Monoski' && skiBack[0].ski.falls === 3
+    && TripsSync.entriesFromIndex({ trips: [{ id: 't2', at: 'x' }] })[0].ski === null);
+  check('partage : la trace d’une session emporte sa synthèse',
+    skiSync.toTrackFile({ id: 't1', name: 'S', at: 'x', points: [[1, 2], [1, 2]], ski: summary })
+      .ski.in_zone_pct === 79);
 
   // --- sondes de 2009 ---------------------------------------------------------
   const soundings = await Soundings.load(base);

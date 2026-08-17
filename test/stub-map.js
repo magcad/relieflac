@@ -22,7 +22,7 @@ export class LakeMap extends EventTarget {
     this.pin = null;
     this.zoneMode = false;
     this.tracing = false;
-    this.map = { resize() {}, getZoom: () => 13 };
+    this.map = { resize() {}, getZoom: () => 13, jumpTo() {}, setPitch() {} };
     this.ready = Promise.resolve(this);
     LakeMap.last = this;
   }
@@ -50,4 +50,24 @@ export class LakeMap extends EventTarget {
   getZoom() { return 13; }
   setBigDepth(state) { this.bigDepth = state; }
   clearTrail() {}
+
+  // Trajets, navigation et ski : ce que le banc regarde ici, ce n'est jamais un dessin mais
+  // le fait qu'un enchaînement soit allé jusqu'au bout — quel trajet affiché, quelle allure
+  // de couloir, quelle caméra. On retient donc, on ne rend pas.
+  setRoute(points) { this.route = points.map((p) => [p[0], p[1]]); }
+  setRouteProgress(fromIndex, snapped, alongM) { this.progress = { fromIndex, snapped, alongM }; }
+  clearRoute() { this.route = null; }
+  setRouteDraft(points) { this.routeDraft = points.map((p) => [p[0], p[1]]); }
+  clearRouteDraft() { this.routeDraft = []; }
+  setRouteMode(active) { this.routeMode = Boolean(active); }
+  setRouteStyle(kind) { this.routeStyle = kind; }
+  previewRoute(points) { this.preview = points.map((p) => [p[0], p[1]]); }
+  setGoMode(active) { this.goMode = Boolean(active); }
+  setBasemapDim(on) { this.dimmed = Boolean(on); }
+  setGate(lngLat) { this.gate = lngLat ? [lngLat[0], lngLat[1]] : null; }
+  enterNavCam(pitch) { this.navCam = pitch ?? 55; }
+  exitNavCam() { this.navCam = null; }
+  recenterNav(zoom) { this.recentered = zoom; }
+  showTrip(points) { this.trip = points.map((p) => [p[0], p[1]]); }
+  clearTrip() { this.trip = null; }
 }

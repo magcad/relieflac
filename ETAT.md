@@ -1,10 +1,10 @@
 # État du projet — reprise de session
 
-**Dernière mise à jour** : 16 août 2026
+**Dernière mise à jour** : 17 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 182 contrôles, **tous au
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 204 contrôles, **tous au
 vert**
-**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 83 gestes,
+**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 101 gestes,
 **tous au vert**
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
@@ -41,6 +41,95 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L12** | Retour de la **première sortie en Navigation** : ré-accrochage après raccourci, chevrons et portion parcourue, commandes de carte en Go, **trajets et sorties partagés** | ✅ terminé le 16/08/2026 (v2026-08-16.6) — voir § 1 |
 | **L13** | Les deux bancs remis au vert — et, dessous, **les traits de palier qui n'étaient jamais tracés** | ✅ terminé le 16/08/2026 (v2026-08-16.8) — voir § 1 |
 | **L14** | Mode Navigation refondu : **la liste des trajets devient le mode**, avec une **vignette** par trajet (silhouette du lac + tracé) | ✅ terminé le 16/08/2026 (v2026-08-16.9) — voir § 1 |
+| **L15** | Mode **Ski nautique** : enveloppe de vitesse par activité et par personne, chrono à départ automatique, compteur de chutes, HUD de glisse — et **récupération automatique du partage** | ✅ terminé le 17/08/2026 (v2026-08-17.1) — voir § 1 |
+
+**Lot L15 — le mode Ski nautique** (17/08/2026, v2026-08-17.1). Spécifié par l'utilisateur le
+matin du 17, pour être essayé sur l'eau le jour même.
+
+**Ce que le ski a en commun avec la navigation**, et qui n'a donc pas été réécrit : le
+couloir est un **trajet** ordinaire (même constructeur, même partage, même vignette), la
+sortie prend l'écran par la même surcouche `#go`, la caméra de barre, la trace enregistrée et
+la sortie versée à l'Historique sont les mêmes. `startGo(routeId, ski)` porte les deux
+métiers ; `app.go.kind` vaut `'nav'` ou `'ski'`.
+
+**Ce qui change, et pourquoi.** Le barreur de ski ne suit pas une ligne, il **tient une
+vitesse** pendant qu'un chrono tourne.
+
+- **Enveloppe de vitesse.** Le tableau fourni (6 activités × enfant/adulte) vit dans
+  `src/ski.js`, seule source de vérité ; la grille de la feuille de préparation est engendrée
+  à partir de lui. La colonne « vitesse typique » en nœuds est gardée **telle quelle** et non
+  recalculée : ce n'est pas exactement l'union des deux plages (le wakeskate et le slalom s'en
+  écartent), c'est un usage constaté. Le « 55+ » du slalom adulte est un `openEnded` : au-delà
+  on n'est pas hors plage. La plage reste **corrigeable à la main** (petit `✎`) — un tableau
+  décrit un usage, pas la personne qui est au bout de la corde ce jour-là.
+- **Le compteur de vitesse EST l'instrument** : il se colore ambre / vert / corail selon
+  l'écart à la plage, et une jauge sous le HUD montre où l'on est. La plage y occupe
+  **toujours le tiers central**, quelle que soit sa largeur : à échelle absolue, une plage
+  étroite (wakeskate 28–32) se réduirait à un trait tandis que la bouée (15–30) tiendrait
+  toute la barre.
+- **L'écart de route disparaît.** Zigzaguer hors de l'axe est le geste même du ski, pas une
+  faute : `.go__target` (objectif, distance, « hors route ») est masqué, et le couloir est
+  **trois fois plus large** sur la carte, en corail (`setRouteStyle('ski')` dans `map.js` —
+  les couches ne sont pas dupliquées, seule leur peinture change). Atteindre le bout du
+  couloir n'affiche pas « arrivé à destination » : on fait demi-tour et l'on repasse.
+- **Chrono en décompte** (10 / 15 / 30 min, ou saisie libre) : ce qu'on veut savoir en tirant,
+  c'est ce qu'il **reste** à tirer. Départ à la main, ou **automatique après 10 s** de vitesse
+  tenue — à ce moment-là le barreur a les deux mains prises. « S'approcher » suffit à armer le
+  compte (85 % de la vitesse minimale) : à 28 km/h pour une plage 32–38, le skieur est déjà
+  debout. Pause possible. À la fin, **sonnerie** (trois notes qui montent puis une tenue, en
+  ondes carrées pour passer par-dessus un hors-bord) et vibration, puis **réarmement
+  automatique au bout de 8 s** : le passage suivant relancera le chrono seul, sans qu'on
+  cherche un bouton avec les mains mouillées.
+- **Compteur de chutes** : un arrêt franc (≤ 4 km/h) **tenu 5 s** après une traction établie
+  (≥ 70 % de la vitesse minimale). Trois états et non deux — un ralentissement de virage, un
+  creux de vague ou un trou de GPS descendent la vitesse à zéro sans que personne ne soit
+  tombé. La détection n'étant qu'une présomption, **un appui sur la pastille en ajoute une**.
+- **Le fond, discret et à l'écart** : en ski on regarde l'eau et le skieur, pas la sonde. La
+  pastille est en haut à droite, loin du bateau.
+- **Sortie libre**, sans couloir : `startGo(null, ski)`. Le cadran de direction montre alors
+  le cap suivi (et sa rose) au lieu d'un cap à tenir, plutôt que de rester éteint.
+- **Synthèse de session** dans l'Historique et dans le partage : activité, personne, plage
+  tenue, chrono cumulé, nombre de passages, chutes, vitesse moyenne, pointe, et **pourcentage
+  de temps dans la plage** — la seule note qui dise si le skieur a été tiré comme il fallait.
+  L'Historique affiche les cumuls de ski **à part** des cumuls généraux : une heure de balade
+  à 20 km/h et dix minutes de slalom à 35 ne font pas une moyenne. Celle-ci porte sur les
+  distances et les durées cumulées, jamais sur les moyennes.
+
+**Récupération automatique du partage** (point 9 de la demande) : voir un relevé ou un trajet
+d'un autre bateau demandait d'ouvrir les Paramètres et d'appuyer sur « Récupérer » — un geste
+qu'on ne fait pas en naviguant, si bien que deux téléphones sur le même lac s'ignoraient
+toute la journée. Trois déclencheurs désormais : **toutes les 5 minutes**, au **retour dans
+l'application**, au **retour du réseau**. Bornés par un intervalle minimal d'une minute (une
+bascule d'onglet répétée martèlerait le dépôt), **suspendus pendant une sortie** (rien de ce
+qui arrive du dépôt ne sert à barrer, et redessiner les relevés sous le HUD coûterait des
+images), et rattrapés à la sortie. La fusion n'est adoptée que si elle **apporte** quelque
+chose, sinon tout le rendu accroché à `change` se relancerait pour rien toutes les 5 minutes.
+
+**Ce que la réalisation a ajouté à la spécification** :
+- Tout le raisonnement est dans le module pur `src/ski.js` (réducteurs `autoStartTracker` et
+  `fallTracker`, `envelopeState`, `gaugePosition`, cumuls) : **22 contrôles au banc**. C'est
+  la seule façon d'être sûr — on ne met pas au point un chrono avec quelqu'un au bout d'une
+  corde.
+- Le déclencheur automatique rend un **front** (`fire`) et non un état : l'appelant n'a rien
+  à retenir pour éviter un second départ tant que la vitesse reste bonne.
+- Les intervalles entre points GPS sont **plafonnés à 5 s** dans les cumuls : au retour
+  d'arrière-plan, vingt minutes arriveraient d'un bloc dans « hors de la plage ».
+- Le contexte audio est **ouvert au départ de la session**, sur le geste « Démarrer » : iOS
+  n'autorise sa création que dans un gestionnaire d'entrée, et une sonnerie fabriquée quinze
+  minutes plus tard serait muette.
+- `startGo` **clôt dans les règles** une sortie déjà en cours (trace versée, minuterie
+  arrêtée) au lieu de l'écraser : enchaîner deux sessions perdait la première et laissait
+  tourner son chrono.
+- Le banc d'enchaînements sait désormais **simuler le GPS** (`Geolocator.prototype.start`
+  capture l'instance sans armer le matériel) : tout le mode ski se joue sur la vitesse, donc
+  sur des points, et un navigateur de banc n'en reçoit jamais.
+- Le choix d'activité, de personne et de chrono est **mémorisé** (`relieflac.ski.v1`) : on
+  repart dix fois de suite avec le même skieur.
+- Changer d'activité ou de personne **annule une plage saisie à la main** : elle avait été
+  saisie pour l'activité précédente, et la garder ferait tirer un enfant en bouée à 38 km/h.
+- Les champs de saisie ne sont pas réécrits pendant qu'on les remplit (`keepInputs`) : dans un
+  `<input type="number">`, réécrire la valeur replace le curseur au début et « 28 » devient
+  « 82 » au caractère suivant.
 
 **Lot L14 — la liste des trajets devient le mode** (16/08/2026, v2026-08-16.9). Ce qui a été
 fait, et pourquoi. Le panneau Navigation portait trois tuiles (Go,
@@ -259,9 +348,10 @@ l'époque** — le L12 l'a versé au dépôt, une trace par fichier).
 (bleu #4c8dff), Pêche (jaune), Ski (rouge), Réglages (cyan). Le corps n'affiche qu'un
 `.modepane` à la fois (`setMenuMode()`, `wireMenu()` a remplacé `wireTools()`). « Carte »
 reprend les gestes d'avant (relever un point/une zone, Étiage, fond de carte — ids
-`btn-saisie`/`btn-zone`/`btn-sim`/`btn-fond` inchangés) ; Pêche et Ski sont des panneaux
-`.soon` (boutons présents, **fonction encore à spécifier par l'utilisateur**) ; Réglages
-porte le lien `#/parametres` et l'à-propos.
+`btn-saisie`/`btn-zone`/`btn-sim`/`btn-fond` inchangés) ; Pêche et Ski étaient des panneaux
+`.soon` (boutons présents, fonction à spécifier par l'utilisateur) — **Ski a été spécifié et
+livré au L15**, Pêche reste à spécifier ; Réglages porte le lien `#/parametres` et
+l'à-propos.
 
 - **Deux modules neufs, sans DOM au cœur** (pour rester vérifiables hors navigateur, comme
   `camera.js`) :
@@ -1135,7 +1225,7 @@ mauvaise donne une carte fausse sans aucun signe extérieur (§ 3.5).
 
 ### Vérifications
 
-Ouvrir `/test/`. 182 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 204 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
 simulation**, **forme de la correction (plateau, fondu, indépendance à l'ordre) et zones
@@ -1151,7 +1241,7 @@ bilinéairement : les comparer revient à comparer deux choses différentes.
 Après toute modification de `config/palette.json` ou de la grille, relancer
 `python tools/dump_reference.py`, sinon les tests comparent à une référence périmée.
 
-Ouvrir aussi `/test/interaction.html`. 83 enchaînements : l'application entière démarre
+Ouvrir aussi `/test/interaction.html`. 101 enchaînements : l'application entière démarre
 avec [`test/stub-map.js`](test/stub-map.js) à la place de MapLibre — substitué par une
 carte d'import, le reste du code ne voit pas la différence — et le banc provoque les mêmes
 événements que la vraie carte (`pinpoint`, `probeselect`, `zonevertex`…). Le balisage est
@@ -1163,6 +1253,15 @@ l'altitude que le modèle annonce dessous (642,65 m NGF sur le levé, 645,33 sur
 communautaire — le point de contrôle a dû être déplacé, le précédent étant tombé, le temps
 d'une version, à 3 cm près sur les deux cartes), et le **recalage réglable** : +1,5 m
 déplace bien le fond de 1,5 m, et « valeur d'origine » rend le fichier à l'octet près.
+
+Depuis le L15, il couvre aussi une **session de ski complète** : tracer un couloir, ouvrir la
+préparation, voir la plage suivre l'activité et la personne, lancer, pousser des positions à
+35 puis 12 puis 48 km/h et vérifier que le compteur se colore et que la jauge se déplace,
+mener le chrono à la main (départ, pause, reprise), compter des chutes, quitter, et **relire
+la synthèse dans l'Historique**. Le GPS y est simulé : `boot()` remplace
+`Geolocator.prototype.start` par une capture d'instance qui n'arme rien, et le banc pousse
+des `CustomEvent('position')` — sans quoi rien de ce mode ne serait vérifiable, tout s'y
+jouant sur la vitesse.
 
 Ce banc tourne sur la **même origine** que l'application, donc sur ses vraies données : il
 met de côté toutes les clés `relieflac.*` du stockage local — jeton compris, sans quoi une

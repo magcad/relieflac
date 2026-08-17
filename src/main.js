@@ -19,6 +19,12 @@ import {
   CRUISE_KMH, estimatedDuration, formatDistance, formatDuration, Routes, routeLength,
 } from './routes.js';
 import { angleDelta, navSolution } from './nav.js';
+import {
+  AUTO_START_HOLD_MS, autoStartTracker, averageKmh, CHRONO_PRESETS_S, chronoLabel,
+  envelopeLabel, envelopeState,
+  fallTracker, formatChrono, gaugePosition, KN_PER_KMH, manualEnvelope, rangeLabel,
+  skiActivity, SKI_ACTIVITIES, SKI_WHO, skiSummary, skiTotals, speedEnvelope, whoLabel,
+} from './ski.js';
 import { thumbKey, thumbSvg } from './thumb.js';
 import { hasTrack, tripDistance, Trips, tripDuration, tripLabel } from './trips.js';
 import { SimPoints } from './sim.js';
@@ -67,7 +73,14 @@ const app = {
   menuMode: 'carte',
   // Mode Go : navigation le long d'un trajet. `fromIndex` = dernier point de passage franchi ;
   // `track` accumule la trace réellement parcourue, versée à l'Historique à la sortie.
-  go: { active: false, routeId: null, points: null, fromIndex: 0, arrived: false },
+  // `kind` distingue la navigation du ski nautique : même surcouche, même trace, deux HUD.
+  go: { active: false, kind: 'nav', routeId: null, points: null, fromIndex: 0, arrived: false },
+  // Session de ski nautique : enveloppe de vitesse à tenir, chrono, chutes et cumuls. Vide
+  // hors session ; `pending` porte les choix de la feuille de préparation avant le départ.
+  ski: { active: false }, skiPending: null, skiTimer: null, audio: null,
+  // Récupération périodique du partage : instant de la dernière tentative, pour ne pas
+  // rappeler le dépôt à chaque retour d'arrière-plan.
+  lastAutoSyncAt: 0, autoSyncBusy: false,
 };
 
 // ---------------------------------------------------------------- démarrage
@@ -156,6 +169,7 @@ async function boot() {
     wireMenu();
     wireRoutes();
     wireGo();
+    wireSki();
     wireHist();
     wireQuickNav();
     route();
@@ -175,6 +189,7 @@ async function boot() {
     applyBedDatum(); // recalage mémorisé, avant que les relevés ne se posent dessus
     applyModelCorrections(); // « carte 2009 corrigée » dès l'ouverture, s'il y a des relevés
     initSync(); // récupère les relevés partagés puis les applique (asynchrone, sans bloquer)
+    startAutoSync(); // et le partage se rafraîchit ensuite tout seul, sans geste de personne
 
     app.geo.addEventListener('position', onPosition);
     app.geo.addEventListener('status', onGeoStatus);
@@ -751,6 +766,9 @@ async function syncTrips() {
     byId.set(entry.id, {
       id: entry.id, at: entry.at, endedAt: entry.endedAt, name: entry.name,
       routeId: entry.routeId, by: entry.by, length_m: entry.length_m, count: entry.count,
+      // La synthèse de ski voyage dans le catalogue : un résumé de session se lit sans
+      // télécharger la trace, et c'est justement ce qu'on veut comparer d'un bateau à l'autre.
+      ski: entry.ski ?? null,
       points: [], remote: true, shared: true,
     });
     added += 1;
@@ -779,7 +797,7 @@ async function pushPendingTrips() {
 function tripIndexEntries() {
   return app.trips.records.map((t) => ({
     id: t.id, name: t.name, at: t.at, endedAt: t.endedAt, routeId: t.routeId ?? null,
-    by: t.by ?? null, length_m: tripDistance(t),
+    by: t.by ?? null, length_m: tripDistance(t), ski: t.ski ?? null,
     count: hasTrack(t) ? t.points.length : t.count ?? null,
   }));
 }
@@ -818,6 +836,67 @@ async function syncNow() {
     toast('Synchronisation impossible', 6000);
   }
   refreshSyncUi();
+}
+
+// ------------------------------------------ récupération automatique du partage
+
+/** Rythme de la récupération automatique (ms). La cote bouge plus vite que les relevés. */
+const AUTO_SYNC_MS = 5 * 60e3;
+
+/** Intervalle minimal entre deux récupérations, quel qu'en soit le déclencheur (ms). */
+const AUTO_SYNC_MIN_MS = 60e3;
+
+/**
+ * Le partage se rafraîchit tout seul (L15).
+ *
+ * Jusqu'ici, voir le relevé ou le trajet d'un autre bateau demandait d'ouvrir les
+ * Paramètres et d'appuyer sur « Récupérer » — un geste qu'on ne fait pas en naviguant, si
+ * bien que deux téléphones sur le même lac s'ignoraient toute la journée. Trois moments
+ * déclenchent désormais la récupération : toutes les cinq minutes, au retour dans
+ * l'application, et au retour du réseau. Chacun est borné par un intervalle minimal, sans
+ * quoi une bascule d'onglet répétée martèlerait le dépôt.
+ */
+function startAutoSync() {
+  window.setInterval(() => { scheduleAutoSync(0); }, AUTO_SYNC_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) scheduleAutoSync(1200);
+  });
+  window.addEventListener('online', () => scheduleAutoSync(2000));
+}
+
+function scheduleAutoSync(delayMs = 0) {
+  window.setTimeout(() => { autoSync().catch(() => { /* hors ligne : au prochain tour */ }); }, delayMs);
+}
+
+async function autoSync() {
+  // Pendant une sortie, l'écran et le GPS ont la priorité : rien de ce qui arriverait du
+  // dépôt ne sert à barrer, et redessiner les relevés sous le HUD coûterait des images.
+  // `exitGo` rattrape le retard dès qu'on rentre.
+  if (!app.sync || app.autoSyncBusy || app.go.active || document.hidden) return;
+  const now = Date.now();
+  if (now - app.lastAutoSyncAt < AUTO_SYNC_MIN_MS) return;
+  app.lastAutoSyncAt = now;
+  app.autoSyncBusy = true;
+  try {
+    const { records, zones } = await app.sync.pull();
+    const local = probesToRecords();
+    const localZones = zonesToRecords();
+    const merged = mergeById(records, local);
+    const mergedZones = mergeById(zones, localZones, Zones.deletedIds());
+    // On n'adopte que si la fusion apporte quelque chose : réécrire à l'identique toutes
+    // les cinq minutes relancerait pour rien tout le rendu accroché à `change`.
+    const changed = signatureOf(merged) !== signatureOf(local)
+      || signatureOf(mergedZones) !== signatureOf(localZones);
+    if (changed) {
+      adoptRemote(merged, mergedZones);
+      toast(`Partage à jour · ${app.probes.count} relevé(s)`, 2500);
+    }
+    await syncRoutes();
+    await syncTrips();
+    refreshSyncUi();
+  } finally {
+    app.autoSyncBusy = false;
+  }
 }
 
 /** Adopte un jeu de relevés et de zones (fusionné) sans déclencher de renvoi. */
@@ -2901,6 +2980,7 @@ function setMenuMode(mode) {
     refreshCaptureUi();
   }
   if (mode === 'nav') refreshRoutePicker();
+  if (mode === 'ski') refreshSkiPicker();
 }
 
 /** Referme la feuille du menu sans la rouvrir : appelé depuis les listes qu'elle porte. */
@@ -2942,6 +3022,7 @@ function wireRoutes() {
 
   app.routes.addEventListener('change', () => {
     refreshRoutePicker();
+    refreshSkiPicker();
     if (app.routeMode) refreshRoutePanel();
     // Un trajet se partage comme un relevé : la route qu'on vient de tracer entre deux
     // hauts-fonds vaut pour tout l'équipage, pas seulement pour ce téléphone.
@@ -3145,17 +3226,19 @@ function routeThumb(r) {
 }
 
 /**
- * Peuple une liste de trajets. Deux emplois, une seule mise en page :
+ * Peuple une liste de trajets. Trois emplois, une seule mise en page :
  * - `'go'`, dans le menu Navigation : **toute la ligne lance la navigation** — plus de petit
  *   ▶ à viser sur un ponton — et `✎` ouvre l'éditeur ;
+ * - `'ski'`, dans le menu Ski nautique : la ligne ouvre la **préparation de session**, car
+ *   il reste à dire qui est tracté et à quelle vitesse avant que quoi que ce soit ne parte ;
  * - `'edit'`, dans le constructeur : la ligne ouvre l'édition du trajet.
  *
- * Aucune suppression ici, dans aucun des deux : une commande destructrice dans une liste
+ * Aucune suppression ici, dans aucun des trois : une commande destructrice dans une liste
  * qu'on fait défiler, avec des trajets qui se multiplient et des doigts mouillés, est un
  * piège. Elle vit dans l'éditeur (`btn-route-del`, à double appui), et là seulement.
  */
 function fillRouteList(el, mode) {
-  const lastId = mode === 'go' ? loadLastRoute() : null;
+  const lastId = mode === 'edit' ? null : loadLastRoute();
   const records = app.routes.records.slice().reverse();
   // Le dernier trajet suivi passe en tête : repartir en un appui sur le trajet habituel est
   // exactement le service que rendait l'ancien bouton « Go ».
@@ -3169,7 +3252,9 @@ function fillRouteList(el, mode) {
     const open = document.createElement('button');
     open.type = 'button';
     open.className = 'route__open';
-    open.title = mode === 'go' ? `Naviguer « ${r.name} »` : `Modifier « ${r.name} »`;
+    open.title = mode === 'go' ? `Naviguer « ${r.name} »`
+      : mode === 'ski' ? `Session de ski sur « ${r.name} »`
+        : `Modifier « ${r.name} »`;
 
     // La vignette : silhouette du lac et tracé, cadrés sur le LAC. C'est la position du
     // parcours qui distingue deux trajets, jamais leur forme rapportée à eux-mêmes.
@@ -3197,11 +3282,12 @@ function fillRouteList(el, mode) {
 
     open.addEventListener('click', () => {
       if (mode === 'go') { startGo(r.id); return; }
+      if (mode === 'ski') { openSkiLaunch(r.id); return; }
       editRoute(r.id);
     });
     li.append(open);
 
-    if (mode === 'go') {
+    if (mode !== 'edit') {
       const edit = document.createElement('button');
       edit.type = 'button';
       edit.className = 'route__edit';
@@ -3251,13 +3337,17 @@ function finishTrip() {
   const track = app.go.track;
   if (!Array.isArray(track) || track.length < 2) return;
   const distance = routeLength(track);
-  if (distance < MIN_TRIP_M) return;
+  // Une session de ski dont le chrono a tourné a eu lieu, même si le GPS n'a rien vu passer :
+  // c'est la seule sortie dont la synthèse vaut plus que la trace.
+  const ski = app.go.kind === 'ski' ? skiRunSummary(distance) : null;
+  if (distance < MIN_TRIP_M && !(ski && ski.chrono_runs > 0)) return;
   app.trips.add({
     name: app.go.routeName,
     routeId: app.go.routeId,
     points: track,
     startedAt: app.go.startedAt,
     endedAt: new Date().toISOString(),
+    ski,
   });
   toast(`Sortie enregistrée · ${formatDistance(distance)}`, 3500);
   // Et elle monte au partage, sur son propre fichier. En arrière-plan : rentrer au port ne
@@ -3265,11 +3355,26 @@ function finishTrip() {
   pushPendingTrips().catch(() => { /* réessayé au prochain démarrage */ });
 }
 
-function startGo(routeId) {
-  const route = app.routes.get(routeId);
-  if (!route || route.points.length < 1) { toast('Trajet introuvable'); return; }
+/**
+ * Lance une sortie sur la carte : navigation le long d'un trajet, ou session de ski.
+ *
+ * Un seul chemin pour les deux, parce que ce qui les sépare tient en trois choses — le HUD,
+ * la largeur du couloir et le fait que le ski accepte de partir SANS trajet (`routeId` nul :
+ * on tourne où l'on veut sur le lac). Tout le reste — caméra de barre, trace enregistrée,
+ * sortie versée à l'Historique — est le même bateau et le même barreur.
+ *
+ * @param {?string} routeId  trajet suivi, ou `null` pour une sortie libre (ski seulement)
+ * @param {?object} ski  session de ski préparée (voir `openSkiLaunch`), ou `null`
+ */
+function startGo(routeId, ski = null) {
+  const route = routeId ? app.routes.get(routeId) : null;
+  if (routeId && (!route || route.points.length < 1)) { toast('Trajet introuvable'); return; }
+  if (!route && !ski) { toast('Trajet introuvable'); return; }
 
-  // Go prend l'écran : on quitte tout le reste.
+  // Go prend l'écran : on quitte tout le reste. Une sortie déjà en cours est close dans les
+  // règles — sa trace versée à l'Historique, son chrono arrêté — et non écrasée : sans cela,
+  // enchaîner deux sessions perdait la première et laissait tourner sa minuterie.
+  if (app.go.active) exitGo();
   if (app.simMode) exitSim();
   if (app.zoneMode) exitZoneMode();
   if (app.routeMode) exitRouteMode();
@@ -3281,48 +3386,63 @@ function startGo(routeId) {
   closeSheet();
   location.hash = '#/';
 
+  const kind = ski ? 'ski' : 'nav';
   app.go = {
-    active: true, routeId, routeName: route.name,
-    points: route.points.map((p) => [p[0], p[1]]),
+    active: true, kind, routeId: route?.id ?? null,
+    routeName: route?.name ?? (ski ? `Ski libre · ${skiActivity(ski.activity).name}` : 'Sortie'),
+    points: route ? route.points.map((p) => [p[0], p[1]]) : null,
     fromIndex: 0, arrived: false, lastSol: null,
     track: [], startedAt: new Date().toISOString(),
   };
-  saveLastRoute(routeId);
+  if (route) saveLastRoute(route.id);
 
   document.body.classList.add('mode-go');
+  document.body.classList.toggle('mode-ski', kind === 'ski');
   $('go').hidden = false;
   $('go-arrived').hidden = true;
+  $('go-progress-box').hidden = !route;
   $('go-speed-unit').textContent = app.settings.get('speedUnit') === 'kn' ? 'nds' : 'km/h';
   buildGoTicks();
+  if (ski) beginSkiSession(ski); else $('ski-hud').hidden = true;
 
   app.lakeMap.setGoMode(true);
   ensureCompass();
   app.lakeMap.setBasemapDim(true);
   app.goDepthOpacity = app.settings.get('opacity');
   app.depthLayer.setStyle({ opacity: Math.min(app.goDepthOpacity, 0.32) });
-  app.lakeMap.setRoute(route.points);
+  app.lakeMap.setRouteStyle(kind);
+  if (route) app.lakeMap.setRoute(route.points); else app.lakeMap.clearRoute();
 
-  // Aperçu : le trajet entier, à plat, le temps de reconnaître où il mène — puis la vue de
-  // barre. C'est la vérification « est-ce bien celui-là ? » sans un appui de plus sur le
-  // chemin critique, et « Quitter » reste là si ce n'était pas le bon.
-  app.lakeMap.previewRoute(route.points);
-  window.setTimeout(() => {
-    // Le trajet a pu être quitté ou changé pendant l'aperçu : ne pas ramener la caméra de
+  // Caméra de chasse : suivi et cap en haut forcés, sans toucher aux réglages.
+  const navCam = () => {
+    // La sortie a pu être quittée ou changée pendant l'aperçu : ne pas ramener la caméra de
     // navigation sur une navigation qui n'est plus.
-    if (!app.go.active || app.go.routeId !== routeId) return;
-    // Caméra de chasse : suivi et cap en haut forcés, sans toucher aux réglages.
+    if (!app.go.active || app.go.routeId !== (route?.id ?? null)) return;
     app.lakeMap.setFollow(true);
     app.lakeMap.setTrackUp(true);
     // À défaut de position GPS (essai sur ordinateur), on cadre au moins sur le trajet.
-    if (!app.geo?.position) app.lakeMap.map.jumpTo({ center: route.points[0] });
-    app.lakeMap.setVisibleWidth(170); // avant l'inclinaison : la mesure de largeur y est juste
+    if (!app.geo?.position && route) app.lakeMap.map.jumpTo({ center: route.points[0] });
+    app.lakeMap.setVisibleWidth(kind === 'ski' ? 220 : 170); // avant l'inclinaison : la mesure y est juste
     // Zoom de travail retenu : c'est celui que le bouton « recentrer » rendra après qu'on
     // aura dézoomé pour regarder la suite du trajet.
     app.go.navZoom = app.lakeMap.getZoom();
     app.lakeMap.enterNavCam(55);
-  }, GO_PREVIEW_MS);
+  };
 
-  toast(`Navigation : ${route.name}`, 3000);
+  if (route) {
+    // Aperçu : le trajet entier, à plat, le temps de reconnaître où il mène — puis la vue de
+    // barre. C'est la vérification « est-ce bien celui-là ? » sans un appui de plus sur le
+    // chemin critique, et « Quitter » reste là si ce n'était pas le bon.
+    app.lakeMap.previewRoute(route.points);
+    window.setTimeout(navCam, GO_PREVIEW_MS);
+  } else {
+    // Sortie libre : il n'y a rien à reconnaître, donc rien à attendre.
+    navCam();
+  }
+
+  toast(kind === 'ski'
+    ? `Ski : ${skiActivity(ski.activity).name} · ${whoLabel(ski.who)}`
+    : `Navigation : ${route.name}`, 3000);
   if (app.geo?.position) updateGoHud(app.geo.position);
   else updateGoSteer();
 }
@@ -3330,17 +3450,22 @@ function startGo(routeId) {
 function exitGo() {
   if (!app.go.active) return;
   finishTrip(); // verse à l'Historique la trace parcourue, si elle vaut la peine
+  endSkiSession();
   app.go.active = false;
   app.go.lastSol = null;
-  document.body.classList.remove('mode-go');
+  document.body.classList.remove('mode-go', 'mode-ski');
   $('go').hidden = true;
   app.lakeMap.setGoMode(false);
   app.lakeMap.clearRoute();
+  app.lakeMap.setRouteStyle('nav');
   app.lakeMap.setGate(null);
   app.lakeMap.exitNavCam();
   app.lakeMap.setBasemapDim(false);
   refreshDepthStyle();  // restaure l'opacité du fond
   refreshCameraUi();    // restaure suivi / cap en haut selon les réglages de l'utilisateur
+  // Le partage a été mis en attente pendant la sortie : c'est le moment de le rattraper,
+  // maintenant que rien ne dépend plus de la fluidité de l'écran.
+  scheduleAutoSync(2000);
 }
 
 function updateGoHud(position) {
@@ -3356,6 +3481,18 @@ function updateGoHud(position) {
       track.push([boat[0], boat[1]]);
     }
   }
+
+  // Vitesse : le gros compteur, à l'unité choisie. Elle vient avant tout le reste parce que
+  // c'est elle, et non la route, que le ski nautique regarde.
+  const unit = app.settings.get('speedUnit');
+  const speedKmh = Number.isFinite(position.speed) ? position.speed * 3.6 : NaN;
+  const v = unit === 'kn' ? speedKmh * KN_PER_KMH : speedKmh;
+  $('go-speed').textContent = Number.isFinite(v) ? v.toFixed(1) : '—';
+
+  if (app.go.kind === 'ski') updateSkiHud(boat, speedKmh);
+
+  // Sortie libre : aucun couloir à suivre, donc aucune solution de navigation à calculer.
+  if (!app.go.points) { updateGoSteer(); return; }
 
   // Le cap sert au ré-accrochage : deux jambes d'un aller-retour se longent, seul le sens
   // de la marche dit laquelle on suit.
@@ -3376,13 +3513,6 @@ function updateGoHud(position) {
 
   // Ce qui est derrière le bateau passe au vert, chevrons compris.
   app.lakeMap.setRouteProgress(sol.fromIndex, sol.snapped, routeDoneMetres(app.go.points, sol));
-
-  // Vitesse : le gros compteur, à l'unité choisie.
-  const unit = app.settings.get('speedUnit');
-  const v = Number.isFinite(position.speed)
-    ? (unit === 'kn' ? position.speed * 1.943844 : position.speed * 3.6)
-    : NaN;
-  $('go-speed').textContent = Number.isFinite(v) ? v.toFixed(1) : '—';
 
   // Objectif : prochain point, sa distance, et ce qu'il reste du trajet.
   $('go-wp').textContent = sol.arrived ? 'ARRIVÉE' : `WP ${sol.targetIndex + 1}/${sol.waypointCount}`;
@@ -3409,7 +3539,9 @@ function updateGoHud(position) {
   if (sol.arrived && !app.go.arrived) {
     app.go.arrived = true;
     $('go-arrived-detail').textContent = `${app.routes.get(app.go.routeId)?.name ?? ''} · ${formatDistance(total)}`;
-    $('go-arrived').hidden = false;
+    // En ski, atteindre le bout du couloir n'est pas arriver : on fait demi-tour et l'on
+    // repasse. Annoncer « arrivé à destination » à chaque bout de piste serait absurde.
+    $('go-arrived').hidden = app.go.kind === 'ski';
   } else if (!sol.arrived && app.go.arrived) {
     app.go.arrived = false;
     $('go-arrived').hidden = true;
@@ -3443,6 +3575,24 @@ function updateGoSteer() {
   const turn = $('go-turn');
   const target = $('compass-target');
 
+  const heading = Number.isFinite(app.heading) ? app.heading
+    : Number.isFinite(app.geo?.position?.heading) ? app.geo.position.heading : null;
+
+  // Sortie libre : sans couloir, il n'y a pas de cap à tenir — mais il y a une DIRECTION,
+  // et c'est l'une des trois données que le ski demande. Le cadran montre alors la route
+  // suivie, flèche droit devant, plutôt que de rester éteint sur « trajet en attente ».
+  if (!sol && !app.go.points) {
+    const known = Number.isFinite(heading);
+    dial.classList.toggle('is-idle', !known);
+    dial.classList.remove('is-oncourse');
+    arrow.style.transform = 'rotate(0deg)';
+    cap.textContent = known ? `${String(Math.round(heading) % 360).padStart(3, '0')}°` : '—°';
+    turn.textContent = known ? cardinal(heading) : 'cap en attente';
+    turn.className = 'go__turn';
+    if (target) target.style.transform = 'translateX(-9999px)';
+    return;
+  }
+
   if (!sol) {
     dial.classList.add('is-idle');
     cap.textContent = '—°';
@@ -3452,9 +3602,6 @@ function updateGoSteer() {
   }
 
   cap.textContent = `${String(Math.round(sol.bearing) % 360).padStart(3, '0')}°`;
-
-  const heading = Number.isFinite(app.heading) ? app.heading
-    : Number.isFinite(app.geo?.position?.heading) ? app.geo.position.heading : null;
 
   if (heading == null) {
     dial.classList.add('is-idle');
@@ -3518,6 +3665,534 @@ function saveLastRoute(id) {
 
 function loadLastRoute() {
   try { return localStorage.getItem('relieflac.lastRoute.v1'); } catch { return null; }
+}
+
+// ------------------------------------------------------------ ski nautique (L15)
+
+/**
+ * Ski nautique : tirer quelqu'un, à une vitesse donnée, pendant un temps donné.
+ *
+ * Trois différences avec la navigation, et elles commandent tout ce qui suit.
+ *
+ * 1. On ne suit pas une ligne, on TIENT une vitesse. Chaque activité et chaque personne
+ *    tractée ont leur plage (le tableau vit dans `src/ski.js`), et c'est l'écart à cette
+ *    plage que le barreur lit dix fois par minute — d'où le compteur qui se colore et la
+ *    jauge sous le HUD, plutôt qu'un écart de route qui n'aurait ici aucun sens : zigzaguer
+ *    hors de l'axe EST le geste du ski.
+ * 2. Le chrono est l'objet du voyage. Il part à la main, ou tout seul dès que la vitesse est
+ *    tenue dix secondes — parce qu'à ce moment-là le barreur a les deux mains prises.
+ * 3. Le trajet devient facultatif : « sortie libre » tourne où elle veut sur le lac.
+ */
+
+/** Rafraîchissement du chrono à l'écran (ms) : assez fin pour que la seconde ne saute pas. */
+const SKI_TICK_MS = 200;
+
+/** Délai après la sonnerie avant que le chrono ne se réarme de lui-même (ms). */
+const SKI_REARM_MS = 8000;
+
+/**
+ * Plafond d'un intervalle entre deux points GPS retenu dans les cumuls (ms).
+ *
+ * L'application revient d'arrière-plan après vingt minutes avec un seul point : sans cette
+ * borne, ces vingt minutes iraient d'un bloc dans « temps hors de la plage », et le
+ * pourcentage de la session serait faussé par un trou de mesure.
+ */
+const SKI_SAMPLE_MAX_MS = 5000;
+
+const SKI_PREFS_KEY = 'relieflac.ski.v1';
+
+function wireSki() {
+  $('btn-ski-free').addEventListener('click', () => openSkiLaunch(null));
+  // Un couloir de ski se trace exactement comme un trajet : même constructeur, même gestes.
+  $('btn-ski-new').addEventListener('click', () => {
+    closeSheet();
+    if (!app.routeMode) enterRouteMode();
+    startRouteDraft();
+  });
+
+  $('skilaunch-scrim').addEventListener('click', closeSkiLaunch);
+  $('btn-ski-cancel').addEventListener('click', closeSkiLaunch);
+  $('btn-ski-start').addEventListener('click', startSkiFromLaunch);
+  $('btn-ski-env-edit').addEventListener('click', () => {
+    const box = $('ski-env-manual');
+    box.hidden = !box.hidden;
+    $('btn-ski-env-edit').classList.toggle('is-on', !box.hidden);
+  });
+  $('btn-ski-env-auto').addEventListener('click', () => {
+    if (!app.skiPending) return;
+    app.skiPending.manual = null;
+    refreshSkiLaunch();
+  });
+  for (const id of ['ski-env-min', 'ski-env-max']) {
+    $(id).addEventListener('input', () => {
+      if (!app.skiPending) return;
+      app.skiPending.manual = { min: Number($('ski-env-min').value), max: Number($('ski-env-max').value) };
+      refreshSkiLaunch({ keepInputs: true });
+    });
+  }
+  $('ski-chrono-min').addEventListener('input', () => {
+    if (!app.skiPending) return;
+    const minutes = Number($('ski-chrono-min').value);
+    if (minutes > 0) app.skiPending.chronoS = Math.round(minutes * 60);
+    refreshSkiLaunch({ keepInputs: true });
+  });
+
+  $('btn-ski-chrono').addEventListener('click', toggleChrono);
+  $('btn-ski-reset').addEventListener('click', () => resetChrono(true));
+  // La détection de chute n'est qu'une présomption : un appui la corrige, et c'est le seul
+  // geste du HUD qu'on fait sans regarder.
+  $('ski-falls').addEventListener('click', () => countFall(false));
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !$('skilaunch').hidden) closeSkiLaunch();
+  });
+
+  buildSkiLaunch();
+}
+
+/** Liste des couloirs de ski : les trajets, vus par le mode Ski. */
+function refreshSkiPicker() {
+  const list = $('ski-picker');
+  if (!list) return;
+  $('ski-hint').textContent = app.routes.count
+    ? 'Touchez un couloir pour préparer la session.'
+    : 'Aucun trajet. « Sortie libre » suffit pour skier, « Nouveau couloir » pour en tracer un.';
+  fillRouteList(list, 'ski');
+}
+
+// ---------------------------------------------------- préparation de la session
+
+/** Grille des activités et segments, engendrés une fois depuis la table de `ski.js`. */
+function buildSkiLaunch() {
+  const cell = (className, text) => {
+    const span = document.createElement('span');
+    span.className = className;
+    span.textContent = text;
+    return span;
+  };
+
+  $('ski-activities').replaceChildren(...SKI_ACTIVITIES.map((activity) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'act';
+    button.dataset.act = activity.id;
+    button.append(
+      cell('act__icon', activity.icon),
+      cell('act__name', activity.name),
+      cell('act__range', ''), // rempli par `refreshSkiLaunch` : la plage dépend de la personne
+    );
+    button.addEventListener('click', () => {
+      if (!app.skiPending) return;
+      app.skiPending.activity = activity.id;
+      // Changer d'activité annule une plage saisie à la main : elle avait été saisie POUR
+      // l'activité précédente, et la garder ferait tirer un enfant en bouée à 38 km/h.
+      app.skiPending.manual = null;
+      refreshSkiLaunch();
+    });
+    return button;
+  }));
+
+  $('ski-who').replaceChildren(...SKI_WHO.map((who) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'seg';
+    button.dataset.who = who.id;
+    button.textContent = who.label;
+    button.addEventListener('click', () => {
+      if (!app.skiPending) return;
+      app.skiPending.who = who.id;
+      app.skiPending.manual = null;
+      refreshSkiLaunch();
+    });
+    return button;
+  }));
+
+  const choices = [
+    ...CHRONO_PRESETS_S.map((seconds) => ({ seconds, label: chronoLabel(seconds) })),
+    { seconds: null, label: 'Autre' },
+  ];
+  $('ski-chrono-choice').replaceChildren(...choices.map(({ seconds, label }) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'seg';
+    button.dataset.chrono = seconds ?? 'manuel';
+    button.textContent = label;
+    button.addEventListener('click', () => {
+      if (!app.skiPending) return;
+      if (seconds) { app.skiPending.chronoS = seconds; $('ski-chrono-manual').hidden = true; } else {
+        $('ski-chrono-manual').hidden = false;
+        $('ski-chrono-min').focus();
+      }
+      refreshSkiLaunch();
+    });
+    return button;
+  }));
+}
+
+/** Enveloppe retenue : celle du tableau, ou celle saisie à la main si elle l'a emporté. */
+function skiEnvelope(pending = app.skiPending) {
+  if (!pending) return speedEnvelope('ski2', 'adulte');
+  return pending.manual
+    ? manualEnvelope(pending.manual.min, pending.manual.max)
+    : speedEnvelope(pending.activity, pending.who);
+}
+
+function openSkiLaunch(routeId) {
+  const saved = loadSkiPrefs();
+  const route = routeId ? app.routes.get(routeId) : null;
+  app.skiPending = {
+    routeId: route?.id ?? null,
+    activity: skiActivity(saved.activity).id,
+    who: SKI_WHO.some((w) => w.id === saved.who) ? saved.who : 'adulte',
+    chronoS: saved.chronoS > 0 ? saved.chronoS : CHRONO_PRESETS_S[1],
+    manual: Number.isFinite(saved.manual?.min) ? saved.manual : null,
+  };
+  closeSheet();
+  $('skilaunch-route').textContent = route ? `Couloir « ${route.name} »` : 'Sortie libre, sans couloir';
+  $('ski-env-manual').hidden = !app.skiPending.manual;
+  $('btn-ski-env-edit').classList.toggle('is-on', Boolean(app.skiPending.manual));
+  $('ski-chrono-manual').hidden = CHRONO_PRESETS_S.includes(app.skiPending.chronoS);
+  $('skilaunch').hidden = false;
+  refreshSkiLaunch();
+}
+
+function closeSkiLaunch() {
+  $('skilaunch').hidden = true;
+  app.skiPending = null;
+}
+
+/**
+ * Rend la feuille de préparation. `keepInputs` laisse les champs de saisie tranquilles :
+ * réécrire la valeur d'un `<input type="number">` pendant qu'on le remplit replace le
+ * curseur au début, et « 28 » devient « 82 » au caractère suivant.
+ */
+function refreshSkiLaunch({ keepInputs = false } = {}) {
+  const pending = app.skiPending;
+  if (!pending) return;
+  const activity = skiActivity(pending.activity);
+  const env = skiEnvelope(pending);
+
+  for (const button of $('ski-activities').children) {
+    const item = skiActivity(button.dataset.act);
+    button.classList.toggle('is-on', item.id === pending.activity);
+    // La plage affichée est celle de la personne choisie : c'est celle qui sera tenue.
+    button.querySelector('.act__range').textContent = rangeLabel(
+      item[pending.who === 'enfant' ? 'enfant' : 'adulte'],
+      Boolean(item.openEnded) && pending.who !== 'enfant',
+    );
+  }
+  for (const button of $('ski-who').children) {
+    button.classList.toggle('is-on', button.dataset.who === pending.who);
+  }
+  for (const button of $('ski-chrono-choice').children) {
+    const on = button.dataset.chrono === 'manuel'
+      ? !CHRONO_PRESETS_S.includes(pending.chronoS)
+      : Number(button.dataset.chrono) === pending.chronoS;
+    button.classList.toggle('is-on', on);
+  }
+
+  $('ski-env').textContent = envelopeLabel(env);
+  $('ski-env-kn').textContent = `soit ${envelopeLabel(env, 'kn')}${pending.manual ? ' · saisie manuelle' : ''}`;
+  if (!keepInputs) {
+    $('ski-env-min').value = String(env.minKmh);
+    $('ski-env-max').value = String(env.maxKmh);
+    $('ski-chrono-min').value = String(Math.round(pending.chronoS / 60));
+  }
+  $('btn-ski-start').textContent = `▶ Démarrer · ${activity.icon} ${chronoLabel(pending.chronoS)}`;
+}
+
+function startSkiFromLaunch() {
+  const pending = app.skiPending;
+  if (!pending) return;
+  saveSkiPrefs(pending);
+  // Le seul geste de l'utilisateur avant la sonnerie : c'est ici, et nulle part ailleurs,
+  // qu'iOS autorise à ouvrir le son. Une sonnerie fabriquée à l'arrivée du chrono, quinze
+  // minutes plus tard, serait muette.
+  primeAudio();
+  const ski = {
+    activity: pending.activity, who: pending.who, env: skiEnvelope(pending), targetS: pending.chronoS,
+  };
+  const routeId = pending.routeId;
+  closeSkiLaunch();
+  startGo(routeId, ski);
+}
+
+function loadSkiPrefs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SKI_PREFS_KEY));
+    return saved && typeof saved === 'object' ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+/** On repart dix fois de suite avec le même skieur : le choix d'hier est celui d'aujourd'hui. */
+function saveSkiPrefs({ activity, who, chronoS, manual }) {
+  try {
+    localStorage.setItem(SKI_PREFS_KEY, JSON.stringify({ activity, who, chronoS, manual }));
+  } catch { /* stockage indisponible : le choix vaut pour la session */ }
+}
+
+// -------------------------------------------------------------- session en cours
+
+function beginSkiSession({ activity, who, env, targetS }) {
+  app.ski = {
+    active: true, activity, who, env, targetS,
+    chrono: 'idle', elapsedMs: 0, runSince: null, chronoRuns: 0, chronoTotalMs: 0,
+    auto: null, fall: null, falls: 0,
+    inZoneMs: 0, sampleMs: 0, lastSampleMs: null, topKmh: 0, rearmTimer: null,
+  };
+
+  $('ski-hud').hidden = false;
+  $('ski-act').textContent = `${skiActivity(activity).name} · ${whoLabel(who)}`;
+  $('ski-falls-num').textContent = '0';
+  $('ski-depth-num').textContent = '—';
+  $('ski-cursor').style.left = '0%';
+
+  // Bornes de la jauge dans l'unité de l'utilisateur : le compteur juste au-dessus est dans
+  // cette unité-là, et deux échelles côte à côte ne se comparent pas.
+  const kn = app.settings.get('speedUnit') === 'kn';
+  const shown = (kmh) => Math.round(kn ? kmh * KN_PER_KMH : kmh);
+  $('ski-gauge-min').textContent = String(shown(env.minKmh));
+  $('ski-gauge-max').textContent = `${shown(env.maxKmh)}${env.openEnded ? '+' : ''}`;
+
+  app.skiTimer = window.setInterval(refreshSkiChrono, SKI_TICK_MS);
+  refreshSkiChrono();
+}
+
+function endSkiSession() {
+  window.clearInterval(app.skiTimer);
+  app.skiTimer = null;
+  window.clearTimeout(app.ski?.rearmTimer);
+  app.ski = { active: false };
+  $('ski-hud').hidden = true;
+  $('go-speed').classList.remove('is-slow', 'is-in', 'is-fast');
+}
+
+/**
+ * HUD de ski, à chaque point GPS : écart à la plage, cumuls, déclencheur du chrono, chutes.
+ *
+ * Tout le raisonnement est dans `src/ski.js` — ici on ne fait que passer les échantillons
+ * aux réducteurs et poser le résultat à l'écran.
+ */
+function updateSkiHud(boat, speedKmh) {
+  const ski = app.ski;
+  if (!ski.active) return;
+  const now = Date.now();
+  const state = envelopeState(speedKmh, ski.env);
+
+  const speedNum = $('go-speed');
+  speedNum.classList.remove('is-slow', 'is-in', 'is-fast');
+  if (state !== 'unknown') speedNum.classList.add(`is-${state}`);
+  $('ski-cursor').style.left = `${(gaugePosition(speedKmh, ski.env) * 100).toFixed(1)}%`;
+
+  // Temps passé dans la plage : la note de la session pour un barreur, et la seule qui
+  // dise si le skieur a été tiré comme il fallait.
+  if (ski.lastSampleMs != null && state !== 'unknown') {
+    const dt = Math.min(now - ski.lastSampleMs, SKI_SAMPLE_MAX_MS);
+    ski.sampleMs += dt;
+    if (state === 'in') ski.inZoneMs += dt;
+  }
+  ski.lastSampleMs = now;
+  if (Number.isFinite(speedKmh) && speedKmh > ski.topKmh) ski.topKmh = speedKmh;
+
+  if (ski.chrono === 'idle') {
+    ski.auto = autoStartTracker(ski.auto, { speedKmh, env: ski.env, atMs: now });
+    if (ski.auto.fire) startChrono(true);
+  }
+
+  ski.fall = fallTracker(ski.fall, { speedKmh, env: ski.env, atMs: now });
+  if (ski.fall.fell) countFall(true);
+
+  // Le fond, discret et à l'écart : en ski on regarde l'eau et le skieur, jamais la sonde.
+  const depth = depthAt(boat[0], boat[1]);
+  $('ski-depth-num').textContent = Number.isFinite(depth)
+    ? depth.toFixed(depth >= 10 ? 0 : 1).replace('.', ',') : '—';
+
+  refreshSkiTripLine();
+}
+
+/** Distance parcourue et vitesse moyenne depuis le départ de la session. */
+function refreshSkiTripLine() {
+  const distance = routeLength(app.go.track ?? []);
+  if (!(distance > 0)) { $('ski-trip').textContent = ''; return; }
+  const seconds = (Date.now() - Date.parse(app.go.startedAt)) / 1000;
+  const kmh = averageKmh(distance, seconds);
+  const kn = app.settings.get('speedUnit') === 'kn';
+  $('ski-trip').textContent = `${formatDistance(distance)} · ${(kn ? kmh * KN_PER_KMH : kmh).toFixed(1)} ${kn ? 'nds' : 'km/h'} moy`;
+}
+
+// ----------------------------------------------------------------------- chrono
+
+function toggleChrono() {
+  const ski = app.ski;
+  if (!ski.active) return;
+  if (ski.chrono === 'run') { pauseChrono(); return; }
+  startChrono(false);
+}
+
+function startChrono(auto = false) {
+  const ski = app.ski;
+  if (!ski.active || ski.chrono === 'run') return;
+  if (ski.chrono === 'done') resetChrono(false);
+  ski.chrono = 'run';
+  ski.runSince = Date.now();
+  if (auto) toast('Chrono lancé — vitesse tenue 10 s', 3000);
+  refreshSkiChrono();
+}
+
+function pauseChrono() {
+  const ski = app.ski;
+  if (ski.chrono !== 'run') return;
+  ski.elapsedMs += Date.now() - ski.runSince;
+  ski.runSince = null;
+  ski.chrono = 'pause';
+  refreshSkiChrono();
+}
+
+/**
+ * Remet le chrono à zéro. Le temps déjà tiré n'est pas perdu pour autant : il rejoint le
+ * cumul de la session, qui compte le temps passé derrière le bateau et non le nombre de
+ * chronos menés à leur terme.
+ */
+function resetChrono(announce = false) {
+  const ski = app.ski;
+  if (!ski.active) return;
+  window.clearTimeout(ski.rearmTimer);
+  ski.rearmTimer = null;
+  if (ski.chrono !== 'done') {
+    const ran = ski.elapsedMs + (ski.chrono === 'run' ? Date.now() - ski.runSince : 0);
+    if (ran > 0) ski.chronoTotalMs += ran;
+  }
+  ski.chrono = 'idle';
+  ski.elapsedMs = 0;
+  ski.runSince = null;
+  ski.auto = null; // le déclencheur automatique se réarme : c'est tout l'intérêt du geste
+  if (announce) toast('Chrono remis à zéro', 2000);
+  refreshSkiChrono();
+}
+
+function finishChrono() {
+  const ski = app.ski;
+  ski.chrono = 'done';
+  ski.elapsedMs = ski.targetS * 1000;
+  ski.runSince = null;
+  ski.chronoRuns += 1;
+  ski.chronoTotalMs += ski.targetS * 1000;
+  playFinishBeeps();
+  navigator.vibrate?.([120, 90, 120, 90, 320]);
+  toast(`Chrono terminé · ${chronoLabel(ski.targetS)}`, 4000);
+  // Réarmement : sur l'eau, personne ne cherche un bouton avec les mains mouillées. Le
+  // passage suivant relancera le chrono tout seul, dès que la vitesse sera tenue.
+  ski.rearmTimer = window.setTimeout(() => {
+    if (app.ski.active && app.ski.chrono === 'done') resetChrono(false);
+  }, SKI_REARM_MS);
+  refreshSkiChrono();
+}
+
+/** Unique endroit où l'état du chrono est rendu — appelé cinq fois par seconde. */
+function refreshSkiChrono() {
+  const ski = app.ski;
+  if (!ski.active) return;
+  const targetMs = ski.targetS * 1000;
+  const elapsed = ski.elapsedMs + (ski.chrono === 'run' ? Date.now() - ski.runSince : 0);
+  if (ski.chrono === 'run' && elapsed >= targetMs) { finishChrono(); return; }
+
+  // Décompte, et non compte : ce qu'on veut savoir en tirant, c'est ce qu'il reste à tirer.
+  $('ski-time').textContent = formatChrono(Math.max(0, targetMs - elapsed) / 1000);
+  $('ski-bar').style.width = `${Math.min(100, (elapsed / Math.max(targetMs, 1)) * 100).toFixed(1)}%`;
+
+  const card = $('ski-card');
+  card.classList.toggle('is-run', ski.chrono === 'run');
+  card.classList.toggle('is-pause', ski.chrono === 'pause');
+  card.classList.toggle('is-done', ski.chrono === 'done');
+
+  $('btn-ski-chrono').textContent = ski.chrono === 'run' ? '⏸ Pause'
+    : ski.chrono === 'pause' ? '▶ Reprendre'
+      : ski.chrono === 'done' ? '↻ Relancer' : '▶ Chrono';
+
+  const zone = ski.sampleMs > 0 ? Math.round((ski.inZoneMs / ski.sampleMs) * 100) : null;
+  if (ski.chrono === 'idle') {
+    const left = ski.auto?.since ? Math.ceil((AUTO_START_HOLD_MS - ski.auto.heldMs) / 1000) : null;
+    $('ski-state').textContent = left != null
+      ? `départ auto dans ${Math.max(0, left)} s…`
+      : 'départ auto à la vitesse cible';
+  } else if (ski.chrono === 'done') {
+    $('ski-state').textContent = `terminé · ${ski.chronoRuns} passage${ski.chronoRuns > 1 ? 's' : ''}`;
+  } else if (ski.chrono === 'pause') {
+    $('ski-state').textContent = 'en pause';
+  } else {
+    $('ski-state').textContent = zone == null ? 'en cours' : `${zone} % dans la plage`;
+  }
+}
+
+function countFall(auto) {
+  const ski = app.ski;
+  if (!ski.active) return;
+  ski.falls += 1;
+  $('ski-falls-num').textContent = String(ski.falls);
+  toast(auto ? 'Chute comptée — arrêt après traction' : `${ski.falls} chute${ski.falls > 1 ? 's' : ''}`, 2500);
+}
+
+/** Synthèse de la session, telle qu'elle part à l'Historique puis au partage. */
+function skiRunSummary(distanceM) {
+  const ski = app.ski;
+  if (!ski.active) return null;
+  // Le chrono en cours n'est pas encore dans le cumul : `chronoTotalMs` ne s'incrémente
+  // qu'à la remise à zéro et à la sonnerie. L'état « done » y est déjà, lui.
+  const current = ski.chrono === 'run' ? ski.elapsedMs + (Date.now() - ski.runSince)
+    : ski.chrono === 'pause' ? ski.elapsedMs : 0;
+  const seconds = Math.max(1, (Date.now() - Date.parse(app.go.startedAt)) / 1000);
+  return skiSummary({
+    activity: ski.activity,
+    who: ski.who,
+    env: ski.env,
+    targetS: ski.targetS,
+    chronoS: (ski.chronoTotalMs + current) / 1000,
+    chronoRuns: ski.chronoRuns,
+    falls: ski.falls,
+    avgKmh: averageKmh(distanceM, seconds),
+    topKmh: ski.topKmh,
+    inZonePct: ski.sampleMs > 0 ? (ski.inZoneMs / ski.sampleMs) * 100 : 0,
+  });
+}
+
+// ------------------------------------------------------------------- la sonnerie
+
+/**
+ * Ouvre le son sur un geste de l'utilisateur. iOS n'autorise la création — et la reprise —
+ * d'un contexte audio que dans un gestionnaire d'événement d'entrée : fabriqué au moment de
+ * la sonnerie, quinze minutes après le dernier appui, le contexte reste suspendu et rien ne
+ * sort. On l'ouvre donc au départ de la session, et l'on ne fait plus que le réveiller.
+ */
+function primeAudio() {
+  try {
+    const Ctx = window.AudioContext ?? window.webkitAudioContext;
+    if (!Ctx) return;
+    app.audio ??= new Ctx();
+    app.audio.resume?.();
+  } catch { /* pas de son : il reste la vibration et le HUD */ }
+}
+
+/** Trois notes qui montent, puis une tenue : une arrivée, pas une alarme. */
+function playFinishBeeps() {
+  const ctx = app.audio;
+  if (!ctx) return;
+  ctx.resume?.();
+  const t0 = ctx.currentTime + 0.02;
+  for (const [freq, at, dur] of [[880, 0, 0.12], [1108, 0.15, 0.12], [1318, 0.3, 0.12], [1760, 0.47, 0.55]]) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square'; // franc et perçant : il faut l'entendre par-dessus un hors-bord
+    osc.frequency.value = freq;
+    // Rampes exponentielles, jamais vers zéro (interdit) : une coupure nette claquerait.
+    gain.gain.setValueAtTime(0.0001, t0 + at);
+    gain.gain.exponentialRampToValueAtTime(0.3, t0 + at + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + at + dur);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0 + at);
+    osc.stop(t0 + at + dur + 0.02);
+  }
 }
 
 // ------------------------------------------------------------ historique (sorties)
@@ -3597,8 +4272,24 @@ function refreshHistPanel() {
   $('hist-hint').textContent = n
     ? 'Touchez une sortie pour revoir son tracé sur la carte.'
     : 'Aucune sortie. Elles s’enregistrent à la fin d’une navigation Go.';
+  // Cumuls de toutes les sorties, puis ceux des seules sessions de ski : ce ne sont pas les
+  // mêmes chiffres, et mélangés ils ne voudraient rien dire — une heure de navigation à
+  // 20 km/h et dix minutes de slalom à 35 ne font pas une moyenne.
+  const sessions = app.trips.records.map((t) => ({
+    distanceM: tripDistance(t), durationS: tripDuration(t),
+    falls: t.ski?.falls, chronoS: t.ski?.chrono_s,
+  }));
+  const all = skiTotals(sessions);
   $('hist-total').textContent = n
-    ? `${n} sortie${n > 1 ? 's' : ''} · total ${formatDistance(app.trips.totalDistance)}`
+    ? `${n} sortie${n > 1 ? 's' : ''} · total ${formatDistance(all.distanceM)} · `
+      + `${formatDuration(all.durationS)} · ${all.avgKmh.toFixed(1)} km/h de moyenne`
+    : '';
+
+  const ski = skiTotals(sessions.filter((s, i) => app.trips.records[i].ski));
+  $('hist-ski').textContent = ski.count
+    ? `dont ski : ${ski.count} session${ski.count > 1 ? 's' : ''} · ${formatDistance(ski.distanceM)} · `
+      + `${ski.avgKmh.toFixed(1)} km/h de moyenne · ${formatDuration(ski.chronoS)} de chrono · `
+      + `${ski.falls} chute${ski.falls > 1 ? 's' : ''}`
     : '';
   fillTripList($('hist-list'));
   stackBottomBars();
@@ -3621,6 +4312,15 @@ function fillTripList(el) {
     stat.className = 'route__stat';
     stat.textContent = `${tripLabel(t.at)} · ${formatDistance(dist)} · ${formatDuration(tripDuration(t))}`;
     name.append(stat);
+    // Une session de ski porte sa synthèse : c'est elle qu'on relit le soir, pas le tracé.
+    if (t.ski) {
+      const ski = document.createElement('span');
+      ski.className = 'route__stat route__stat--ski';
+      ski.textContent = `${t.ski.activityName} · ${whoLabel(t.ski.who)} · ${t.ski.avg_kmh} km/h moy · `
+        + `${t.ski.in_zone_pct} % dans la plage · ${formatDuration(t.ski.chrono_s)} de chrono · `
+        + `${t.ski.falls} chute${t.ski.falls > 1 ? 's' : ''}`;
+      name.append(ski);
+    }
     li.append(name);
 
     const del = document.createElement('button');

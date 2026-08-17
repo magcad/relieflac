@@ -95,8 +95,37 @@ const DONE_COLOR = '#3ddc84';
 /** Pas entre deux chevrons le long de la route (m). */
 const CHEVRON_SPACING_M = 40;
 
+/** Corail du couloir de ski nautique — la couleur du mode, reprise sur la carte. */
+const SKI_ROUTE_COLOR = '#ff6a4c';
+
 /** La route porte `done` : c'est ce booléen qui choisit la couleur, tronçon par tronçon. */
 const routeColor = ['case', ['get', 'done'], DONE_COLOR, ROUTE_COLOR];
+
+const tinted = (color) => ['case', ['get', 'done'], DONE_COLOR, color];
+
+/**
+ * Deux allures de trajet, parce que deux métiers ne demandent pas la même route.
+ *
+ * En navigation, la route est une ligne à SUIVRE : fine, précise, et l'écart s'affiche dès
+ * huit mètres. En ski nautique, c'est un COULOIR dans lequel le bateau zigzague pour rendre
+ * l'eau plate au skieur ou lui donner de la vague : le corridor y est trois fois plus large,
+ * et sortir de l'axe n'est plus une faute mais le geste même. Le corail le distingue au
+ * premier coup d'œil du bleu de navigation — on ne se trompe pas de mode sans le voir.
+ */
+const ROUTE_STYLES = {
+  nav: {
+    color: ROUTE_COLOR,
+    glow: ['interpolate', ['linear'], ['zoom'], 12, 10, 16, 26, 19, 40],
+    glowOpacity: 0.32,
+    line: ['interpolate', ['linear'], ['zoom'], 12, 3, 16, 6, 19, 9],
+  },
+  ski: {
+    color: SKI_ROUTE_COLOR,
+    glow: ['interpolate', ['linear'], ['zoom'], 12, 20, 16, 52, 19, 80],
+    glowOpacity: 0.26,
+    line: ['interpolate', ['linear'], ['zoom'], 12, 2.5, 16, 5, 19, 7.5],
+  },
+};
 
 /**
  * Plafond de finesse de rendu.
@@ -1001,6 +1030,23 @@ export class LakeMap extends EventTarget {
     this.map.setPitch(0);
     if (coords.length >= 2) this.#fitTo(coords);
     else if (coords.length === 1) this.map.jumpTo({ center: coords[0] });
+  }
+
+  /**
+   * Allure du trajet affiché : `'nav'` (ligne à suivre) ou `'ski'` (couloir à occuper).
+   *
+   * Les couches ne sont pas dupliquées, seules leurs propriétés de peinture changent : une
+   * seconde source de vérité pour la même route finirait par en montrer deux.
+   */
+  setRouteStyle(kind = 'nav') {
+    const style = ROUTE_STYLES[kind] ?? ROUTE_STYLES.nav;
+    try {
+      this.map.setPaintProperty('route-glow', 'line-color', tinted(style.color));
+      this.map.setPaintProperty('route-glow', 'line-width', style.glow);
+      this.map.setPaintProperty('route-glow', 'line-opacity', style.glowOpacity);
+      this.map.setPaintProperty('route-line', 'line-color', tinted(style.color));
+      this.map.setPaintProperty('route-line', 'line-width', style.line);
+    } catch { /* style rechargé entre-temps : le prochain passage remettra l'allure */ }
   }
 
   /** En mode construction, le clic pose un point de passage au lieu de sonder. */

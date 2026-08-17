@@ -502,12 +502,24 @@
         </div>
       </div>
 
-      <!-- Mode Ski nautique : à spécifier. Le bouton existe, la fonction viendra. -->
-      <div class="modepane modepane--soon" id="pane-ski" data-pane="ski" hidden>
-        <div class="soon">
-          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-ski"/></svg>
-          <p><strong>Mode Ski nautique</strong><br>Slaloms et parcours chronométrés à venir.</p>
+      <!-- Mode Ski nautique (L15) : même catalogue de trajets que la Navigation — un couloir
+           de ski est un trajet comme un autre — mais toucher une ligne n'y lance rien
+           directement : elle ouvre la préparation de session (activité, personne, plage de
+           vitesse, chrono). « Sortie libre » ouvre la même préparation sans couloir, pour
+           tourner où l'on veut sur le lac. -->
+      <div class="modepane modepane--ski" id="pane-ski" data-pane="ski" hidden>
+        <div class="navacts">
+          <button class="navacts__btn navacts__btn--ski" id="btn-ski-free" type="button">
+            <svg class="ico" aria-hidden="true"><use href="#i-ski"/></svg>
+            <span>Sortie libre</span>
+          </button>
+          <button class="navacts__btn" id="btn-ski-new" type="button">
+            <svg class="ico" aria-hidden="true"><use href="#i-route"/></svg>
+            <span>Nouveau couloir</span>
+          </button>
         </div>
+        <p class="modepane__hint" id="ski-hint">Touchez un trajet pour préparer la session.</p>
+        <ol class="routelist routelist--pick" id="ski-picker"></ol>
       </div>
 
       <!-- Réglages : l'ancien écran des paramètres, remonté au niveau des modes. -->
@@ -562,7 +574,59 @@
     </div>
     <p class="route__hint" id="hist-hint">Vos sorties parcourues.</p>
     <p class="route__meta hist__total" id="hist-total"></p>
+    <p class="route__meta hist__ski" id="hist-ski"></p>
     <ol class="routelist hist__list" id="hist-list"></ol>
+  </div>
+
+  <!--
+    Préparation d'une session de ski nautique.
+
+    Trois réponses avant de lancer, et une seule d'entre elles est vraiment une décision :
+    l'ACTIVITÉ et la PERSONNE tractée déterminent à elles deux la plage de vitesse que le
+    bateau devra tenir (le tableau vit dans src/ski.js, seule source de vérité — cette grille
+    est engendrée à partir de lui). Le chrono se choisit d'un appui parmi trois durées
+    usuelles. La plage reste corrigeable à la main : un tableau décrit un usage, pas la
+    personne qui est derrière la corde ce jour-là.
+  -->
+  <div class="skilaunch" id="skilaunch" hidden>
+    <div class="sheet__scrim" id="skilaunch-scrim"></div>
+    <div class="skilaunch__panel" role="dialog" aria-modal="true" aria-label="Préparer la session de ski">
+      <div class="sheet__grip"></div>
+      <div class="skilaunch__head">
+        <span class="skilaunch__title">Session de ski</span>
+        <span class="skilaunch__route" id="skilaunch-route">Sortie libre</span>
+      </div>
+
+      <p class="skilaunch__legend">Activité</p>
+      <div class="actgrid" id="ski-activities"></div>
+
+      <p class="skilaunch__legend">Personne tractée</p>
+      <div class="segbar" id="ski-who"></div>
+
+      <p class="skilaunch__legend">Plage de vitesse à tenir</p>
+      <div class="skienv">
+        <span class="skienv__value" id="ski-env">—</span>
+        <span class="skienv__kn" id="ski-env-kn"></span>
+        <button class="skienv__edit" id="btn-ski-env-edit" type="button"
+                title="Saisir la plage à la main" aria-label="Saisir la plage à la main">✎</button>
+      </div>
+      <div class="skienv__manual" id="ski-env-manual" hidden>
+        <label>min <input type="number" id="ski-env-min" min="1" max="90" step="1" inputmode="decimal"></label>
+        <label>max <input type="number" id="ski-env-max" min="1" max="90" step="1" inputmode="decimal"></label>
+        <button class="skienv__auto" id="btn-ski-env-auto" type="button">↺ plage du tableau</button>
+      </div>
+
+      <p class="skilaunch__legend">Chrono</p>
+      <div class="segbar" id="ski-chrono-choice"></div>
+      <div class="skienv__manual" id="ski-chrono-manual" hidden>
+        <label>minutes <input type="number" id="ski-chrono-min" min="1" max="240" step="1" inputmode="numeric"></label>
+      </div>
+
+      <div class="skilaunch__btns">
+        <button class="sim__reset" id="btn-ski-cancel" type="button">✕ Annuler</button>
+        <button class="sim__reset sim__reset--go" id="btn-ski-start" type="button">▶ Démarrer</button>
+      </div>
+    </div>
   </div>
 
   <!--
@@ -605,7 +669,7 @@
       </button>
     </div>
 
-    <div class="go__progress"><span class="go__progress-bar" id="go-progress"></span></div>
+    <div class="go__progress" id="go-progress-box"><span class="go__progress-bar" id="go-progress"></span></div>
 
     <!-- Barre du bas : vitesse à gauche, gouverne à droite. -->
     <div class="go__hud">
@@ -627,6 +691,50 @@
           <span class="go__cap" id="go-cap">—°</span>
           <span class="go__turn" id="go-turn">cap GPS en attente</span>
         </div>
+      </div>
+    </div>
+
+    <!--
+      HUD de ski nautique (L15). Il se greffe sur la surcouche de navigation plutôt que de
+      la doubler : la carte inclinée, le bouton Quitter, les commandes de zoom, le gros
+      compteur de vitesse et l'aiguille de direction sont les mêmes objets — c'est le même
+      bateau et le même barreur. Ce que le ski ajoute, c'est le CHRONO, l'écart à la plage de
+      vitesse, et deux témoins discrets (fond, chutes) qui ne doivent gêner ni la vue de
+      l'eau ni celle du skieur : d'où leur place en haut à droite, loin du bateau.
+    -->
+    <div class="ski" id="ski-hud" hidden>
+      <div class="ski__chrono" id="ski-card">
+        <span class="ski__act" id="ski-act">—</span>
+        <span class="ski__time" id="ski-time">0:00</span>
+        <div class="ski__bar"><span class="ski__bar-fill" id="ski-bar"></span></div>
+        <span class="ski__state" id="ski-state">départ automatique à la vitesse cible</span>
+        <span class="ski__trip" id="ski-trip"></span>
+        <div class="ski__btns">
+          <button class="ski__btn" id="btn-ski-chrono" type="button">▶ Chrono</button>
+          <button class="ski__btn ski__btn--ghost" id="btn-ski-reset" type="button"
+                  title="Remettre le chrono à zéro" aria-label="Remettre le chrono à zéro">↻</button>
+        </div>
+      </div>
+
+      <div class="ski__aside">
+        <button class="ski__chip ski__chip--falls" id="ski-falls" type="button"
+                title="Chutes — touchez pour en compter une de plus">
+          <span class="ski__chip-num" id="ski-falls-num">0</span>
+          <span class="ski__chip-lab">chutes</span>
+        </button>
+        <span class="ski__chip ski__chip--depth">
+          <span class="ski__chip-num" id="ski-depth-num">—</span>
+          <span class="ski__chip-lab">m de fond</span>
+        </span>
+      </div>
+
+      <!-- Jauge d'enveloppe : la bande claire est la plage à tenir, le curseur la vitesse.
+           La plage occupe toujours le tiers central, si étroite soit-elle (voir ski.js). -->
+      <div class="ski__gauge">
+        <span class="ski__gauge-band"></span>
+        <span class="ski__gauge-cursor" id="ski-cursor"></span>
+        <span class="ski__gauge-min" id="ski-gauge-min">—</span>
+        <span class="ski__gauge-max" id="ski-gauge-max">—</span>
       </div>
     </div>
 
