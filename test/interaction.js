@@ -646,10 +646,58 @@ async function run() {
   // Le catalogue n'est pas vide pour autant : `initSync` a déjà descendu les trajets
   // partagés du dépôt. C'est le nôtre qu'on cherche, pas un compte.
   const couloir = stored('relieflac.routes.v1').find((r) => r.name === 'Couloir de slalom');
-  check('le couloir est enregistré comme un trajet ordinaire',
-    Boolean(couloir) && couloir.points.length === 3,
-    `${stored('relieflac.routes.v1').length} trajet(s) au catalogue`);
+  check('le couloir est enregistré comme un trajet, mais typé ski',
+    Boolean(couloir) && couloir.points.length === 3 && couloir.kind === 'ski',
+    `${stored('relieflac.routes.v1').length} trajet(s) au catalogue, métier ${couloir?.kind}`);
+
+  // Le cloisonnement des deux catalogues : c'est la raison d'être de l'attribut. Les trajets
+  // descendus du dépôt n'ont pas de métier — ce sont donc des routes de navigation.
+  const names = (id) => [...document.querySelectorAll(`#${id} .route__name`)].map((n) => n.firstChild.textContent.trim());
   $('btn-route-exit').click();
+  $('btn-menu').click();
+  $('mode-nav').click();
+  await sleep(60);
+  check('un couloir de ski n’apparaît pas dans le menu Navigation',
+    !names('route-picker').includes('Couloir de slalom') && names('route-picker').length >= 1,
+    names('route-picker').join(' · '));
+  $('mode-ski').click();
+  await sleep(60);
+  check('et le menu Ski ne montre que les couloirs',
+    names('ski-picker').length === 1 && names('ski-picker')[0] === 'Couloir de slalom',
+    names('ski-picker').join(' · '));
+  check('la vignette d’un couloir est corail, pas bleue',
+    Boolean(document.querySelector('#ski-picker .thumb__route--ski'))
+    && !document.querySelector('#route-picker .thumb__route--ski'));
+
+  // Reclasser : sans cela, un trajet tracé avant que le ski n'existe le resterait à jamais.
+  const navRoute = names('route-picker')[0];
+  document.querySelector('#route-picker .route__edit').click();
+  await sleep(60);
+  check('l’éditeur affiche le métier du trajet repris',
+    !$('route-kind').hidden
+    && $('route-kind').querySelector('[data-kind="nav"]').classList.contains('is-on'));
+  $('route-kind').querySelector('[data-kind="ski"]').click();
+  check('choisir « Ski nautique » repeint le panneau', $('route').classList.contains('is-ski'));
+  $('btn-route-save').click();
+  $('btn-route-exit').click();
+  $('btn-menu').click();
+  $('mode-ski').click();
+  await sleep(60);
+  check('le trajet reclassé a changé de liste',
+    names('ski-picker').includes(navRoute) && !names('route-picker').includes(navRoute),
+    `« ${navRoute} » · ski : ${names('ski-picker').join(' · ')}`);
+  // Et on le rend à la navigation, pour ne pas laisser l'appareil dans un état inventé. Le
+  // couloir est épinglé en tête (dernier suivi) : on vise la ligne par son nom, jamais par
+  // son rang — c'est la même règle que pour les zones (§ « ne jamais compter le rang »).
+  const rowOf = (id, name) => [...document.querySelectorAll(`#${id} li`)]
+    .find((li) => li.querySelector('.route__name')?.firstChild.textContent.trim() === name);
+  rowOf('ski-picker', navRoute).querySelector('.route__edit').click();
+  await sleep(60);
+  $('route-kind').querySelector('[data-kind="nav"]').click();
+  $('btn-route-save').click();
+  $('btn-route-exit').click();
+  check('et il revient à la navigation aussi facilement',
+    stored('relieflac.routes.v1').find((r) => r.name === navRoute)?.kind === 'nav', navRoute);
 
   // Préparation : c'est ici que le tableau des vitesses entre en jeu.
   $('btn-menu').click();

@@ -1046,6 +1046,9 @@ export class LakeMap extends EventTarget {
       this.map.setPaintProperty('route-glow', 'line-opacity', style.glowOpacity);
       this.map.setPaintProperty('route-line', 'line-color', tinted(style.color));
       this.map.setPaintProperty('route-line', 'line-width', style.line);
+      // Le brouillon suit : tracer un couloir de ski en bleu de navigation démentirait la
+      // couleur du panneau qui le porte.
+      this.map.setPaintProperty('route-draft', 'line-color', style.color);
     } catch { /* style rechargé entre-temps : le prochain passage remettra l'allure */ }
   }
 

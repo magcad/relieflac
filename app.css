@@ -473,6 +473,10 @@ a { color: var(--accent); }
 }
 /* Le dernier trajet suivi, épinglé en tête : repartir d'un appui sur le trajet habituel. */
 .routelist li.is-last { border-color: color-mix(in srgb, var(--m-nav) 55%, var(--line)); }
+.routelist li.is-ski.is-last { border-color: color-mix(in srgb, var(--m-ski) 55%, var(--line)); }
+.routelist li.is-ski .route__thumb { border-color: color-mix(in srgb, var(--m-ski) 40%, var(--line)); }
+.routelist li.is-ski .route__badge { border-color: color-mix(in srgb, var(--m-ski) 55%, transparent); color: var(--m-ski); }
+.routelist li.is-ski .route__edit { color: color-mix(in srgb, var(--m-ski) 70%, var(--text)); }
 /* Toute la ligne est la commande — pas de petit ▶ à viser depuis un ponton. */
 .routelist .route__open {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: .55rem;
@@ -507,6 +511,9 @@ a { color: var(--accent); }
 .thumb__route { stroke: var(--m-nav); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
 .thumb__start { fill: #3ddc84; }
 .thumb__end { fill: var(--m-nav); }
+/* Métier du trajet : un couloir de ski se reconnaît à sa couleur avant qu'on ait lu son nom. */
+.thumb__route--ski { stroke: var(--m-ski); }
+.thumb__end--ski { fill: var(--m-ski); }
 
 /* ------------------------------------------------------------ plein soleil
 
@@ -873,12 +880,18 @@ button.is-arming {
   position: absolute; left: .6rem; right: .6rem; z-index: 6;
   bottom: calc(var(--dock) + .5rem); max-width: 26rem; margin: 0 auto;
   padding: .7rem .8rem .8rem; border-radius: var(--r-lg);
-  background: var(--glass-2); border: 1px solid color-mix(in srgb, var(--m-nav) 55%, transparent);
+  background: var(--glass-2); border: 1px solid color-mix(in srgb, var(--m-route) 55%, transparent);
   box-shadow: var(--shadow); backdrop-filter: var(--blur);
   max-height: calc(100dvh - var(--strip) - var(--dock) - 1rem); overflow-y: auto;
+  /* Le métier du trajet colore tout le panneau par cette seule variable : bleu de navigation
+     par défaut, corail dès qu'on trace un couloir de ski. */
+  --m-route: var(--m-nav);
 }
+.route.is-ski { --m-route: var(--m-ski); }
 .route[hidden] { display: none; }
-.route__title { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--m-nav); }
+.route__title { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--m-route); }
+.segbar--kind { margin: 0 0 .5rem; }
+.segbar--kind .seg.is-on { border-color: var(--m-route); background: color-mix(in srgb, var(--m-route) 20%, var(--surface-2)); color: var(--m-route); }
 .route__hint { margin: .35rem 0 .5rem; font-size: .74rem; color: var(--muted); }
 .route .routelist { margin-bottom: .5rem; }
 .route__field { display: flex; align-items: center; gap: .5rem; font-size: .72rem; color: var(--muted); margin: .1rem 0 .2rem; }
@@ -891,7 +904,7 @@ button.is-arming {
 .route__meta { margin: .35rem 0 0; font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .route__btns { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .55rem; }
 .route__btns .sim__reset { flex: 1; min-width: 6rem; }
-#btn-route-go { color: var(--m-nav); border-color: color-mix(in srgb, var(--m-nav) 55%, transparent); font-weight: 700; }
+#btn-route-go { color: var(--m-route); border-color: color-mix(in srgb, var(--m-route) 55%, transparent); font-weight: 700; }
 
 /* Historique : même panneau que le constructeur, mais en ambre — les sorties sont des faits
    révolus, pas des routes à suivre — et le tracé revu sur la carte reprend ce même ambre. */

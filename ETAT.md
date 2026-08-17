@@ -2,9 +2,9 @@
 
 **Dernière mise à jour** : 17 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 204 contrôles, **tous au
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 208 contrôles, **tous au
 vert**
-**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 101 gestes,
+**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 108 gestes,
 **tous au vert**
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
@@ -42,6 +42,39 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L13** | Les deux bancs remis au vert — et, dessous, **les traits de palier qui n'étaient jamais tracés** | ✅ terminé le 16/08/2026 (v2026-08-16.8) — voir § 1 |
 | **L14** | Mode Navigation refondu : **la liste des trajets devient le mode**, avec une **vignette** par trajet (silhouette du lac + tracé) | ✅ terminé le 16/08/2026 (v2026-08-16.9) — voir § 1 |
 | **L15** | Mode **Ski nautique** : enveloppe de vitesse par activité et par personne, chrono à départ automatique, compteur de chutes, HUD de glisse — et **récupération automatique du partage** | ✅ terminé le 17/08/2026 (v2026-08-17.1) — voir § 1 |
+| **L16** | **Trajets typés** : un trajet appartient à la navigation ou au ski, chaque mode ne montre que les siens, et le couloir de ski est corail | ✅ terminé le 17/08/2026 (v2026-08-17.2) — voir § 1 |
+
+**Lot L16 — les trajets ont un métier** (17/08/2026, v2026-08-17.2). Retour de l'utilisateur
+après le L15 : les trajets de navigation et les couloirs de ski ne sont pas les mêmes objets,
+et les mêler dans un catalogue unique obligeait à lire chaque nom pour retrouver le sien.
+
+Un attribut, un filtre, une couleur — rien de plus, et c'est délibéré.
+
+- `kind` vaut `'nav'` ou `'ski'`, **normalisé au chargement** (`routeKind`, dans `routes.js`).
+  Un trajet sans attribut est une route de navigation : c'est ce qu'étaient tous les trajets
+  avant que le ski n'existe, et il ne faut pas réécrire l'histoire. La normalisation est faite
+  **une fois**, à la lecture du stockage : ailleurs, chaque lecture aurait à se demander si
+  l'absence vaut navigation, et une seule qui l'oublierait ferait disparaître le trajet des
+  **deux** listes.
+- `fillRouteList` filtre : `'go'` ne montre que la navigation, `'ski'` que les couloirs, et le
+  constructeur suit le métier en cours (`app.routeKind`) — « reprendre un trajet » ne propose
+  plus ce qu'on ne cherchait pas. Les compteurs et les phrases d'aide comptent par métier
+  (`countRoutes`), sans quoi « aucun couloir » s'afficherait au-dessus d'une liste vide alors
+  que quatre routes de navigation existent.
+- **Le métier voyage dans le partage** (`RoutesSync`), et un fichier publié avant ce lot reste
+  entièrement en navigation.
+- **Thème.** Une seule variable CSS porte la couleur du panneau (`--m-route`, bleu par défaut,
+  corail sur `.route.is-ski`) : le titre, la bordure, les segments et le bouton ▶ Go suivent
+  sans être touchés un par un. La vignette (`thumb__route--ski`, `thumb__end--ski`), la ligne
+  de liste et le **tracé sur la carte** (`setRouteStyle` colore aussi le brouillon) prennent la
+  même teinte — dessiner un couloir en bleu de navigation démentirait le panneau qui le porte.
+- **Un sélecteur de métier dans l'éditeur**, et lui seul : sans lui, l'attribut serait fixé à
+  la création et un couloir tracé avant le L15 resterait une route de navigation pour toujours
+  — il n'y aurait qu'à le redessiner. C'est le seul ajout d'interface au-delà du filtre.
+- **▶ Go depuis l'éditeur d'un couloir ouvre la préparation de session**, pas la navigation :
+  il reste à dire qui est tracté et à quelle vitesse.
+- La clé de cache des vignettes porte désormais le métier : reclasser un trajet change sa
+  couleur **sans toucher à sa géométrie**, et la vignette en cache resterait bleue.
 
 **Lot L15 — le mode Ski nautique** (17/08/2026, v2026-08-17.1). Spécifié par l'utilisateur le
 matin du 17, pour être essayé sur l'eau le jour même.
@@ -1225,7 +1258,7 @@ mauvaise donne une carte fausse sans aucun signe extérieur (§ 3.5).
 
 ### Vérifications
 
-Ouvrir `/test/`. 204 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 208 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
 simulation**, **forme de la correction (plateau, fondu, indépendance à l'ordre) et zones
@@ -1241,7 +1274,7 @@ bilinéairement : les comparer revient à comparer deux choses différentes.
 Après toute modification de `config/palette.json` ou de la grille, relancer
 `python tools/dump_reference.py`, sinon les tests comparent à une référence périmée.
 
-Ouvrir aussi `/test/interaction.html`. 101 enchaînements : l'application entière démarre
+Ouvrir aussi `/test/interaction.html`. 108 enchaînements : l'application entière démarre
 avec [`test/stub-map.js`](test/stub-map.js) à la place de MapLibre — substitué par une
 carte d'import, le reste du code ne voit pas la différence — et le banc provoque les mêmes
 événements que la vraie carte (`pinpoint`, `probeselect`, `zonevertex`…). Le balisage est

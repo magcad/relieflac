@@ -308,6 +308,9 @@ export class RoutesSync {
         id: r.id ?? crypto.randomUUID(),
         at: r.at ?? new Date().toISOString(),
         name: r.name || 'Trajet',
+        // Métier du trajet : navigation ou couloir de ski. Absent des fichiers publiés avant
+        // le L16 — la valeur par défaut est donc « navigation », ce qu'ils étaient tous.
+        kind: r.kind === 'ski' ? 'ski' : 'nav',
         points: r.points.map((p) => [p[0], p[1]]),
         by: r.by ?? null,
       }));
@@ -322,6 +325,7 @@ export class RoutesSync {
         id: r.id,
         name: r.name,
         at: r.at,
+        kind: r.kind === 'ski' ? 'ski' : 'nav',
         points: r.points.map((p) => [p[0], p[1]]),
         by: r.by ?? null,
       })),

@@ -1079,6 +1079,16 @@ bout de la corde ce jour-là.
   ne font pas une moyenne — et cette moyenne porte sur les distances et les durées cumulées,
   jamais sur les moyennes.
 
+**Les trajets ont un métier** (L16). Une route de navigation relie deux points en évitant les
+hauts-fonds ; un couloir de ski est un aller-retour en eau libre, choisi pour sa longueur et
+son abri du vent. Ce ne sont pas les mêmes objets, et les réunir dans un catalogue unique
+obligeait à lire chaque nom pour retrouver le sien. Chaque trajet porte donc son métier, chaque
+mode ne montre que les siens, et le couloir de ski est corail — panneau, vignette, ligne de
+liste et tracé sur la carte. Un trajet sans métier est une route de navigation : c'est ce
+qu'ils étaient tous avant que le ski n'existe. Le métier se change dans l'éditeur, et là
+seulement — sinon un couloir tracé avant le ski le resterait à jamais, et il n'y aurait qu'à le
+redessiner.
+
 ### 6.6 quater Le partage se rafraîchit tout seul (L15, 17/08/2026)
 
 Voir le relevé ou le trajet d'un autre bateau demandait d'ouvrir les Paramètres et d'appuyer

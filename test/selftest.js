@@ -24,6 +24,7 @@ import {
 } from '../src/level-chart.js';
 import { applyPaletteOverride, bandLimits, buildLut, LUT_SIZE, lutIndex } from '../src/palette.js';
 import { Probes, makeProbe } from '../src/probes.js';
+import { routeKind } from '../src/routes.js';
 import { SimPoints } from '../src/sim.js';
 import { Soundings } from '../src/soundings.js';
 import {
@@ -670,6 +671,22 @@ export async function run(base = '..') {
   check('trajets partagés : trajet d\'un seul point écarté',
     RoutesSync.fromFile({ routes: [{ id: 'x', points: [[1, 2]] }] }).length === 0);
 
+  // Métier du trajet (L16) : navigation ou couloir de ski. Un fichier publié avant le L16
+  // n'a pas l'attribut — ses trajets sont des routes de navigation, ce qu'ils étaient tous,
+  // et l'absence ne doit surtout pas les faire disparaître des deux listes.
+  check('métier du trajet : absent vaut navigation, et rien d\'autre ne vaut ski',
+    routeKind({}) === 'nav' && routeKind({ kind: 'ski' }) === 'ski'
+    && routeKind({ kind: 'peche' }) === 'nav' && routeKind(null) === 'nav');
+  const kindSync = new RoutesSync({ repo: 'x/y', path: 'p.json', waterbody: 'vassiviere' });
+  const kindFile = kindSync.toFile([
+    { id: 'a', name: 'Route', at: 't', kind: 'nav', points: [[1, 2], [1, 3]] },
+    { id: 'b', name: 'Couloir', at: 't', kind: 'ski', points: [[1, 2], [1, 3]] },
+  ]);
+  const kindBack = RoutesSync.fromFile(kindFile);
+  check('partage : le métier fait l\'aller-retour, et un fichier d\'avant le L16 reste en navigation',
+    kindBack[0].kind === 'nav' && kindBack[1].kind === 'ski'
+    && RoutesSync.fromFile({ routes: [{ id: 'c', points: [[1, 2], [1, 3]] }] })[0].kind === 'nav');
+
   const tripsSync = new TripsSync({
     repo: 'x/y', dir: 'data/trips/vassiviere', waterbody: 'vassiviere',
   });
@@ -787,6 +804,17 @@ export async function run(base = '..') {
   check('vignette : la clé de cache suit l’horodatage, pas le seul identifiant',
     thumbKey({ id: 'a', at: '2026-08-16T10:00:00Z' }) !== thumbKey({ id: 'a', at: '2026-08-16T11:00:00Z' })
     && thumbKey({ id: 'a', at: 'x' }) === thumbKey({ id: 'a', at: 'x' }));
+
+  // Métier du trajet : la vignette d'un couloir de ski est corail, celle d'une route bleue —
+  // et reclasser un trajet change sa couleur sans toucher à sa géométrie, donc la clé de
+  // cache doit le voir passer.
+  const skiThumb = thumbSvg(nw, { label: 'Couloir', kind: 'ski' });
+  check('vignette : le métier colore le tracé et l’arrivée',
+    skiThumb.includes('thumb__route--ski') && skiThumb.includes('thumb__end--ski')
+    && !svg.includes('thumb__route--ski'));
+  check('vignette : la clé de cache voit le reclassement en couloir de ski',
+    thumbKey({ id: 'a', at: 'x', kind: 'ski' }) !== thumbKey({ id: 'a', at: 'x', kind: 'nav' })
+    && thumbKey({ id: 'a', at: 'x' }) === thumbKey({ id: 'a', at: 'x', kind: 'nav' }));
 
   // --- ski nautique -----------------------------------------------------------
   // Rien de ce qui suit n'est vérifiable sur l'eau : un chrono qui part une seconde trop

@@ -547,6 +547,13 @@
       </button>
     </div>
     <p class="route__hint" id="route-hint">Touchez la carte pour poser les points de passage.</p>
+    <!-- Métier du trajet (L16). Une route de navigation et un couloir de ski ne sont pas le
+         même objet, et chaque mode ne montre que les siens : c'est ici — et seulement ici —
+         qu'on choisit, ou qu'on reclasse un trajet tracé avant que le ski n'existe. -->
+    <div class="segbar segbar--kind" id="route-kind" hidden>
+      <button class="seg" data-kind="nav" type="button">Navigation</button>
+      <button class="seg" data-kind="ski" type="button">Ski nautique</button>
+    </div>
     <ol class="routelist" id="route-list"></ol>
     <label class="route__field" id="route-name-box" hidden>
       <span>Nom</span>

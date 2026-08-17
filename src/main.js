@@ -16,7 +16,7 @@ import { LakeMap } from './map.js';
 import { applyPaletteOverride, bandColors, bandLimits, buildLut, depthColor, hexToVec4, legendEntries } from './palette.js';
 import { Probes, makeProbe } from './probes.js';
 import {
-  CRUISE_KMH, estimatedDuration, formatDistance, formatDuration, Routes, routeLength,
+  CRUISE_KMH, estimatedDuration, formatDistance, formatDuration, Routes, routeKind, routeLength,
 } from './routes.js';
 import { angleDelta, navSolution } from './nav.js';
 import {
@@ -65,7 +65,10 @@ const app = {
   routesSync: null, routesPushTimer: null, suppressRoutePush: false, tripsSync: null,
   // Trajets de navigation. Le constructeur a trois états, comme les zones : panneau ouvert
   // (`routeMode`), tracé en cours (`routeTracing`), trajet repris pour réglage (`editingRouteId`).
-  routes: null,
+  // `routeKind` est le métier du trajet en cours de tracé ou d'édition ('nav' ou 'ski') :
+  // il décide de la couleur du panneau, de celle du tracé sur la carte, et de la liste dans
+  // laquelle le trajet enregistré ira se ranger.
+  routes: null, routeKind: 'nav',
   routeMode: false, routeTracing: false, routeDraft: [], editingRouteId: null,
   // Sorties parcourues, et le mode Historique qui les revoit sur la carte.
   trips: null, histMode: false, histReviewId: null,
@@ -722,7 +725,8 @@ async function syncRoutes() {
   if (signatureOf(merged) !== signatureOf(local)) {
     app.suppressRoutePush = true;
     app.routes.replaceAll(merged.map((r) => ({
-      id: r.id, at: r.at, name: r.name, points: r.points.map((p) => [p[0], p[1]]), by: r.by ?? null,
+      id: r.id, at: r.at, name: r.name, kind: routeKind(r),
+      points: r.points.map((p) => [p[0], p[1]]), by: r.by ?? null,
     })));
     app.suppressRoutePush = false;
   }
@@ -3002,8 +3006,16 @@ function wireRoutes() {
   // libellé promet. L'ancienne tuile « Trajet » n'ouvrait qu'une liste de plus.
   $('btn-nav-new').addEventListener('click', () => {
     closeSheet();
-    if (!app.routeMode) enterRouteMode();
+    enterRouteMode('nav');
     startRouteDraft();
+  });
+  // Reclasser un trajet : c'est le seul endroit où le métier se change, et il le faut — sans
+  // lui, un couloir tracé avant que le ski n'existe resterait une route de navigation pour
+  // toujours, et il n'y aurait qu'à le redessiner.
+  $('route-kind').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-kind]');
+    if (!button) return;
+    setRouteKind(button.dataset.kind);
   });
   $('btn-route-exit').addEventListener('click', exitRouteMode);
   $('btn-route-new').addEventListener('click', startRouteDraft);
@@ -3030,7 +3042,7 @@ function wireRoutes() {
   });
 }
 
-function enterRouteMode() {
+function enterRouteMode(kind = app.routeKind) {
   if (app.go.active) exitGo();
   if (app.histMode) exitHistMode();
   if (app.simMode) exitSim();
@@ -3040,15 +3052,23 @@ function enterRouteMode() {
   if (app.editingProbeId) endProbeEdit();
   refreshCaptureUi();
 
+  app.routeKind = routeKind({ kind });
   app.routeMode = true;
   app.routeTracing = false;
   app.routeDraft = [];
   app.editingRouteId = null;
   refreshRoutePanel();
   refreshRoutePicker();
-  toast(app.routes.count
-    ? 'Reprenez un trajet, ou « ✚ Nouveau trajet »'
-    : 'Aucun trajet : « ✚ Nouveau trajet » pour en construire un', 4000);
+  const ski = app.routeKind === 'ski';
+  toast(app.routes.records.some((r) => routeKind(r) === app.routeKind)
+    ? `Reprenez un ${ski ? 'couloir' : 'trajet'}, ou « ✚ Nouveau »`
+    : `Aucun ${ski ? 'couloir' : 'trajet'} : « ✚ Nouveau » pour en construire un`, 4000);
+}
+
+/** Change le métier du trajet en cours de tracé ou d'édition, et tout ce qui en découle. */
+function setRouteKind(kind) {
+  app.routeKind = routeKind({ kind });
+  refreshRoutePanel();
 }
 
 function exitRouteMode() {
@@ -3075,6 +3095,7 @@ function editRoute(id) {
   if (!route) return;
   if (app.go.active) exitGo();
   if (app.histMode) exitHistMode();
+  app.routeKind = routeKind(route);
   app.routeMode = true;
   app.routeTracing = true;
   app.editingRouteId = id;
@@ -3112,15 +3133,19 @@ function saveRoute() {
   const points = app.routeDraft;
   if (points.length < 2) { toast('Il faut au moins 2 points de passage'); return null; }
   const name = $('route-name').value.trim();
+  const kind = app.routeKind;
+  const label = kind === 'ski' ? 'Couloir' : 'Trajet';
   let id;
   if (app.editingRouteId) {
-    app.routes.update(app.editingRouteId, { name: name || app.routes.get(app.editingRouteId)?.name, points });
+    app.routes.update(app.editingRouteId, {
+      name: name || app.routes.get(app.editingRouteId)?.name, points, kind,
+    });
     id = app.editingRouteId;
-    toast('Trajet mis à jour');
+    toast(`${label} mis à jour`);
   } else {
-    const entry = app.routes.add({ name, points });
+    const entry = app.routes.add({ name, points, kind });
     id = entry.id;
-    toast(`Trajet enregistré · ${formatDistance(routeLength(points))}`, 3500);
+    toast(`${label} enregistré · ${formatDistance(routeLength(points))}`, 3500);
   }
   app.routeTracing = false;
   app.editingRouteId = null;
@@ -3130,10 +3155,17 @@ function saveRoute() {
   return id;
 }
 
-/** Enregistre le brouillon puis lance la navigation dessus. */
+/**
+ * Enregistre le brouillon puis part dessus. Un couloir de ski passe par la préparation de
+ * session — il reste à dire qui est tracté et à quelle vitesse — là où une route de
+ * navigation n'a plus rien à demander.
+ */
 function goFromDraft() {
+  const kind = app.routeKind;
   const id = saveRoute();
-  if (id) startGo(id);
+  if (!id) return;
+  if (kind === 'ski') { exitRouteMode(); openSkiLaunch(id); return; }
+  startGo(id);
 }
 
 function deleteSelectedRoute() {
@@ -3156,11 +3188,25 @@ function refreshRoutePanel() {
   const tracing = app.routeMode && app.routeTracing;
   const listing = app.routeMode && !tracing;
 
+  const ski = app.routeKind === 'ski';
+  const noun = ski ? 'couloir' : 'trajet';
+
   $('route').hidden = !app.routeMode;
   app.lakeMap.setRouteMode(app.routeMode);
   if (!app.routeMode) { app.lakeMap.clearRouteDraft(); stackBottomBars(); return; }
 
-  $('route-title').textContent = editing ? 'Trajet — édition' : tracing ? 'Nouveau trajet' : 'Trajets enregistrés';
+  // Le métier habille le panneau — corail pour le ski, bleu pour la navigation — et le tracé
+  // sur la carte avec lui : dessiner un couloir en bleu de navigation démentirait le thème.
+  $('route').classList.toggle('is-ski', ski);
+  app.lakeMap.setRouteStyle(app.routeKind);
+  for (const button of $('route-kind').children) {
+    button.classList.toggle('is-on', button.dataset.kind === app.routeKind);
+  }
+  $('route-kind').hidden = !tracing;
+
+  $('route-title').textContent = editing
+    ? `${ski ? 'Couloir' : 'Trajet'} — édition`
+    : tracing ? `Nouveau ${noun}` : `${ski ? 'Couloirs' : 'Trajets'} enregistrés`;
   $('route-list').hidden = !listing;
   $('route-name-box').hidden = !tracing;
   $('btn-route-new').hidden = !listing;
@@ -3184,9 +3230,10 @@ function refreshRoutePanel() {
       : `${n} points · ${formatDistance(len)} · ~${formatDuration(estimatedDuration(len))} à ${CRUISE_KMH} km/h`;
     app.lakeMap.setRouteDraft(app.routeDraft);
   } else {
-    $('route-hint').textContent = app.routes.count
-      ? 'Reprenez un trajet, ou créez-en un nouveau.'
-      : 'Aucun trajet. « ✚ Nouveau trajet » pour commencer.';
+    const some = app.routes.records.some((r) => routeKind(r) === app.routeKind);
+    $('route-hint').textContent = some
+      ? `Reprenez un ${noun}, ou créez-en un nouveau.`
+      : `Aucun ${noun}. « ✚ Nouveau » pour commencer.`;
     $('route-meta').textContent = '';
     app.lakeMap.clearRouteDraft();
     fillRouteList($('route-list'), 'edit');
@@ -3194,13 +3241,18 @@ function refreshRoutePanel() {
   stackBottomBars();
 }
 
-/** Liste des trajets enregistrés, dans le menu Navigation — c'est le mode lui-même. */
+/** Nombre de trajets d'un métier donné — chaque liste ne compte que les siens. */
+function countRoutes(kind) {
+  return app.routes.records.filter((r) => routeKind(r) === kind).length;
+}
+
+/** Liste des trajets de navigation, dans le menu Navigation — c'est le mode lui-même. */
 function refreshRoutePicker() {
   const list = $('route-picker');
   if (!list) return;
-  $('nav-hint').textContent = app.routes.count
+  $('nav-hint').textContent = countRoutes('nav')
     ? 'Touchez un trajet pour le suivre.'
-    : 'Aucun trajet. « Nouveau trajet » pour en tracer un.';
+    : 'Aucun trajet de navigation. « Nouveau trajet » pour en tracer un.';
   fillRouteList(list, 'go');
 }
 
@@ -3216,7 +3268,7 @@ function routeThumb(r) {
   const key = thumbKey(r);
   let svg = thumbCache.get(key);
   if (svg === undefined) {
-    svg = thumbSvg(r.points, { label: `Aperçu du trajet ${r.name}` });
+    svg = thumbSvg(r.points, { label: `Aperçu du trajet ${r.name}`, kind: routeKind(r) });
     // Le cache suit les trajets, pas la session : au-delà, on oublie les plus anciennes
     // entrées, qui sont les versions périmées des trajets retouchés.
     if (thumbCache.size > 80) thumbCache.delete(thumbCache.keys().next().value);
@@ -3233,13 +3285,19 @@ function routeThumb(r) {
  *   il reste à dire qui est tracté et à quelle vitesse avant que quoi que ce soit ne parte ;
  * - `'edit'`, dans le constructeur : la ligne ouvre l'édition du trajet.
  *
+ * **Chaque liste ne montre que son métier** : une route de navigation et un couloir de ski
+ * ne sont pas le même objet, et les mêler obligeait à lire chaque nom pour retrouver le sien.
+ * Le constructeur suit le métier en cours (`app.routeKind`), pour que « reprendre un trajet »
+ * ne propose pas ce qu'on ne cherchait pas.
+ *
  * Aucune suppression ici, dans aucun des trois : une commande destructrice dans une liste
  * qu'on fait défiler, avec des trajets qui se multiplient et des doigts mouillés, est un
  * piège. Elle vit dans l'éditeur (`btn-route-del`, à double appui), et là seulement.
  */
 function fillRouteList(el, mode) {
   const lastId = mode === 'edit' ? null : loadLastRoute();
-  const records = app.routes.records.slice().reverse();
+  const wanted = mode === 'ski' ? 'ski' : mode === 'go' ? 'nav' : app.routeKind;
+  const records = app.routes.records.filter((r) => routeKind(r) === wanted).reverse();
   // Le dernier trajet suivi passe en tête : repartir en un appui sur le trajet habituel est
   // exactement le service que rendait l'ancien bouton « Go ».
   records.sort((a, b) => Number(b.id === lastId) - Number(a.id === lastId));
@@ -3248,6 +3306,7 @@ function fillRouteList(el, mode) {
     const len = routeLength(r.points);
     const li = document.createElement('li');
     if (r.id === lastId) li.classList.add('is-last');
+    if (routeKind(r) === 'ski') li.classList.add('is-ski');
 
     const open = document.createElement('button');
     open.type = 'button';
@@ -3706,7 +3765,7 @@ function wireSki() {
   // Un couloir de ski se trace exactement comme un trajet : même constructeur, même gestes.
   $('btn-ski-new').addEventListener('click', () => {
     closeSheet();
-    if (!app.routeMode) enterRouteMode();
+    enterRouteMode('ski');
     startRouteDraft();
   });
 
@@ -3754,9 +3813,9 @@ function wireSki() {
 function refreshSkiPicker() {
   const list = $('ski-picker');
   if (!list) return;
-  $('ski-hint').textContent = app.routes.count
+  $('ski-hint').textContent = countRoutes('ski')
     ? 'Touchez un couloir pour préparer la session.'
-    : 'Aucun trajet. « Sortie libre » suffit pour skier, « Nouveau couloir » pour en tracer un.';
+    : 'Aucun couloir. « Sortie libre » suffit pour skier, « Nouveau couloir » pour en tracer un.';
   fillRouteList(list, 'ski');
 }
 

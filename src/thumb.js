@@ -62,8 +62,9 @@ function escapeAttr(text) {
  * en unités de la boîte : c'est ce qui garantit qu'un trajet court reste visible, quel que
  * soit le facteur d'échelle de l'affichage.
  */
-export function thumbSvg(points, { label = '', outline = LAKE_OUTLINE } = {}) {
+export function thumbSvg(points, { label = '', kind = 'nav', outline = LAKE_OUTLINE } = {}) {
   const { box, bounds } = outline;
+  const ski = kind === 'ski';
   const route = polylinePath(points, bounds, box);
   const first = Array.isArray(points) && points.length ? points[0] : null;
   const last = Array.isArray(points) && points.length ? points[points.length - 1] : null;
@@ -76,9 +77,11 @@ export function thumbSvg(points, { label = '', outline = LAKE_OUTLINE } = {}) {
     `<svg class="thumb" viewBox="0 0 ${box.width} ${box.height}" preserveAspectRatio="xMidYMid meet"`,
     ` role="img" aria-label="${escapeAttr(label)}">`,
     `<path class="thumb__lake" fill-rule="evenodd" d="${outline.path}"/>`,
-    route ? `<path class="thumb__route" fill="none" vector-effect="non-scaling-stroke" d="${route}"/>` : '',
+    // Le métier colore le tracé et l'arrivée — bleu de navigation, corail de ski — sans
+    // qu'aucune couleur ne figure ici : ce sont des classes, `app.css` les habille.
+    route ? `<path class="thumb__route${ski ? ' thumb__route--ski' : ''}" fill="none" vector-effect="non-scaling-stroke" d="${route}"/>` : '',
     marker(first, 'thumb__start', 26),
-    points && points.length > 1 ? marker(last, 'thumb__end', 26) : '',
+    points && points.length > 1 ? marker(last, `thumb__end${ski ? ' thumb__end--ski' : ''}`, 26) : '',
     '</svg>',
   ].join('');
 }
@@ -87,7 +90,10 @@ export function thumbSvg(points, { label = '', outline = LAKE_OUTLINE } = {}) {
  * Clé de cache d'une vignette. **`id` seul ne suffit pas** : un trajet partagé change sous
  * le même identifiant quand son propriétaire le modifie, et la synchronisation le remplace
  * après le premier rendu de la liste. L'horodatage de dernière écriture fait la différence.
+ *
+ * Le métier en fait partie lui aussi : reclasser un trajet en couloir de ski change sa
+ * couleur sans rien changer à sa géométrie, et la vignette en cache resterait bleue.
  */
 export function thumbKey(route) {
-  return `${route?.id ?? ''}@${route?.at ?? ''}`;
+  return `${route?.id ?? ''}@${route?.at ?? ''}@${route?.kind === 'ski' ? 'ski' : 'nav'}`;
 }

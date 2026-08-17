@@ -24,6 +24,23 @@ const TOMBSTONE_DAYS = 180;
 /** Vitesse de croisière retenue pour l'estimation de durée (km/h). */
 export const CRUISE_KMH = 20;
 
+/**
+ * Métier auquel un trajet appartient : `'nav'` (route à suivre) ou `'ski'` (couloir de ski).
+ *
+ * Ce ne sont pas les mêmes objets. Une route de navigation relie deux points en évitant les
+ * hauts-fonds ; un couloir de ski est un aller-retour en eau libre, choisi pour sa longueur
+ * et son abri du vent. Les mélanger dans une seule liste obligeait à lire chaque nom pour
+ * retrouver le sien — d'où un attribut, un filtre par mode, et une couleur par métier.
+ *
+ * Un trajet sans attribut est une route de navigation : c'est ce qu'étaient tous les trajets
+ * avant que le ski n'existe, et la valeur par défaut ne doit pas réécrire l'histoire.
+ */
+export const ROUTE_KINDS = ['nav', 'ski'];
+
+export function routeKind(route) {
+  return route?.kind === 'ski' ? 'ski' : 'nav';
+}
+
 export class Routes extends EventTarget {
   constructor() {
     super();
@@ -34,11 +51,12 @@ export class Routes extends EventTarget {
     return this.records.length;
   }
 
-  add({ name, points }) {
+  add({ name, points, kind = 'nav' }) {
     const entry = {
       id: crypto.randomUUID(),
       at: new Date().toISOString(),
-      name: (name && name.trim()) || defaultName(this.records.length),
+      name: (name && name.trim()) || defaultName(this.records.length, kind),
+      kind: routeKind({ kind }),
       points: points.map((p) => [p[0], p[1]]),
     };
     this.records.push(entry);
@@ -97,6 +115,7 @@ export class Routes extends EventTarget {
         geometry: { type: 'LineString', coordinates: r.points },
         properties: {
           name: r.name,
+          kind: routeKind(r),
           length_m: Math.round(routeLength(r.points)),
           waypoints: r.points.length,
           time: r.at,
@@ -148,15 +167,20 @@ export function formatDuration(seconds) {
   return `${hours} h ${String(minutes % 60).padStart(2, '0')}`;
 }
 
-function defaultName(index) {
-  return `Trajet ${index + 1}`;
+function defaultName(index, kind) {
+  return kind === 'ski' ? `Couloir ${index + 1}` : `Trajet ${index + 1}`;
 }
 
 function load() {
   try {
     const records = JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? [];
+    // Le métier est normalisé au chargement, une fois pour toutes : ailleurs, chaque lecture
+    // aurait à se demander si l'absence d'attribut vaut navigation — et une seule qui
+    // l'oublierait ferait disparaître le trajet des deux listes.
     return Array.isArray(records)
-      ? records.filter((r) => Array.isArray(r.points) && r.points.length >= 2)
+      ? records
+        .filter((r) => Array.isArray(r.points) && r.points.length >= 2)
+        .map((r) => ({ ...r, kind: routeKind(r) }))
       : [];
   } catch {
     return [];
