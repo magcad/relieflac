@@ -1,7 +1,7 @@
 {
   "schema": "relieflac.routes/1",
   "waterbody": "vassiviere",
-  "updated_at": "2026-08-17T15:29:16.817Z",
+  "updated_at": "2026-08-17T16:03:51.438Z",
   "routes": [
     {
       "id": "f0cdb997-161c-4bf5-8597-1ee757fee201",
@@ -219,7 +219,7 @@
     {
       "id": "2f6a5656-0436-48a3-93a3-1e0a04300f89",
       "name": "Couloir long",
-      "at": "2026-08-17T15:29:15.304Z",
+      "at": "2026-08-17T15:29:28.983Z",
       "kind": "ski",
       "points": [
         [
