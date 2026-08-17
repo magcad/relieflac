@@ -28,9 +28,9 @@ import { routeKind } from '../src/routes.js';
 import { SimPoints } from '../src/sim.js';
 import { Soundings } from '../src/soundings.js';
 import {
-  AUTO_START_HOLD_MS, autoStartTracker, averageKmh, envelopeLabel, envelopeState, fallTracker,
-  formatChrono, gaugePosition, GAUGE_BAND, manualEnvelope, SKI_ACTIVITIES, skiSummary,
-  skiTotals, speedEnvelope,
+  AUTO_START_HOLD_MS, autoStartTracker, averageKmh, DEFAULT_ACTIVITY_ID, envelopeLabel,
+  envelopeState, fallTracker, formatChrono, gaugePosition, GAUGE_BAND, manualEnvelope,
+  skiActivity, SKI_ACTIVITIES, skiSummary, skiTotals, speedEnvelope,
 } from '../src/ski.js';
 import { LAKE_OUTLINE } from '../src/lake-outline.js';
 import { projectPoint, thumbKey, thumbSvg } from '../src/thumb.js';
@@ -821,11 +821,26 @@ export async function run(base = '..') {
   // tôt, une chute comptée deux fois, une plage lue à l'envers — cela se constate en tirant
   // quelqu'un derrière le bateau, donc au pire moment pour ouvrir un débogueur.
 
-  check('tableau des activités : 6 activités, plages ordonnées et enfant sous adulte',
-    SKI_ACTIVITIES.length === 6
+  check('tableau des activités : 7 activités, plages ordonnées et enfant sous adulte',
+    SKI_ACTIVITIES.length === 7
     && SKI_ACTIVITIES.every((a) => a.enfant[0] < a.enfant[1] && a.adulte[0] < a.adulte[1])
     && SKI_ACTIVITIES.every((a) => a.enfant[0] <= a.adulte[0] && a.enfant[1] <= a.adulte[1]),
     SKI_ACTIVITIES.map((a) => a.id).join(', '));
+
+  // Le foil tracté est la plage la plus basse du tableau, et il ouvre la liste. D'où deux
+  // choses à tenir : sa plage, et le fait que ce ne soit PAS lui l'activité par défaut —
+  // sinon toute session sans choix mémorisé démarrerait à 12–18 km/h, vitesse à laquelle un
+  // bateau qui manœuvre déclencherait le chrono seul.
+  const foil = speedEnvelope('foil', 'adulte');
+  check('enveloppe : le foil tracté suit le tableau, enfant comme adulte',
+    foil.minKmh === 12 && foil.maxKmh === 18 && !foil.openEnded
+    && speedEnvelope('foil', 'enfant').minKmh === 8
+    && speedEnvelope('foil', 'enfant').maxKmh === 12,
+    envelopeLabel(foil));
+  check('tableau des activités : le défaut est nommé, pas le premier de la liste',
+    SKI_ACTIVITIES[0].id === 'foil' && skiActivity('inconnu').id === DEFAULT_ACTIVITY_ID
+    && DEFAULT_ACTIVITY_ID !== 'foil',
+    `défaut : ${skiActivity('inconnu').name}`);
 
   const mono = speedEnvelope('monoski', 'adulte');
   const monoEnfant = speedEnvelope('monoski', 'enfant');

@@ -708,6 +708,17 @@ async function run() {
     !$('skilaunch').hidden && !document.body.classList.contains('mode-go'),
     $('skilaunch-route').textContent);
 
+  // Le tableau des vitesses est une donnée : la grille en est engendrée. Le foil tracté,
+  // ajouté après le reste, doit donc s'y trouver sans qu'aucune tuile n'ait été recopiée.
+  const acts = [...document.querySelectorAll('#ski-activities .act')];
+  check('la grille reprend toutes les activités du tableau, foil tracté compris',
+    acts.length === 7 && acts.some((b) => b.dataset.act === 'foil'),
+    acts.map((b) => b.dataset.act).join(' · '));
+  document.querySelector('#ski-activities [data-act="foil"]').click();
+  document.querySelector('#ski-who [data-who="enfant"]').click();
+  check('le foil tracté annonce la plage la plus basse du tableau',
+    $('ski-env').textContent === '8 – 12 km/h', $('ski-env').textContent);
+
   document.querySelector('#ski-activities [data-act="monoski"]').click();
   document.querySelector('#ski-who [data-who="adulte"]').click();
   check('activité et personne fixent la plage du tableau',

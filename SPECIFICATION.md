@@ -1031,6 +1031,7 @@ vit dans un module pur, et la grille de choix en est engendrée.
 
 | Activité | Enfant | Adulte | Vitesse typique |
 | --- | ---: | ---: | ---: |
+| 🪽 Foil tracté | 8–12 km/h | 12–18 km/h | 6,5–10 nds |
 | 🛟 Bouée / Donut | 15–25 km/h | 20–30 km/h | 8–16 nds |
 | 🏄 Wakeskate | 25–30 km/h | 28–32 km/h | 15–17 nds |
 | 🏄 Wakeboard | 20–25 km/h | 28–32 km/h | 11–17 nds |
@@ -1039,11 +1040,13 @@ vit dans un module pur, et la grille de choix en est engendrée.
 | 🎿 Ski slalom | 30–40 km/h | 35–55+ km/h | 19–30+ nds |
 
 La colonne en nœuds est gardée **telle quelle**, jamais recalculée : ce n'est pas exactement
-l'union des deux plages (le wakeskate et le slalom s'en écartent), c'est un usage constaté, et
+l'union des deux plages (le foil, le wakeskate et le slalom s'en écartent), c'est un usage constaté, et
 la recalculer l'aurait faussée au nom de la cohérence. Le « 55+ » du slalom adulte est ouvert
 vers le haut : au-delà du maximum on n'est pas hors plage, on est dans le haut du sport. Et la
 plage reste **corrigeable à la main** — un tableau décrit un usage, pas la personne qui est au
-bout de la corde ce jour-là.
+bout de la corde ce jour-là. L'ordre des lignes est celui des **vitesses croissantes** ; en
+revanche l'activité proposée par défaut est **nommée** (la bouée), et non « la première de la
+liste » : ajouter une épreuve plus lente ne doit pas changer ce qui démarre pour tout le monde.
 
 - **Le compteur de vitesse est l'instrument.** Il se colore selon l'écart à la plage, et une
   jauge montre où l'on se situe. La plage y occupe **toujours le tiers central**, quelle que

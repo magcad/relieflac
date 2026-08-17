@@ -2,9 +2,9 @@
 
 **Dernière mise à jour** : 17 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 208 contrôles, **tous au
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 210 contrôles, **tous au
 vert**
-**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 108 gestes,
+**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 110 gestes,
 **tous au vert**
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
@@ -88,11 +88,12 @@ métiers ; `app.go.kind` vaut `'nav'` ou `'ski'`.
 **Ce qui change, et pourquoi.** Le barreur de ski ne suit pas une ligne, il **tient une
 vitesse** pendant qu'un chrono tourne.
 
-- **Enveloppe de vitesse.** Le tableau fourni (6 activités × enfant/adulte) vit dans
-  `src/ski.js`, seule source de vérité ; la grille de la feuille de préparation est engendrée
-  à partir de lui. La colonne « vitesse typique » en nœuds est gardée **telle quelle** et non
-  recalculée : ce n'est pas exactement l'union des deux plages (le wakeskate et le slalom s'en
-  écartent), c'est un usage constaté. Le « 55+ » du slalom adulte est un `openEnded` : au-delà
+- **Enveloppe de vitesse.** Le tableau fourni (7 activités × enfant/adulte, le foil tracté
+  ajouté le 17/08/2026) vit dans `src/ski.js`, seule source de vérité ; la grille de la
+  feuille de préparation est engendrée à partir de lui — ajouter une épreuve est une ligne de
+  données, et rien d'autre. La colonne « vitesse typique » en nœuds est gardée **telle quelle**
+  et non recalculée : ce n'est pas exactement l'union des deux plages (le foil, le wakeskate et
+  le slalom s'en écartent), c'est un usage constaté. Le « 55+ » du slalom adulte est un `openEnded` : au-delà
   on n'est pas hors plage. La plage reste **corrigeable à la main** (petit `✎`) — un tableau
   décrit un usage, pas la personne qui est au bout de la corde ce jour-là.
 - **Le compteur de vitesse EST l'instrument** : il se colore ambre / vert / corail selon
@@ -140,7 +141,7 @@ chose, sinon tout le rendu accroché à `change` se relancerait pour rien toutes
 
 **Ce que la réalisation a ajouté à la spécification** :
 - Tout le raisonnement est dans le module pur `src/ski.js` (réducteurs `autoStartTracker` et
-  `fallTracker`, `envelopeState`, `gaugePosition`, cumuls) : **22 contrôles au banc**. C'est
+  `fallTracker`, `envelopeState`, `gaugePosition`, cumuls) : **24 contrôles au banc**. C'est
   la seule façon d'être sûr — on ne met pas au point un chrono avec quelqu'un au bout d'une
   corde.
 - Le déclencheur automatique rend un **front** (`fire`) et non un état : l'appelant n'a rien
@@ -1258,7 +1259,7 @@ mauvaise donne une carte fausse sans aucun signe extérieur (§ 3.5).
 
 ### Vérifications
 
-Ouvrir `/test/`. 208 contrôles : table de couleurs comparée à la référence Python,
+Ouvrir `/test/`. 210 contrôles : table de couleurs comparée à la référence Python,
 décodage de la grille sur 7 points, couverture, statistiques d'étalonnage, calage, export,
 correction et suppression des sondes manuelles, **retouche de palette et points de
 simulation**, **forme de la correction (plateau, fondu, indépendance à l'ordre) et zones
@@ -1274,7 +1275,7 @@ bilinéairement : les comparer revient à comparer deux choses différentes.
 Après toute modification de `config/palette.json` ou de la grille, relancer
 `python tools/dump_reference.py`, sinon les tests comparent à une référence périmée.
 
-Ouvrir aussi `/test/interaction.html`. 108 enchaînements : l'application entière démarre
+Ouvrir aussi `/test/interaction.html`. 110 enchaînements : l'application entière démarre
 avec [`test/stub-map.js`](test/stub-map.js) à la place de MapLibre — substitué par une
 carte d'import, le reste du code ne voit pas la différence — et le banc provoque les mêmes
 événements que la vraie carte (`pinpoint`, `probeselect`, `zonevertex`…). Le balisage est

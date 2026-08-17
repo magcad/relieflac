@@ -17,13 +17,16 @@
  * `enfant` et `adulte` sont les plages de travail : c'est l'une des deux qui devient
  * l'enveloppe à tenir. `typicalKn` est la colonne « vitesse typique » du tableau d'origine,
  * gardée telle quelle et **non recalculée** : ce n'est pas exactement l'union des deux
- * plages (le wakeskate et le slalom s'en écartent), c'est un usage constaté. La recalculer
+ * plages (le foil, le wakeskate et le slalom s'en écartent), c'est un usage constaté. La recalculer
  * l'aurait faussée au nom de la cohérence.
  *
  * Le slalom adulte est ouvert vers le haut (« 55+ ») : `openEnded` dit qu'au-delà du
  * maximum on n'est pas hors plage, on est simplement dans le haut du sport.
  */
 export const SKI_ACTIVITIES = [
+  // Le foil tracté ouvre la liste parce qu'il est le plus lent de tous — la liste est
+  // ordonnée par vitesse croissante, et c'est ce qui la rend parcourable d'un coup d'œil.
+  { id: 'foil', icon: '🪽', name: 'Foil tracté', enfant: [8, 12], adulte: [12, 18], typicalKn: [6.5, 10] },
   { id: 'bouee', icon: '🛟', name: 'Bouée / Donut', enfant: [15, 25], adulte: [20, 30], typicalKn: [8, 16] },
   { id: 'wakeskate', icon: '🏄', name: 'Wakeskate', enfant: [25, 30], adulte: [28, 32], typicalKn: [15, 17] },
   { id: 'wakeboard', icon: '🏄', name: 'Wakeboard', enfant: [20, 25], adulte: [28, 32], typicalKn: [11, 17] },
@@ -72,8 +75,20 @@ export const FALL_HOLD_MS = 5000;
  */
 export const TOW_RATIO = 0.7;
 
+/**
+ * Activité retenue par défaut, faute de choix mémorisé.
+ *
+ * Nommée, et non « la première de la liste » : l'ordre du tableau est un ordre de vitesse,
+ * et depuis que le foil tracté l'ouvre, prendre le premier élément ferait démarrer une
+ * session à 12–18 km/h — plage dans laquelle un bateau qui manœuvre entre déjà, donc chrono
+ * parti tout seul et chutes comptées à tort.
+ */
+export const DEFAULT_ACTIVITY_ID = 'bouee';
+
 export function skiActivity(id) {
-  return SKI_ACTIVITIES.find((a) => a.id === id) ?? SKI_ACTIVITIES[0];
+  return SKI_ACTIVITIES.find((a) => a.id === id)
+    ?? SKI_ACTIVITIES.find((a) => a.id === DEFAULT_ACTIVITY_ID)
+    ?? SKI_ACTIVITIES[0];
 }
 
 export function whoLabel(who) {
