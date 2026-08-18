@@ -153,6 +153,9 @@ export function defaultsFrom(palette, model) {
     showProbes: true,
     // Grand affichage de la profondeur sous le bateau (bascule au toucher de l'indicateur).
     bigDepth: false,
+    // Repère du bateau sur la carte : 'arrow' (flèche, par défaut) ou 'ski' (coque de bateau
+    // de ski nautique, vue de dessus). Purement cosmétique — voir setBoatIcon dans src/map.js.
+    boatIcon: 'arrow',
     // Contraste maximal de l'habillage, pour lire l'écran en plein soleil.
     sunMode: false,
     // Rayon (m) sur lequel un relevé manuel corrige la grille du fond autour du point : sa

@@ -685,6 +685,17 @@
       <span class="go__xte" id="go-xte" hidden></span>
     </div>
 
+    <!-- Fond, en navigation : le témoin discret qu'a déjà le ski, en haut à droite. Un
+         appui bascule le grand chiffre sous le bateau, exactement comme le dock du mode
+         carte. Masqué en ski (le HUD de ski a sa propre pastille) et quand le grand chiffre
+         est déployé — voir applyBigDepthMode. Réutilise l'aspect des pastilles de ski. -->
+    <button class="ski__chip ski__chip--depth go__depth" id="go-depth" type="button" hidden
+            title="Profondeur sous le bateau — touchez pour le grand affichage"
+            aria-label="Profondeur sous le bateau, toucher pour le grand affichage">
+      <span class="ski__chip-num" id="go-depth-num">—</span>
+      <span class="ski__chip-lab">m de fond</span>
+    </button>
+
     <!-- Commandes de carte : le rail est masqué en navigation, mais zoomer pour voir plus
          loin, puis revenir au cadrage de barre, restent des gestes de navigation. -->
     <div class="go__ctrl">
@@ -842,6 +853,13 @@
         <select id="set-speed-unit">
           <option value="kmh">km/h</option>
           <option value="kn">nœuds</option>
+        </select>
+      </label>
+      <label class="row">
+        <span>Repère du bateau</span>
+        <select id="set-boat-icon">
+          <option value="arrow">Flèche</option>
+          <option value="ski">Bateau de ski nautique</option>
         </select>
       </label>
     </fieldset>

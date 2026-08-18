@@ -163,6 +163,7 @@ async function boot() {
     app.depthLayer = new DepthLayer(app.bed, styleFromSettings());
     app.lakeMap.addDepthLayer(app.depthLayer);
     app.lakeMap.setBasemap(app.settings.get('basemap'));
+    app.lakeMap.setBoatIcon(app.settings.get('boatIcon'));
     // Cadrage de navigation dès l'ouverture, avant même le premier point GPS : le zoom
     // initial du constructeur montre le lac entier, inutilisable pour barrer. On reprend
     // le cadrage de la dernière sortie, et à défaut on vise la largeur de référence.
@@ -444,6 +445,9 @@ function wireBigDepth() {
   box.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleBigDepth(); }
   });
+  // Même geste depuis la pastille de fond de la navigation : elle déploie le grand chiffre
+  // sous le bateau, comme le dock du mode carte.
+  $('go-depth').addEventListener('click', toggleBigDepth);
   // Le calque sous le bateau rebascule vers le bas quand on le touche.
   app.lakeMap.addEventListener('bigdepthtoggle', toggleBigDepth);
 }
@@ -475,6 +479,11 @@ function applyBigDepthMode() {
   // Le dock du bas suit le réglage, et non la sortie : il est de toute façon sous la
   // surcouche plein écran, et le retrouver déplacé en quittant ne se comprendrait pas.
   $('depth-box').hidden = wanted;
+  // En navigation, la pastille de fond joue le rôle du dock du bas (masqué par la surcouche) :
+  // visible quand le grand chiffre est rangé, effacée quand il est déployé sous le bateau.
+  // Jamais en ski — le HUD de ski a déjà la sienne, au même endroit.
+  const navDepth = app.go?.active && app.go.kind !== 'ski';
+  $('go-depth').hidden = !navDepth || wanted;
   app.lakeMap.setBigDepth(wanted && bigDepthAllowed()
     ? (app.lastBigDepth ?? { value: '—', label: '', color: '' }) : null);
 }
@@ -1222,6 +1231,7 @@ function wireSettings() {
   bind('set-alarm', 'change', (el) => s.set('alarmEnabled', el.checked));
   bind('set-alarm-depth', 'change', (el) => s.set('alarmDepth_m', clampNumber(el, 0.2, 10)));
   bind('set-speed-unit', 'change', (el) => s.set('speedUnit', el.value));
+  bind('set-boat-icon', 'change', (el) => s.set('boatIcon', el.value));
   bind('set-manual-level', 'change', (el) => {
     const value = Number(el.value);
     s.set('manualLevel', el.value === '' || !Number.isFinite(value) ? null : value);
@@ -1284,6 +1294,7 @@ function wireSettings() {
     // Un profil importé ou réinitialisé change `followBoat` sans passer par le bouton.
     refreshCameraUi();
     app.lakeMap.setBasemap(s.get('basemap'));
+    app.lakeMap.setBoatIcon(s.get('boatIcon'));
     app.lakeMap.setSoundings(null, s.get('showSoundings'));
     setTimeout(refreshSoundingsDiag, 300);
     // Reporter les relevés sur la grille coûte un balayage de 1,2 million de cellules et un
@@ -1383,6 +1394,7 @@ function refreshSettingsUi() {
   $('set-alarm').checked = s.get('alarmEnabled');
   $('set-alarm-depth').value = s.get('alarmDepth_m');
   $('set-speed-unit').value = s.get('speedUnit');
+  $('set-boat-icon').value = s.get('boatIcon');
   $('set-manual-level').value = s.get('manualLevel') ?? '';
   $('set-transducer').value = s.get('transducer_m');
   $('set-probes').checked = s.get('showProbes');
@@ -3701,7 +3713,9 @@ function startGo(routeId, ski = null) {
   $('go-progress-box').hidden = !route;
   $('go-speed-unit').textContent = app.settings.get('speedUnit') === 'kn' ? 'nds' : 'km/h';
   buildGoTicks();
-  if (ski) beginSkiSession(ski); else $('ski-hud').hidden = true;
+  // beginSkiSession appelle déjà applyBigDepthMode (le grand chiffre n'a pas sa place en ski) ;
+  // en navigation, c'est ici qu'on fait apparaître la pastille de fond.
+  if (ski) beginSkiSession(ski); else { $('ski-hud').hidden = true; applyBigDepthMode(); }
   // Le groupe du bas est complet — HUD, progression, et la jauge si l'on skie : on le
   // mesure maintenant, pour que les commandes de carte se posent au-dessus et non dessous.
   stackGoBars();
@@ -3796,7 +3810,16 @@ function updateGoHud(position) {
   const v = unit === 'kn' ? speedKmh * KN_PER_KMH : speedKmh;
   $('go-speed').textContent = Number.isFinite(v) ? v.toFixed(1) : '—';
 
-  if (app.go.kind === 'ski') updateSkiHud(boat, speedKmh);
+  if (app.go.kind === 'ski') {
+    updateSkiHud(boat, speedKmh);
+  } else {
+    // Pastille de fond en navigation : le témoin discret du ski, ici cliquable. Formatée
+    // comme la sienne — virgule décimale, sans décimale au-delà de dix mètres. Mise à jour
+    // avant tout retour anticipé pour qu'une sortie LIBRE (sans couloir) l'affiche aussi.
+    const depth = depthAt(boat[0], boat[1]);
+    $('go-depth-num').textContent = Number.isFinite(depth)
+      ? depth.toFixed(depth >= 10 ? 0 : 1).replace('.', ',') : '—';
+  }
 
   // Sortie libre : aucun couloir à suivre, donc aucune solution de navigation à calculer.
   if (!app.go.points) { updateGoSteer(); return; }

@@ -1286,6 +1286,19 @@ body.mode-go .navstrip { border-bottom-color: color-mix(in srgb, var(--m-nav) 45
 .go__xte.is-left { color: #ffd27a; }
 .go__xte.is-right { color: #ffd27a; }
 
+/* Fond en navigation : la pastille du HUD de ski, reprise ici en haut à droite mais
+   CLIQUABLE — un appui déploie le grand chiffre sous le bateau, comme le dock du mode
+   carte (voir applyBigDepthMode). Elle emprunte l'aspect de `.ski__chip--depth` ; seule sa
+   place, son curseur et sa teinte (le bleu de la navigation, non le vert du ski) changent. */
+.go__depth {
+  position: absolute; top: calc(var(--strip) + .45rem); right: .6rem;
+  cursor: pointer;
+}
+.go__depth[hidden] { display: none; }
+.go__depth.ski__chip--depth .ski__chip-num { color: #a9d4ff; }
+.go__depth:active { background: color-mix(in srgb, var(--m-nav) 26%, var(--glass-2)); }
+.go__depth:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
 /* Commandes de carte en navigation : zoom et recentrage, empilés au-dessus du HUD, du
    côté de la main qui tient le téléphone. Elles reprennent l'aspect du rail, qui est
    masqué en Go : même geste, même bouton, à un autre endroit.

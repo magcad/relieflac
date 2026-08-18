@@ -98,6 +98,35 @@ const CHEVRON_SPACING_M = 40;
 /** Corail du couloir de ski nautique — la couleur du mode, reprise sur la carte. */
 const SKI_ROUTE_COLOR = '#ff6a4c';
 
+/**
+ * Repères du bateau, dessinés étrave vers le haut dans une boîte 24×24 : la rotation du
+ * marqueur (setRotation, alignée sur la carte) les oriente ensuite au cap.
+ *
+ *  • `arrow` : la flèche d'origine, lisible à toute échelle.
+ *  • `ski` : une coque de bateau de ski nautique vue de dessus — étrave pointue, tableau
+ *    arrière plat, pare-brise et cockpit esquissés. Rouge vif comme la flèche : c'est
+ *    « moi », et cela doit ressortir sur les fonds colorés.
+ */
+const BOAT_ICONS = {
+  arrow: '<path d="M12 2 L19 21 L12 17 L5 21 Z" fill="#ff2d55" stroke="#fff"'
+    + ' stroke-width="1.3" stroke-linejoin="round"/>',
+  ski: '<path d="M12 2.4 C14.9 5 16.6 9 16.6 13 C16.6 16.4 15.7 18.9 14.6 20.4'
+    + ' L9.4 20.4 C8.3 18.9 7.4 16.4 7.4 13 C7.4 9 9.1 5 12 2.4 Z"'
+    + ' fill="#ff2d55" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/>'
+    // Pare-brise incurvé, un tiers en descendant de l'étrave.
+    + '<path d="M9 10.2 Q12 8.4 15 10.2" fill="none" stroke="#fff" stroke-width="1.1"'
+    + ' stroke-linecap="round"/>'
+    // Cockpit / poste de pilotage, une tache sombre au centre.
+    + '<rect x="9.7" y="11.4" width="4.6" height="5.6" rx="1.2" fill="#7a0c22"'
+    + ' stroke="#fff" stroke-width="0.7"/>',
+};
+
+/** Le SVG complet d'un repère de bateau ; retombe sur la flèche si le nom est inconnu. */
+function boatMarkup(kind) {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true">'
+    + `${BOAT_ICONS[kind] ?? BOAT_ICONS.arrow}</svg>`;
+}
+
 /** La route porte `done` : c'est ce booléen qui choisit la couleur, tronçon par tronçon. */
 const routeColor = ['case', ['get', 'done'], DONE_COLOR, ROUTE_COLOR];
 
@@ -499,10 +528,19 @@ export class LakeMap extends EventTarget {
 
     const element = document.createElement('div');
     element.className = 'boat';
-    element.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">'
-      + '<path d="M12 2 L19 21 L12 17 L5 21 Z" fill="#ff2d55" stroke="#fff" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+    element.innerHTML = boatMarkup(this.boatIcon);
     this.boatElement = element;
     this.boat = new Marker({ element, rotationAlignment: 'map', pitchAlignment: 'map' });
+  }
+
+  /**
+   * Repère du bateau : la flèche d'origine, ou une coque de ski nautique vue de dessus.
+   * Purement cosmétique — l'étrave pointe toujours vers le haut du dessin, que la rotation
+   * du marqueur oriente ensuite selon le cap. Voir le réglage `boatIcon`.
+   */
+  setBoatIcon(kind) {
+    this.boatIcon = kind;
+    if (this.boatElement) this.boatElement.innerHTML = boatMarkup(kind);
   }
 
   addDepthLayer(layer) {

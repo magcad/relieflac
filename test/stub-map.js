@@ -29,6 +29,7 @@ export class LakeMap extends EventTarget {
 
   addDepthLayer() {}
   setBasemap(key) { this.basemap = key; }
+  setBoatIcon(kind) { this.boatIcon = kind; }
   setSoundings() {}
   soundingsDebug() { return { vis: '—', data: 0, tiled: 0, rendered: 0, err: 'aucune' }; }
   setMarkers(records) { this.markers = records; }
