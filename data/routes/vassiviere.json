@@ -1,7 +1,7 @@
 {
   "schema": "relieflac.routes/1",
   "waterbody": "vassiviere",
-  "updated_at": "2026-08-18T16:30:36.516Z",
+  "updated_at": "2026-08-18T16:36:29.977Z",
   "routes": [
     {
       "id": "f0cdb997-161c-4bf5-8597-1ee757fee201",
@@ -406,7 +406,7 @@
     {
       "id": "69857439-ff66-4f5e-89c1-f62bdac9ab7b",
       "name": "Auchez Ski Nautique",
-      "at": "2026-08-18T16:30:29.484Z",
+      "at": "2026-08-18T16:36:28.466Z",
       "kind": "ski",
       "points": [
         [
