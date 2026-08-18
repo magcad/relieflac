@@ -100,6 +100,22 @@ float decode(vec4 t) {
   return raw < u_waterPlane ? raw + u_offset : raw;
 }
 
+// Un texel voisin, décodé, pondéré et cumulé dans (sum, total).
+//
+// Extrait de bedAltitude pour éviter le constructeur de tableau float[4](...) :
+// plusieurs pilotes Android (Adreno de Qualcomm, certains Mali) refusent de le compiler
+// — « S0032: no default precision defined for variable 'float[4]' » — alors même que la
+// précision par défaut est bien déclarée. Le constructeur fabrique un type de tableau
+// anonyme que le pilote ne sait pas qualifier ; en déroulant les quatre coins à la main,
+// il n'y a plus de tableau, donc plus de type à qualifier. Le résultat est identique, et
+// iPhone comme desktop compilaient déjà les deux formes.
+void accumulate(vec2 base, vec2 corner, float weight, inout float sum, inout float total) {
+  vec4 t = texture(u_bed, (base + corner + 0.5) / u_texSize);
+  float w = weight * step(0.5, t.a);
+  sum += decode(t) * w;
+  total += w;
+}
+
 // Altitude interpolée bilinéairement, à partir des altitudes *décodées*.
 //
 // L'échantillonnage matériel est en NEAREST et doit le rester : interpoler les octets
@@ -115,20 +131,13 @@ float bedAltitude(vec2 uv, out float coverage) {
   vec2 base = floor(pos);
   vec2 f = pos - base;
 
-  float weights[4] = float[4](
-    (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y),
-    (1.0 - f.x) * f.y,         f.x * f.y
-  );
-  vec2 corners[4] = vec2[4](vec2(0.0), vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(1.0));
-
   float sum = 0.0;
   float total = 0.0;
-  for (int i = 0; i < 4; i++) {
-    vec4 t = texture(u_bed, (base + corners[i] + 0.5) / u_texSize);
-    float w = weights[i] * step(0.5, t.a);
-    sum += decode(t) * w;
-    total += w;
-  }
+  accumulate(base, vec2(0.0),      (1.0 - f.x) * (1.0 - f.y), sum, total);
+  accumulate(base, vec2(1.0, 0.0), f.x * (1.0 - f.y),         sum, total);
+  accumulate(base, vec2(0.0, 1.0), (1.0 - f.x) * f.y,         sum, total);
+  accumulate(base, vec2(1.0),      f.x * f.y,                 sum, total);
+
   coverage = total;
   return total > 0.001 ? sum / total : 0.0;
 }
