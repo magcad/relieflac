@@ -1,7 +1,7 @@
 {
   "schema": "relieflac.trips-index/1",
   "waterbody": "vassiviere",
-  "updated_at": "2026-08-18T07:48:02.753Z",
+  "updated_at": "2026-08-18T16:00:22.537Z",
   "trips": [
     {
       "id": "121a44cd-c840-42ca-8602-b9990d106169",
@@ -52,6 +52,38 @@
         "in_zone_pct": 6
       },
       "file": "b4ef821b-f952-4f31-ad94-8bd90672448d.json"
+    },
+    {
+      "id": "a42b471b-a4a8-4fb7-9971-7e784a902ea4",
+      "name": "Boucle 1",
+      "at": "2026-08-18T15:55:17.381Z",
+      "ended_at": "2026-08-18T16:00:20.734Z",
+      "length_m": 438,
+      "points": 21,
+      "route_id": "801baa60-8be0-4293-b000-858a87bd076d",
+      "by": null,
+      "ski": {
+        "activity": "wakeboard",
+        "activityName": "Wakeboard",
+        "who": "adulte",
+        "min_kmh": 30,
+        "max_kmh": 38,
+        "open_ended": false,
+        "target_s": 600,
+        "chrono_s": 0,
+        "chrono_runs": 0,
+        "falls": 0,
+        "avg_kmh": 5.2,
+        "top_kmh": 37.73,
+        "in_zone_pct": 4,
+        "laps": 2,
+        "best_lap_s": 22,
+        "lap_times_s": [
+          91,
+          22
+        ]
+      },
+      "file": "a42b471b-a4a8-4fb7-9971-7e784a902ea4.json"
     }
   ]
 }
