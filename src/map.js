@@ -139,6 +139,22 @@ const ROUTE_STYLES = {
  */
 const MAX_PIXEL_RATIO = 2;
 
+/**
+ * Cadrage : à partir de quel écart la vue n'est plus « sur le bateau » (px d'écran).
+ *
+ * Mesuré en PIXELS et non en mètres : c'est une question d'affichage, et le même écart de
+ * cent mètres vaut tout l'écran au zoom de barre et rien du tout au zoom du lac entier.
+ * Généreux (le rayon d'un doigt) — le bouton doit s'allumer parce qu'on a quitté le
+ * bateau, pas parce que le GPS a toussé.
+ */
+const OFF_CENTER_PX = 40;
+/**
+ * Écart de zoom au-delà duquel le cadrage de barre n'est plus celui de la sortie. En
+ * navigation, le suivi ne se coupe jamais : ce qu'on relâche en pinçant, c'est l'échelle,
+ * et c'est donc elle qui dit si la vue de travail a été quittée.
+ */
+const FRAMING_ZOOM_TOL = 0.3;
+
 export class LakeMap extends EventTarget {
   constructor(container, bed) {
     super();
@@ -150,6 +166,10 @@ export class LakeMap extends EventTarget {
     // `held` : des doigts sont posés sur la carte, ils commandent — on suspend le suivi le
     // temps du geste plutôt que de tirer l'image dans l'autre sens.
     this.camera = { held: new Set(), raf: 0 };
+    // Cadrage annoncé au reste de l'application : `null` tant que rien n'a été dit, pour
+    // que le premier calcul parle quel qu'en soit le résultat.
+    this.framingOn = null;
+    this.framingZoom = null;
 
     const { west, south, east, north } = bed.meta.bounds_wgs84;
     this.map = new MaplibreMap({
@@ -199,6 +219,10 @@ export class LakeMap extends EventTarget {
     });
 
     this.map.on('dragstart', () => this.dispatchEvent(new CustomEvent('userpan')));
+    // Fin de geste : c'est là que se juge le cadrage. Pendant le geste, la carte est au
+    // doigt et un bouton qui clignoterait au rythme du glissement ne servirait personne.
+    this.map.on('dragend', () => this.#reportFraming());
+    this.map.on('zoomend', () => this.#reportFraming());
 
     // Tant qu'un doigt touche la carte, la boucle de suivi se tait : chaque ordre de
     // caméra passe par `jumpTo`, qui interrompt les gestes en cours (`stop()` coupe aussi
@@ -690,7 +714,53 @@ export class LakeMap extends EventTarget {
     if (this.follow.follow === Boolean(on)) return;
     this.follow.setFollow(on);
     this.follow.resetClock();
+    this.#reportFraming();
     this.#kick();
+  }
+
+  /**
+   * La vue est-elle calée sur le bateau ?
+   *
+   * Un bouton de recentrage ne vaut que s'il dit la vérité : allumé, il appelle la main ;
+   * éteint, il annonce qu'il n'y a rien à recentrer. La question se pose donc à la CARTE,
+   * et non au réglage — lequel ne sait rien d'un doigt qui vient de traîner la vue.
+   *
+   * Trois façons de ne plus être sur le bateau, et la troisième n'existe qu'en sortie :
+   * le suivi coupé (un glissement de carte le coupe), la vue traînée loin du bateau, et
+   * l'échelle quittée — en navigation le suivi est verrouillé, mais le pincement reste
+   * rendu à la main pour regarder la suite du trajet, et c'est de ce dézoom qu'il faut
+   * revenir.
+   */
+  isOnBoat() {
+    if (!this.follow.follow) return false;
+    // Un retour d'échelle en cours vaut déjà « sur le bateau » : la vue y va. Sans cela, le
+    // bouton s'allumait au moment même où l'on venait d'appuyer dessus.
+    if (this.follow.zoomTarget !== null) return true;
+    if (Number.isFinite(this.framingZoom)
+      && Math.abs(this.map.getZoom() - this.framingZoom) > FRAMING_ZOOM_TOL) return false;
+    const shown = this.follow.shown ?? this.boatLngLat;
+    if (!shown) return true; // sans position, il n'y a rien à recentrer
+    const point = this.map.project(shown);
+    const box = this.map.getContainer();
+    return Math.hypot(point.x - box.clientWidth / 2, point.y - box.clientHeight / 2)
+      <= OFF_CENTER_PX;
+  }
+
+  /**
+   * Échelle de référence du cadrage, `null` hors sortie. Posée par la navigation, qui est
+   * la seule à avoir une échelle de travail à défendre.
+   */
+  setFramingZoom(zoom) {
+    this.framingZoom = Number.isFinite(zoom) ? zoom : null;
+    this.#reportFraming();
+  }
+
+  /** N'annonce le cadrage que lorsqu'il CHANGE : appelée à chaque image, sinon. */
+  #reportFraming() {
+    const on = this.isOnBoat();
+    if (on === this.framingOn) return;
+    this.framingOn = on;
+    this.dispatchEvent(new CustomEvent('framing', { detail: on }));
   }
 
   /**
@@ -807,6 +877,8 @@ export class LakeMap extends EventTarget {
       && Math.abs(angleDelta(this.map.getBearing(), 0)) <= BEARING_SETTLED_DEG) {
       this.follow.toNorth = false; // arrivé au nord : la carte est rendue à l'utilisateur
     }
+
+    this.#reportFraming();
 
     if (out.done) this.follow.resetClock();
     else this.#kick();
@@ -1097,6 +1169,19 @@ export class LakeMap extends EventTarget {
     this.follow.setTrackUp(true);
     if (Number.isFinite(zoom)) this.follow.setZoom(zoom);
     this.follow.resetClock();
+    this.#kick();
+  }
+
+  /**
+   * Retour sur le bateau hors navigation : le suivi reprend, et la carte l'y ramène.
+   * L'orientation n'est pas touchée — nord en haut ou cap en haut est une préférence de
+   * lecture, pas un cadrage, et la reprendre au passage serait un réglage changé dans le
+   * dos de l'utilisateur.
+   */
+  recenter() {
+    this.follow.setFollow(true);
+    this.follow.resetClock();
+    this.#reportFraming();
     this.#kick();
   }
 

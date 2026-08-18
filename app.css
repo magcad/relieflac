@@ -70,6 +70,18 @@
 
 * { box-sizing: border-box; }
 
+/* `hidden` l'emporte sur toute règle de disposition. SIXIÈME fois que le même piège se
+   referme : une règle de classe déclare `display: flex` ou `grid`, l'attribut `hidden` du
+   HTML ne pèse rien contre elle, et l'élément que le code croit masqué reste à l'écran.
+   Après `.rail__btn`, `.capture`, `.routelist`, `.segbar`, `.ski__chip`, c'était au tour de
+   `.depth-under` — le chiffre de cinq centimètres du fond, qui ne s'effaçait pas quand on
+   l'éteignait, et que le banc ne pouvait pas voir : il est fabriqué par `map.js`, donc
+   absent du balisage comme de la carte factice. On corrige la CLASSE de pannes plutôt que
+   ses membres un à un ; les règles `[hidden]` posées au cas par cas restent en place, elles
+   racontent chacune leur histoire. `!important` est ici à sa place : aucune disposition ne
+   doit jamais l'emporter sur « ceci ne se voit pas ». */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   height: 100%;
@@ -231,6 +243,17 @@ a { color: var(--accent); }
   box-shadow: var(--shadow);
 }
 .rail__btn.is-on { border-color: var(--accent); color: var(--accent); }
+
+/* Recentrage sur le bateau, façon guidage routier (L21) : le bouton n'annonce pas un état,
+   il appelle la main — et seulement quand il y a quelque chose à faire. Calé sur le bateau,
+   il s'efface presque ; la vue partie ailleurs, il s'allume. Il garde sa place dans les deux
+   cas : ces boutons sont en colonne, et l'un qui disparaît décale tous les autres, alors
+   qu'on les vise sans les regarder. */
+.rail__btn.is-alert, .go__ctrl-btn.is-alert {
+  border-color: var(--accent); color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--glass-2));
+}
+.rail__btn.is-idle, .go__ctrl-btn.is-idle { opacity: .34; }
 /* `display: grid` ci-dessus l'emporterait sur l'attribut `hidden` : sans cette règle, un
    bouton du rail masqué en HTML resterait affiché. */
 .rail__btn[hidden] { display: none; }
@@ -497,6 +520,9 @@ a { color: var(--accent); }
 }
 .routelist .route__stat { display: block; font-size: .68rem; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
 .routelist .route__stat--ski { color: color-mix(in srgb, var(--m-ski) 75%, var(--text)); }
+/* La série des tours d'une session : elle se lit après coup, elle n'a donc pas à peser
+   autant que la synthèse — un cran plus effacée que le reste de la ligne. */
+.routelist .route__stat--laps { opacity: .75; }
 .hist__ski { color: color-mix(in srgb, var(--m-ski) 75%, var(--text)); }
 .hist__ski:empty { display: none; }
 .routelist .route__edit {
@@ -581,6 +607,10 @@ body.is-sun .thumb__lake { fill: #ffffff4d; }
 body.is-sun .thumb__route { stroke-width: 2.4; }
 body.is-sun .route__thumb { border-width: 2px; }
 
+body.is-sun .rail__btn.is-alert,
+body.is-sun .go__ctrl-btn.is-alert { border-width: 3px; }
+/* Au soleil, un bouton à peine visible ne l'est plus du tout : éteint, il reste lisible. */
+body.is-sun .rail__btn.is-idle, body.is-sun .go__ctrl-btn.is-idle { opacity: .6; }
 body.is-sun .rail__btn.is-on,
 body.is-sun .tile.is-on { border-width: 3px; }
 body.is-sun .tile.is-on { background: #000; }
@@ -1521,6 +1551,23 @@ body.mode-ski .go__speed-num.is-fast { color: #ff8a75; }
    le code masque disparaît vraiment de l'écran » dans test/interaction.js. */
 .ski__chip[hidden] { display: none; }
 .ski__chip--falls { cursor: pointer; border-color: color-mix(in srgb, var(--m-ski) 45%, transparent); }
+
+/* Durées des tours : une colonne discrète sous les pastilles. Chiffres tabulaires pour que
+   les minutes s'alignent — une colonne qui danse ne se compare pas d'un coup d'œil — et le
+   meilleur tour seul en couleur, le reste s'effaçant derrière lui. */
+.skilaps {
+  display: grid; gap: .1rem; margin: .35rem 0 0; padding: 0; list-style: none;
+  justify-items: end;
+}
+.skilaps[hidden] { display: none; }
+.skilap {
+  display: flex; align-items: baseline; gap: .35rem;
+  font-size: .74rem; font-variant-numeric: tabular-nums; color: var(--muted);
+  text-shadow: 0 1px 3px #000c;
+}
+.skilap__n { min-width: .9rem; text-align: right; opacity: .6; }
+.skilap__t { font-weight: 600; }
+.skilap.is-best .skilap__t { color: #a7f3c0; }
 .ski__chip--falls:active { background: color-mix(in srgb, var(--m-ski) 28%, var(--glass-2)); }
 .ski__chip-num { font-size: 1.15rem; font-weight: 750; line-height: 1.05; font-variant-numeric: tabular-nums; }
 .ski__chip-lab { font-size: .55rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }

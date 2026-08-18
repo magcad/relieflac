@@ -2,9 +2,9 @@
 
 **Dernière mise à jour** : 18 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 225 contrôles, **tous au
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 228 contrôles, **tous au
 vert**
-**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 137 gestes,
+**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 147 gestes,
 **tous au vert**
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
@@ -47,6 +47,39 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L18** | Retour de la première sortie en ski : **le catalogue s'efface pendant le tracé**, la caméra de barre ne se déverrouille plus, les commandes du HUD s'empilent au-dessus des bandeaux, et les **plages de vitesse se règlent** | ✅ terminé le 18/08/2026 (v2026-08-18.2) — voir § 1 |
 | **L19** | Le constructeur de trajet **rend la carte** : le panneau de tracé passe de 34 % à 17 % de l'écran d'un téléphone, et le banc traque désormais tout `hidden` qu'une règle `display` annulerait | ✅ terminé le 18/08/2026 (v2026-08-18.3) — voir § 1 |
 | **L20** | **Un point se retouche** (menu : déplacer, supprimer, fermer la boucle) et un parcours bouclé **se compte en tours**, du HUD jusqu'aux cumuls de l'Historique | ✅ terminé le 18/08/2026 (v2026-08-18.4) — voir § 1 |
+| **L21** | Le **recentrage à la Waze** (éteint quand la vue tient le bateau), la vue **rendue au bateau à chaque démarrage**, le grand chiffre du fond **retiré en ski**, et les **durées des tours** tenues à l'écran | ✅ terminé le 18/08/2026 (v2026-08-18.5) — voir § 1 |
+
+**Lot L21 — la vue sur le bateau, et les tours qui restent** (18/08/2026, v2026-08-18.5).
+Trois corrections d'usage, remontées de l'eau.
+
+- **Le bouton de recentrage dit enfin quelque chose.** Il basculait un réglage qu'il
+  n'annonçait pas : allumé, il voulait dire « la carte suit », et l'on s'en servait pour
+  recentrer — ce qui coupait le suivi. Il ne fait plus qu'une chose, et à la manière d'un
+  guidage routier : **éteint quand la vue est sur le bateau**, il n'y a rien à faire ;
+  **allumé dès qu'elle l'a quittée**, un appui l'y ramène. Le suivi se coupe, comme avant,
+  en faisant glisser la carte. Même règle sur le rail et dans la sortie — en navigation, où
+  le suivi est verrouillé, c'est le **dézoom** qui dit qu'on a quitté la vue de barre.
+- **La vue part toujours sur le bateau.** Le refus de suivi laissé par un glissement de
+  carte était retenu d'une session à l'autre : l'application rouvrait sur le coin de lac
+  regardé la veille, bateau hors de l'écran, sans que rien ne dise pourquoi. C'est une
+  intention du moment, plus une préférence.
+- **Le grand chiffre du fond s'efface en ski.** Il occupe le quart de l'écran juste sous le
+  bateau, là où l'on regarde le couloir et le skieur ; et l'on skie sur trente mètres d'eau
+  comme sur cinq. La pastille du HUD garde la profondeur. Le réglage n'est pas touché : il
+  revient tout seul en quittant la session.
+- **Les durées des tours restent à l'écran.** Un tour qui passe dans un message de trois
+  secondes ne se compare à rien. Les cinq derniers tiennent en colonne discrète sous les
+  pastilles, le meilleur en couleur ; la série entière part avec la session à l'Historique
+  et au partage (`lap_times_s`), où elle se relit le soir.
+
+**Sixième `[hidden]` piégé — et le premier que ni le balisage ni le banc ne pouvaient
+voir.** `.depth-under` est fabriqué par `map.js` : absent du balisage, absent de la carte
+factice. Sa règle déclare `display: flex`, donc l'attribut `hidden` ne pesait rien — le
+chiffre du fond ne s'effaçait pas, même quand on l'éteignait. Après cinq corrections au cas
+par cas, c'est la CLASSE de pannes qu'on ferme : `[hidden] { display: none !important; }`
+en tête de feuille. Les règles posées une à une restent, elles racontent chacune leur
+histoire, et le contrôle du banc s'élargit à tout élément qui porte `hidden` dans le
+balisage — plus seulement à ceux que `main.js` nomme.
 
 **Lot L20 — un point se retouche, un parcours se compte en tours** (18/08/2026,
 v2026-08-18.4). Deux demandes qui n'en font qu'une : le circuit.

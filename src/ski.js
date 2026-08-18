@@ -380,7 +380,7 @@ export function skiTotals(sessions) {
 /** Résumé d'une session, tel qu'il part à l'Historique puis au partage. */
 export function skiSummary({
   activity, who, env, targetS, chronoS, chronoRuns, falls, avgKmh, topKmh, inZonePct,
-  laps, bestLapS,
+  laps, bestLapS, lapTimesS,
 }) {
   return {
     activity,
@@ -400,6 +400,11 @@ export function skiSummary({
     // Meilleur tour : absent tant qu'aucun tour n'a été bouclé. Zéro dirait « en un
     // instant », ce qui se lirait comme un record imbattable.
     best_lap_s: bestLapS > 0 ? Math.round(bestLapS) : null,
+    // La série des tours, dans l'ordre où ils ont été bouclés : c'est elle qu'on relit
+    // le soir, le record ne disant pas si l'allure a tenu. Liste vide plutôt qu'absente
+    // — elle se parcourt sans avoir à se demander si elle existe.
+    lap_times_s: Array.isArray(lapTimesS)
+      ? lapTimesS.map((v) => Math.round(v)).filter((v) => v > 0) : [],
   };
 }
 

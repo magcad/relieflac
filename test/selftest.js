@@ -815,6 +815,20 @@ export async function run(base = '..') {
     twoLaps.laps === 2 && twoLaps.lastLapMs === 60e3 && twoLaps.bestLapMs === 60e3,
     `dernier ${twoLaps.lastLapMs / 1000} s, meilleur ${twoLaps.bestLapMs / 1000} s`);
 
+  // Le record ne dit pas si l'allure a tenu : c'est la SÉRIE qu'on relit (L21). Elle garde
+  // l'ordre des tours, et le réducteur reste pur — l'état rendu au tour précédent ne doit
+  // pas changer sous les pieds de qui l'aurait gardé.
+  check('tours : chaque tour garde sa durée, dans l’ordre où il a été bouclé',
+    twoLaps.times.length === 2 && twoLaps.times[0] === 100e3 && twoLaps.times[1] === 60e3
+    && oneLap.times.length === 1,
+    twoLaps.times.map((ms) => ms / 1000).join(' s, ') + ' s');
+  const beforeSecond = lapRun([[0, 4, 0], [0.9, 200, 60e3], [1, 8, 100e3]]);
+  const heldTimes = beforeSecond.times;
+  lapTracker(beforeSecond, { progressRatio: 1, distToStartM: 6, atMs: 200e3 });
+  check('tours : compter un tour de plus ne touche pas à la série déjà rendue',
+    heldTimes.length === 1 && beforeSecond.times === heldTimes,
+    `${heldTimes.length} tour(s) en dépôt`);
+
   // --- vignettes de trajets ---------------------------------------------------
   // Module pur : c'est tout l'intérêt de sortir la géométrie du DOM. Ce qui est vérifié ici
   // n'est pas l'apparence mais l'invariant qui fait la vignette utile — le cadrage sur le
@@ -1055,7 +1069,7 @@ export async function run(base = '..') {
   const summary = skiSummary({
     activity: 'monoski', who: 'adulte', env: mono, targetS: 900, chronoS: 873.4,
     chronoRuns: 2, falls: 3, avgKmh: 27.456, topKmh: 41.2, inZonePct: 78.6,
-    laps: 5, bestLapS: 142.6,
+    laps: 5, bestLapS: 142.6, lapTimesS: [151.4, 142.6, 0, 149.8],
   });
   check('synthèse de session : arrondie, nommée, prête pour le partage',
     summary.activityName === 'Monoski' && summary.min_kmh === 32 && summary.max_kmh === 38
@@ -1067,6 +1081,13 @@ export async function run(base = '..') {
     summary.laps === 5 && summary.best_lap_s === 143
     && skiSummary({ activity: 'bouee', who: 'enfant', env: mono }).best_lap_s === null,
     `${summary.laps} tours, meilleur ${summary.best_lap_s} s`);
+  // La série suit la session jusqu'au partage : c'est elle qu'on relit le soir. Liste vide
+  // — et non absente — quand rien n'a été bouclé, pour qu'elle se parcoure sans précaution.
+  check('synthèse de session : la série des tours la suit, arrondie à la seconde',
+    JSON.stringify(summary.lap_times_s) === '[151,143,150]'
+    && JSON.stringify(skiSummary({ activity: 'bouee', who: 'enfant', env: mono }).lap_times_s)
+      === '[]',
+    JSON.stringify(summary.lap_times_s));
 
   // Le partage doit emporter la synthèse : sans elle, une session de ski vue d'un autre
   // bateau ne serait qu'une trace de plus, et tout le mode perdrait son intérêt commun.

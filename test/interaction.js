@@ -57,6 +57,8 @@ const stored = (key) => {
 const probes = () => stored('relieflac.probes.v1');
 const zones = () => stored('relieflac.zones.v1');
 const sims = () => stored('relieflac.sim.v1');
+// Les réglages sont lus dès le premier contrôle — le cadrage de la vue en est un.
+const settings = () => { try { return JSON.parse(localStorage.getItem('relieflac.settings.v1')) ?? {}; } catch { return {}; } };
 
 /** Attend qu'une condition devienne vraie, ou renonce — pour ne jamais figer la page. */
 async function until(condition, timeout = 5000) {
@@ -81,6 +83,11 @@ async function boot() {
 
   // Le banc part d'un appareil vierge — et rendra le vrai stockage intact à la fin.
   borrowStorage();
+  // À un détail près : un REFUS DE SUIVI laissé par la session précédente. C'est ce que
+  // laissait derrière lui un simple glissement de carte, et l'application rouvrait alors sur
+  // le coin de lac regardé la veille, bateau hors de l'écran, sans que rien ne dise pourquoi.
+  // Le banc démarre donc dans cet état-là, le seul où la correction se voit.
+  localStorage.setItem('relieflac.settings.v1', JSON.stringify({ followBoat: false }));
   check('le stockage de l\'appareil est mis de côté, jeton compris',
     localStorage.getItem('relieflac.token.v1') === null,
     `${KEPT.size} clé(s) en dépôt`);
@@ -129,6 +136,32 @@ async function run() {
 
   const lngLat = { lng: 1.87132, lat: 45.79328 };
   const fire = (type, detail) => map.dispatchEvent(new CustomEvent(type, { detail }));
+
+  // ------------------------------------------------ la vue reste sur le bateau
+  //
+  // Le bouton de recentrage bascule­rait un réglage qu'il n'annoncerait pas mieux : ce qui
+  // se vérifie ici, c'est qu'il ne dit qu'une chose — « la vue a quitté le bateau, appuyez »
+  // — et qu'il se tait le reste du temps. Trois états, trois gestes.
+  group('La vue reste sur le bateau, et le bouton le dit');
+  check('au démarrage la vue est sur le bateau, quoi qu’ait laissé la veille',
+    map.follow === true && settings().followBoat !== false
+    && $('btn-suivi').classList.contains('is-idle'),
+    `suivi ${map.follow}, réglage ${settings().followBoat}, bouton ${$('btn-suivi').className}`);
+
+  map.dragAway();
+  await sleep(30);
+  check('faire glisser la carte coupe le suivi, et le bouton s’allume',
+    settings().followBoat === false && map.follow === false
+    && $('btn-suivi').classList.contains('is-alert')
+    && !$('btn-suivi').classList.contains('is-idle'),
+    `suivi ${settings().followBoat}, bouton ${$('btn-suivi').className}`);
+
+  $('btn-suivi').click();
+  await sleep(30);
+  check('un appui rend la vue au bateau, et le bouton se rend',
+    map.follow === true && settings().followBoat !== false
+    && $('btn-suivi').classList.contains('is-idle'),
+    `suivi ${map.follow}, bouton ${$('btn-suivi').className}`);
 
   // ---------------------------------------------------- point posé sans GPS
   group('Point posé au clic droit, sans position GPS');
@@ -343,7 +376,6 @@ async function run() {
   // derrière elle, prise ensuite pour la cote du lac — et une cote fausse fausse toutes
   // les profondeurs. On vérifie donc les deux chemins de sortie, dont celui qui n'en est
   // pas un.
-  const settings = () => { try { return JSON.parse(localStorage.getItem('relieflac.settings.v1')) ?? {}; } catch { return {}; } };
   // Le texte plutôt que le nombre : la cote peut être indisponible sur le poste d'essai,
   // auquel cas le bandeau affiche « — » et l'on veut quand même savoir qu'il a changé.
   // Relevé AVANT la simulation : c'est la cote du lac, celle que tout doit retrouver.
@@ -654,18 +686,28 @@ async function run() {
     .then((r) => r.text());
   const hidable = [...new Set([...source.matchAll(/\$\('([a-z0-9-]+)'\)\.hidden\s*=/g)]
     .map((m) => m[1]))];
-  const stubborn = hidable.filter((id) => {
-    const el = $(id);
+  // Et tout ce que le BALISAGE masque au repos (L21). Le relevé par identifiants ne voit
+  // que la forme `$('x').hidden = …` : masquer un élément qu'on tient déjà dans une variable
+  // lui échappait, et c'est précisément ce qui arrive à une liste qu'on reconstruit. Or le
+  // piège ne tient ni à l'un ni à l'autre, mais à la règle `display` qui écrase l'attribut —
+  // donc tout élément qui porte `hidden` doit s'effacer, quelle que soit la main qui l'a posé.
+  const marked = [...document.querySelectorAll('[hidden]')];
+  const named = new Set(hidable);
+  const stubborn = [
+    ...hidable.map((id) => ({ id, el: $(id) })),
+    ...marked.filter((el) => !named.has(el.id)).map((el) => ({ id: el.id || el.className, el })),
+  ].filter(({ el }) => {
     if (!el) return true;
     const was = el.hidden;
     el.hidden = true;
     const display = getComputedStyle(el).display;
     el.hidden = was;
     return display !== 'none';
-  });
-  check('tout ce que le code masque disparaît vraiment de l’écran',
-    hidable.length > 30 && stubborn.length === 0,
-    stubborn.length ? `entêtés : ${stubborn.join(', ')}` : `${hidable.length} éléments vérifiés`);
+  }).map(({ id }) => id);
+  check('tout ce que le code ou le balisage masque disparaît vraiment de l’écran',
+    hidable.length > 30 && marked.length > 20 && stubborn.length === 0,
+    stubborn.length ? `entêtés : ${stubborn.join(', ')}`
+      : `${hidable.length} par le code, ${marked.length} par le balisage`);
 
   const shown = (id) => getComputedStyle($(id)).display !== 'none';
   check('« Nouveau couloir » ouvre le tracé et efface le catalogue de l’écran',
@@ -850,12 +892,19 @@ async function run() {
   check('le chrono se choisit d’un appui', $('btn-ski-start').textContent.includes('10 min'),
     $('btn-ski-start').textContent);
 
-  // Le suivi est coupé d'abord, comme le fait un glissement de carte (`userpan` le mémorise
-  // dans les réglages) : c'est dans cet état — et seulement dans celui-là — que le verrou de
-  // la sortie retombait tout seul une seconde après le départ.
-  $('btn-suivi').click();
+  // Le suivi est coupé d'abord, par un glissement de carte (`userpan` le mémorise dans les
+  // réglages) : c'est dans cet état — et seulement dans celui-là — que le verrou de la
+  // sortie retombait tout seul une seconde après le départ.
+  map.dragAway();
+  await sleep(30);
   check('suivi coupé avant de partir, comme après un glissement de carte',
     map.follow === false, `suivi ${map.follow}`);
+
+  // Le grand chiffre du fond est allumé avant de partir : c'est en ski qu'il doit
+  // disparaître, et l'on ne peut le constater que s'il était là.
+  $('depth-box').click();
+  check('le grand chiffre du fond est allumé avant la session',
+    map.bigDepth !== null, JSON.stringify(map.bigDepth));
 
   $('btn-ski-start').click();
   check('la session part en plein écran, avec son HUD et son couloir élargi',
@@ -905,6 +954,30 @@ async function run() {
   check('le couloir compte ses tours, et le témoin les porte',
     !$('ski-laps').hidden && $('ski-laps-num').textContent === '0',
     `pastille ${$('ski-laps').hidden ? 'absente' : 'présente'}`);
+  // La série des durées ne paraît qu'une fois un tour bouclé : une colonne vide sur la carte
+  // ne dirait rien et prendrait de l'eau.
+  check('et la série des durées attend d’avoir un tour à montrer',
+    $('ski-lap-list').hidden && $('ski-lap-list').children.length === 0);
+
+  // Le grand chiffre du fond tombe pile sous le bateau : en ski, on y regarde le couloir et
+  // le skieur, pas trente mètres d'eau. La pastille du HUD garde la profondeur.
+  check('le grand chiffre du fond s’efface pendant le ski, sans toucher au réglage',
+    map.bigDepth === null && settings().bigDepth === true,
+    `réglage ${settings().bigDepth}, calque ${map.bigDepth === null ? 'retiré' : 'présent'}`);
+
+  // Le bouton de recentrage de la sortie répond au même principe que celui du rail : muet
+  // tant que la vue tient le bateau, allumé dès qu'on l'a quittée pour regarder plus loin.
+  check('le bouton de recentrage de la sortie se tait tant que la vue tient le bateau',
+    $('btn-go-recentre').classList.contains('is-idle'), $('btn-go-recentre').className);
+  map.dragAway();
+  await sleep(30);
+  check('la vue quittée, il s’allume',
+    $('btn-go-recentre').classList.contains('is-alert'), $('btn-go-recentre').className);
+  $('btn-go-recentre').click();
+  await sleep(30);
+  check('et l’appui rend le cadrage de barre',
+    map.recentered !== undefined && $('btn-go-recentre').classList.contains('is-idle'),
+    `zoom rendu ${map.recentered}, bouton ${$('btn-go-recentre').className}`);
 
   // Vitesse tenue : le compteur se colore de l'écart à la plage, la jauge suit.
   gps(1.8700, 45.7930, 35);
@@ -951,11 +1024,17 @@ async function run() {
   check('la session est versée à l’Historique avec sa synthèse',
     Boolean(session?.ski) && session.ski.activityName === 'Monoski' && session.ski.who === 'adulte'
     && session.ski.falls === 2 && session.ski.min_kmh === 32 && session.ski.target_s === 600
-    && session.ski.laps === 0 && session.ski.best_lap_s === null,
+    && session.ski.laps === 0 && session.ski.best_lap_s === null
+    && JSON.stringify(session.ski.lap_times_s) === '[]',
     JSON.stringify(session?.ski ?? null).slice(0, 120));
   check('quitter la session rend la carte à la navigation',
     !document.body.classList.contains('mode-ski') && $('ski-hud').hidden
     && map.routeStyle === 'nav' && map.goMode === false);
+  // Ce que la sortie avait suspendu, elle le rend : le réglage n'ayant jamais été touché, le
+  // grand chiffre revient tout seul.
+  check('et le grand chiffre du fond revient de lui-même',
+    map.bigDepth !== null, JSON.stringify(map.bigDepth));
+  $('depth-box').click(); // on rend le réglage comme on l'a trouvé
 
   // Et l'Historique la montre, chiffres de ski compris.
   $('btn-menu').click();
@@ -978,7 +1057,7 @@ async function run() {
     document.querySelector('#hist-list .route__stat--ski')?.textContent.includes('Monoski'),
     document.querySelector('#hist-list .route__stat--ski')?.textContent ?? 'aucune ligne');
   $('btn-hist-exit').click();
-  $('btn-suivi').click(); // on rend le suivi comme on l'a trouvé
+  $('btn-suivi').click(); // on rend la vue au bateau, comme on l'a trouvée
 
   // ------------------------------------------------- les plages de vitesse se règlent
   //

@@ -42,7 +42,38 @@ export class LakeMap extends EventTarget {
   setZoneMode(active, tracing) { this.zoneMode = Boolean(active); this.tracing = Boolean(tracing); }
   setPosition(position) { this.position = position; }
   setHeading() {}
-  setFollow(on) { this.follow = on; }
+
+  // Cadrage (L21) : le bouton de recentrage ne vaut que s'il dit la vérité, donc le leurre
+  // tient le même état que la vraie carte — suivi coupé, vue traînée, échelle quittée — et
+  // prévient de la même façon, en n'annonçant que les changements.
+  setFollow(on) {
+    this.follow = on;
+    if (on) this.dragged = false;
+    this.reportFraming();
+  }
+
+  setFramingZoom(zoom) {
+    this.framingZoom = Number.isFinite(zoom) ? zoom : null;
+    this.reportFraming();
+  }
+
+  isOnBoat() { return this.follow !== false && !this.dragged; }
+
+  /** Le glissement de doigt du banc : la vue quitte le bateau, comme sur l'eau. */
+  dragAway() {
+    this.dragged = true;
+    this.reportFraming();
+    this.dispatchEvent(new CustomEvent('userpan'));
+  }
+
+  reportFraming() {
+    const on = this.isOnBoat();
+    if (on === this.framingOn) return;
+    this.framingOn = on;
+    this.dispatchEvent(new CustomEvent('framing', { detail: on }));
+  }
+
+  recenter() { this.follow = true; this.dragged = false; this.reportFraming(); }
   setTrackUp(on) { this.trackUp = on; }
   setZoom(zoom) { this.zoom = zoom; }
   setVisibleWidth() {}
@@ -71,7 +102,13 @@ export class LakeMap extends EventTarget {
   setGate(lngLat) { this.gate = lngLat ? [lngLat[0], lngLat[1]] : null; }
   enterNavCam(pitch) { this.navCam = pitch ?? 55; }
   exitNavCam() { this.navCam = null; }
-  recenterNav(zoom) { this.recentered = zoom; }
+  recenterNav(zoom) {
+    this.recentered = zoom;
+    this.follow = true;
+    this.trackUp = true;
+    this.dragged = false;
+    this.reportFraming();
+  }
   showTrip(points) { this.trip = points.map((p) => [p[0], p[1]]); }
   clearTrip() { this.trip = null; }
 }

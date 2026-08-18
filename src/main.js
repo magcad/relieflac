@@ -411,7 +411,7 @@ function onPosition(event) {
     $('quille-value').textContent = '—';
     app.lastBigDepth = { value: '—', label: 'hors emprise du lac', color: '', warning: false };
   }
-  if (app.settings.get('bigDepth')) app.lakeMap.setBigDepth(app.lastBigDepth);
+  if (app.settings.get('bigDepth') && bigDepthAllowed()) app.lakeMap.setBigDepth(app.lastBigDepth);
 
   $('vitesse-value').textContent = formatSpeed(position.speed, app.settings.get('speedUnit'));
 
@@ -453,10 +453,30 @@ function toggleBigDepth() {
   applyBigDepthMode();
 }
 
+/**
+ * Le chiffre de cinq centimètres a sa place partout, sauf en ski.
+ *
+ * Il occupe le quart de l'écran juste sous le bateau, c'est-à-dire exactement là où l'on
+ * regarde quand on tire quelqu'un : le skieur est derrière, le couloir devant, et le fond
+ * n'est plus la question — on skie sur trente mètres d'eau comme sur cinq. Le HUD de ski
+ * garde d'ailleurs la profondeur, en pastille, en haut à droite, loin du bateau : rien
+ * n'est perdu, seul l'encombrement l'est.
+ *
+ * Le RÉGLAGE n'est pas touché : c'est la sortie qui suspend l'affichage, et il revient de
+ * lui-même en quittant. Un réglage retourné dans le dos de l'utilisateur, il faudrait le
+ * remettre à la main.
+ */
+function bigDepthAllowed() {
+  return !(app.go?.active && app.go.kind === 'ski');
+}
+
 function applyBigDepthMode() {
-  const on = app.settings.get('bigDepth');
-  $('depth-box').hidden = on;
-  app.lakeMap.setBigDepth(on ? (app.lastBigDepth ?? { value: '—', label: '', color: '' }) : null);
+  const wanted = app.settings.get('bigDepth');
+  // Le dock du bas suit le réglage, et non la sortie : il est de toute façon sous la
+  // surcouche plein écran, et le retrouver déplacé en quittant ne se comprendrait pas.
+  $('depth-box').hidden = wanted;
+  app.lakeMap.setBigDepth(wanted && bigDepthAllowed()
+    ? (app.lastBigDepth ?? { value: '—', label: '', color: '' }) : null);
 }
 
 // --------------------------------------- veille écran et lisibilité au soleil
@@ -2915,9 +2935,15 @@ function wireMap() {
     app.settings.set('zoom', round2(event.detail));
   });
 
+  // Ce bouton ne bascule plus rien : il RECENTRE (L21). On ne coupe pas le suivi d'un
+  // appui, on le coupe en faisant glisser la carte pour regarder ailleurs — c'est le geste
+  // qu'on fait naturellement, et il était déjà écouté. Restait un bouton qui, allumé,
+  // disait « la carte suit » sans dire ce qu'un appui ferait, et qu'on éteignait par
+  // mégarde en croyant recentrer.
   $('btn-suivi').addEventListener('click', () => {
-    app.settings.set('followBoat', !app.settings.get('followBoat'));
+    app.settings.set('followBoat', true);
     refreshCameraUi();
+    app.lakeMap.recenter();
   });
 
   $('btn-cap').addEventListener('click', () => {
@@ -2975,6 +3001,11 @@ function wireMap() {
   // rotation : le HUD passe d'une colonne à l'autre et la jauge s'allonge.
   window.addEventListener('resize', stackGoBars);
 
+  // La vue part TOUJOURS sur le bateau. `followBoat` est une intention du moment, pas une
+  // préférence : elle ne se coupe qu'en faisant glisser la carte, et ce glissement était
+  // retenu d'une session à l'autre — l'application se rouvrait sur le coin de lac qu'on
+  // avait regardé la veille, bateau hors de l'écran, sans que rien ne dise pourquoi.
+  app.settings.set('followBoat', true);
   refreshCameraUi();
   refreshBasemapUi();
 }
@@ -3567,6 +3598,12 @@ const MIN_TRACK_SPACING_M = 4;
 const MIN_TRIP_M = 50;
 /** Durée de l'aperçu du trajet au départ, avant la vue de barre (ms). */
 const GO_PREVIEW_MS = 1500;
+/**
+ * Nombre de tours tenus à l'écran pendant la sortie. Cinq tiennent sous les pastilles sans
+ * mordre sur l'eau ; au-delà, la colonne descendrait au milieu de la carte — et l'Historique
+ * les garde tous, lui, pour la relecture du soir.
+ */
+const LAP_LIST_MAX = 5;
 
 function wireGo() {
   $('btn-go-exit').addEventListener('click', exitGo);
@@ -3575,6 +3612,9 @@ function wireGo() {
   $('btn-go-zoom-plus').addEventListener('click', () => app.lakeMap.zoomBy(ZOOM_STEP));
   $('btn-go-zoom-moins').addEventListener('click', () => app.lakeMap.zoomBy(-ZOOM_STEP));
   $('btn-go-recentre').addEventListener('click', () => app.lakeMap.recenterNav(app.go.navZoom));
+  // La carte dit elle-même si la vue est calée sur le bateau : les deux boutons de
+  // recentrage — celui du rail et celui de la sortie — s'allument et s'éteignent avec elle.
+  app.lakeMap.addEventListener('framing', (event) => refreshRecentreUi(event.detail));
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && app.go.active) exitGo();
   });
@@ -3687,6 +3727,9 @@ function startGo(routeId, ski = null) {
     // Zoom de travail retenu : c'est celui que le bouton « recentrer » rendra après qu'on
     // aura dézoomé pour regarder la suite du trajet.
     app.go.navZoom = app.lakeMap.getZoom();
+    // C'est elle que le bouton de recentrage défend : en sortie, le suivi ne se coupe
+    // jamais, et c'est le dézoom qui dit qu'on a quitté la vue de barre.
+    app.lakeMap.setFramingZoom(app.go.navZoom);
     app.lakeMap.enterNavCam(55);
   };
 
@@ -3723,7 +3766,9 @@ function exitGo() {
   app.lakeMap.setGate(null);
   app.lakeMap.exitNavCam();
   app.lakeMap.setBasemapDim(false);
+  app.lakeMap.setFramingZoom(null); // hors sortie, plus d'échelle de travail à défendre
   refreshDepthStyle();  // restaure l'opacité du fond
+  applyBigDepthMode();  // et le grand chiffre du fond revient, si l'utilisateur l'avait mis
   refreshCameraUi();    // restaure suivi / cap en haut selon les réglages de l'utilisateur
   // Le partage a été mis en attente pendant la sortie : c'est le moment de le rattraper,
   // maintenant que rien ne dépend plus de la fluidité de l'écran.
@@ -3853,8 +3898,39 @@ function countLap(boat, doneM) {
   app.go.arrived = false;
   $('go-arrived').hidden = true;
   $('ski-laps-num').textContent = String(lap.laps);
+  renderLapTimes(lap);
   toast(`Tour ${lap.laps} bouclé · ${formatChrono(Math.round(lap.lastLapMs / 1000))}`, 3000);
   return true;
+}
+
+/**
+ * Les durées des tours, tenues à l'écran pendant toute la sortie (L21).
+ *
+ * Un tour qui passe dans un message de trois secondes ne se compare à rien. Ce qu'on veut
+ * savoir en tirant, c'est si l'on tient l'allure : la série le dit d'un coup d'œil, le
+ * meilleur tour ressortant du lot. Discrète et en haut à droite, sous les pastilles, du
+ * côté opposé au skieur — elle ne prend rien à la vue de l'eau.
+ *
+ * Les derniers seulement : au-delà, la colonne descendrait sur la carte, et les tours
+ * anciens se relisent à l'Historique, qui les garde tous.
+ */
+function renderLapTimes(lap) {
+  const times = lap?.times ?? [];
+  $('ski-lap-list').hidden = times.length === 0;
+  const from = Math.max(0, times.length - LAP_LIST_MAX);
+  $('ski-lap-list').replaceChildren(...times.slice(from).map((ms, i) => {
+    const li = document.createElement('li');
+    li.className = 'skilap';
+    if (ms === lap.bestLapMs) li.classList.add('is-best');
+    const num = document.createElement('span');
+    num.className = 'skilap__n';
+    num.textContent = String(from + i + 1);
+    const time = document.createElement('span');
+    time.className = 'skilap__t';
+    time.textContent = formatChrono(Math.round(ms / 1000));
+    li.append(num, time);
+    return li;
+  }));
 }
 
 /**
@@ -4415,6 +4491,9 @@ function beginSkiSession({ activity, who, env, targetS }) {
   // Sans parcours, il n'y a pas de tour à compter : la pastille reste dehors.
   $('ski-laps').hidden = !app.go.points;
   $('ski-laps-num').textContent = '0';
+  renderLapTimes(null);
+  // Le grand chiffre du fond n'a pas sa place ici : il tomberait pile sous le bateau.
+  applyBigDepthMode();
   $('ski-depth-num').textContent = '—';
   $('ski-cursor').style.left = '0%';
 
@@ -4627,6 +4706,7 @@ function skiRunSummary(distanceM) {
     // qui se boucle, et il se boucle de la même façon quand on ne skie pas.
     laps: app.go.lap?.laps ?? 0,
     bestLapS: app.go.lap?.bestLapMs != null ? app.go.lap.bestLapMs / 1000 : null,
+    lapTimesS: (app.go.lap?.times ?? []).map((ms) => ms / 1000),
   });
 }
 
@@ -4798,6 +4878,14 @@ function fillTripList(el) {
         + (t.ski.laps ? ` · ${t.ski.laps} tour${t.ski.laps > 1 ? 's' : ''}` : '')
         + (t.ski.best_lap_s ? ` · meilleur tour ${formatChrono(t.ski.best_lap_s)}` : '');
       name.append(ski);
+      // Et la série des tours, telle qu'elle a été bouclée : c'est en la relisant qu'on voit
+      // où l'allure a lâché. Sur sa propre ligne — accolée au reste, elle s'y noyait.
+      if (t.ski.lap_times_s?.length) {
+        const laps = document.createElement('span');
+        laps.className = 'route__stat route__stat--laps';
+        laps.textContent = `tours : ${t.ski.lap_times_s.map((v) => formatChrono(v)).join(' · ')}`;
+        name.append(laps);
+      }
     }
     li.append(name);
 
@@ -4866,8 +4954,6 @@ function wireQuickNav() {
 function refreshCameraUi() {
   const follow = app.settings.get('followBoat');
   const trackUp = app.settings.get('trackUp');
-  $('btn-suivi').classList.toggle('is-on', follow);
-  $('btn-suivi').setAttribute('aria-pressed', String(follow));
   $('btn-cap').classList.toggle('is-on', trackUp);
   $('btn-cap').setAttribute('aria-pressed', String(trackUp));
   $('ico-cap').setAttribute('href', trackUp ? '#i-heading' : '#i-north');
@@ -4882,6 +4968,29 @@ function refreshCameraUi() {
   if (app.go?.active) return;
   app.lakeMap.setFollow(follow);
   app.lakeMap.setTrackUp(trackUp);
+  refreshRecentreUi();
+}
+
+/**
+ * Les deux boutons de recentrage, à la manière d'un guidage routier : éteints quand la vue
+ * est déjà sur le bateau — il n'y a rien à faire — et bien visibles dès qu'elle l'a quittée.
+ *
+ * Ils ne sont pas MASQUÉS quand il n'y a rien à recentrer, et c'est délibéré : le rail et
+ * les commandes de sortie sont des colonnes de boutons, dont un qui disparaît décale tous
+ * les autres — sur un bateau, on vise un bouton sans le regarder. Éteint, il garde sa place
+ * et se laisse oublier ; allumé, il saute aux yeux.
+ *
+ * @param {?boolean} on  état annoncé par la carte, ou `null` pour le lui demander
+ */
+function refreshRecentreUi(on = null) {
+  const framed = on ?? app.lakeMap.isOnBoat();
+  for (const id of ['btn-suivi', 'btn-go-recentre']) {
+    const button = $(id);
+    button.classList.toggle('is-idle', framed);
+    button.classList.toggle('is-alert', !framed);
+    button.setAttribute('aria-disabled', String(framed));
+    button.title = framed ? 'La carte suit le bateau' : 'Recentrer sur le bateau';
+  }
 }
 
 // ------------------------------------------------------------------ routeur

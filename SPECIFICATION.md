@@ -1110,6 +1110,22 @@ se posent au-dessus d'elle, jamais à un décalage deviné. En ski le groupe est
 navigation, et un décalage fixe faisait passer le bouton de recentrage sur le bateau — le plus
 bas des trois, celui qu'on atteint sans lâcher la barre — derrière la barre de progression.
 
+**La vue est sur le bateau, et le bouton le dit** (L21). Le recentrage ne bascule rien : il
+est **éteint tant que la vue tient le bateau** — il n'y a rien à faire — et **allumé dès
+qu'elle l'a quittée**, où un appui l'y ramène. On coupe le suivi en faisant glisser la
+carte, jamais d'un bouton ; et ce refus ne survit pas à la fermeture de l'application, qui
+rouvre toujours sur le bateau. En sortie, le suivi étant verrouillé, c'est le dézoom — celui
+qu'on fait pour regarder la suite du trajet — qui allume le bouton. Les deux boutons gardent
+leur place quand ils s'éteignent : ce sont des colonnes qu'on vise sans les regarder.
+
+**En ski, l'écran ne montre que ce qui sert à tirer** (L21). Le grand chiffre du fond
+disparaît le temps de la session : il occupe le quart de l'écran juste sous le bateau, et
+l'on skie sur trente mètres d'eau comme sur cinq. La profondeur reste en pastille dans le
+HUD, et le réglage revient de lui-même en quittant. **Les durées des tours**, elles, restent
+affichées — les cinq derniers, en colonne discrète, meilleur tour en couleur : un tour
+annoncé trois secondes ne se compare à rien, et ce qu'on veut savoir en tirant, c'est si
+l'allure tient. La série entière suit la session à l'Historique et au partage.
+
 **Un point se retouche, il ne se détruit pas** (L20). Toucher un point du brouillon ouvre un
 menu — **déplacer**, **supprimer**, **fermer ou rouvrir la boucle** — là où le toucher le
 supprimait sans rien demander. C'est le geste qu'on fait pour rattraper un point de quelques

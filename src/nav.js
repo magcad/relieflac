@@ -293,14 +293,16 @@ export const LAP_MIN_MS = 20_000;
  *
  * @param {?object} prev  état précédent, ou `null` au départ de la sortie
  * @param {{progressRatio:number, distToStartM:number, atMs:number}} sample
- * @returns {{laps:number, armed:boolean, since:number, lastLapMs:?number, bestLapMs:?number, lapped:boolean}}
+ * @returns {{laps:number, armed:boolean, since:number, times:number[], lastLapMs:?number,
+ *            bestLapMs:?number, lapped:boolean}}
  */
 export function lapTracker(prev, {
   progressRatio, distToStartM, atMs,
   armRatio = LAP_ARM_RATIO, radiusM = LAP_RADIUS_M, minLapMs = LAP_MIN_MS,
 } = {}) {
   const state = prev ?? {
-    laps: 0, armed: false, since: atMs, lastLapMs: null, bestLapMs: null, lapped: false,
+    laps: 0, armed: false, since: atMs, times: [], lastLapMs: null, bestLapMs: null,
+    lapped: false,
   };
   const armed = state.armed || progressRatio >= armRatio;
   const back = distToStartM <= radiusM;
@@ -310,6 +312,11 @@ export function lapTracker(prev, {
       laps: state.laps + 1,
       armed: false,
       since: atMs,
+      // Chaque tour garde SA durée. Le meilleur seul ne dit pas grand-chose : ce qu'on
+      // relit après coup, c'est la série — l'allure tenue, ou le troisième tour où l'on
+      // s'écroule. Recopiée plutôt que poussée : le réducteur reste pur, et l'état rendu
+      // au tour précédent ne change pas sous les pieds de qui l'aurait gardé.
+      times: [...(state.times ?? []), lapMs],
       lastLapMs: lapMs,
       bestLapMs: state.bestLapMs == null ? lapMs : Math.min(state.bestLapMs, lapMs),
       lapped: true,
