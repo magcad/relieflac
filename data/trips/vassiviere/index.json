@@ -1,7 +1,7 @@
 {
   "schema": "relieflac.trips-index/1",
   "waterbody": "vassiviere",
-  "updated_at": "2026-08-18T16:00:22.537Z",
+  "updated_at": "2026-08-18T16:29:21.313Z",
   "trips": [
     {
       "id": "121a44cd-c840-42ca-8602-b9990d106169",
@@ -84,6 +84,44 @@
         ]
       },
       "file": "a42b471b-a4a8-4fb7-9971-7e784a902ea4.json"
+    },
+    {
+      "id": "37603f9d-60cd-4877-8197-44e6e7f64c63",
+      "name": "Basic Ski Auchez",
+      "at": "2026-08-18T16:11:11.077Z",
+      "ended_at": "2026-08-18T16:29:19.587Z",
+      "length_m": 5375,
+      "points": 696,
+      "route_id": "4ea590d0-6578-4853-b2bb-7f282a2a07bc",
+      "by": null,
+      "ski": {
+        "activity": "wakeboard",
+        "activityName": "Wakeboard",
+        "who": "enfant",
+        "min_kmh": 25,
+        "max_kmh": 32,
+        "open_ended": false,
+        "target_s": 600,
+        "chrono_s": 703,
+        "chrono_runs": 1,
+        "falls": 2,
+        "avg_kmh": 17.78,
+        "top_kmh": 35.31,
+        "in_zone_pct": 37,
+        "laps": 8,
+        "best_lap_s": 20,
+        "lap_times_s": [
+          42,
+          20,
+          21,
+          20,
+          20,
+          20,
+          394,
+          269
+        ]
+      },
+      "file": "37603f9d-60cd-4877-8197-44e6e7f64c63.json"
     }
   ]
 }
