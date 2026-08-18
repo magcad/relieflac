@@ -14,7 +14,7 @@ import { angleDelta, CameraFollow, catchUp, deadReckon } from '../src/camera.js'
 import { anchoredMatrix } from '../src/depth-layer.js';
 import { CorrectionsSync, RoutesSync, TripsSync } from '../src/sync.js';
 import {
-  distanceToSegment, navSolution, rejoinIndex, routeChevrons, splitRoute,
+  distanceToSegment, lapTracker, navSolution, rejoinIndex, routeChevrons, splitRoute,
 } from '../src/nav.js';
 import { bearing, distanceMeters, formatSpeed } from '../src/geo.js';
 import { formatAge, Level } from '../src/level.js';
@@ -24,7 +24,7 @@ import {
 } from '../src/level-chart.js';
 import { applyPaletteOverride, bandLimits, buildLut, LUT_SIZE, lutIndex } from '../src/palette.js';
 import { Probes, makeProbe } from '../src/probes.js';
-import { routeKind } from '../src/routes.js';
+import { closeRouteLoop, isClosedRoute, openRouteLoop, routeKind } from '../src/routes.js';
 import { SimPoints } from '../src/sim.js';
 import { Soundings } from '../src/soundings.js';
 import {
@@ -761,6 +761,60 @@ export async function run(base = '..') {
     && cutRoute.todo[0][0] === cutRoute.done[2][0] && cutRoute.todo[0][1] === cutRoute.done[2][1]
     && near(distanceMeters(cutRoute.done[2][0], cutRoute.done[2][1], navP(140, 0)[0], navP(140, 0)[1]), 0, 0.5));
 
+
+  // --- circuits fermés et tours -----------------------------------------------
+  // Un trajet qui revient à son point de départ se compte en TOURS. Deux choses à tenir :
+  // reconnaître la boucle sans jamais en inventer une, et ne compter un tour que lorsque le
+  // parcours a réellement été fait — sinon tourner au ponton en compterait toute la journée.
+  const square = [navP(0, 0), navP(200, 0), navP(200, 200), navP(0, 200)];
+  check('boucle : un aller-retour n’est pas un circuit, il y faut trois sommets',
+    isClosedRoute(closeRouteLoop([navP(0, 0), navP(200, 0)])) === false
+    && isClosedRoute(closeRouteLoop(square)) === true,
+    `aller-retour ${closeRouteLoop([navP(0, 0), navP(200, 0)]).length} points`);
+
+  const ring = closeRouteLoop(square);
+  ring[0][0] += 0.01; // le départ se déplace : la fermeture ne doit pas le suivre par hasard
+  check('boucle : fermer recopie le départ, et la copie ne partage rien avec lui',
+    ring.length === 5 && ring[4][0] === square[0][0] && ring[0][0] !== ring[4][0],
+    `départ ${ring[0][0].toFixed(4)}, fermeture ${ring[4][0].toFixed(4)}`);
+
+  check('boucle : fermer deux fois n’ajoute rien, et rouvrir rend les sommets',
+    closeRouteLoop(closeRouteLoop(square)).length === 5
+    && openRouteLoop(closeRouteLoop(square)).length === 4
+    && openRouteLoop(square).length === 4);
+
+  // Réducteur pur : le banc fait tourner un bateau en quelques appels, sans horloge.
+  const lapRun = (samples) => samples.reduce(
+    (state, [progressRatio, distToStartM, atMs]) => lapTracker(state, {
+      progressRatio, distToStartM, atMs,
+    }), null);
+
+  check('tours : revenir au départ sans avoir fait le parcours n’en compte aucun',
+    lapRun([[0, 5, 0], [0.3, 240, 30e3], [0.3, 6, 60e3]]).laps === 0,
+    'le verrou d’armement tient');
+
+  const oneLap = lapRun([[0, 5, 0], [0.4, 300, 30e3], [0.85, 180, 60e3], [1, 9, 90e3]]);
+  check('tours : un circuit bouclé en compte un, et un seul',
+    oneLap.laps === 1 && oneLap.armed === false
+    && lapRun([[0, 5, 0], [0.4, 300, 30e3], [0.85, 180, 60e3], [1, 9, 90e3], [1, 7, 95e3]]).laps === 1,
+    `${oneLap.laps} tour en ${Math.round(oneLap.lastLapMs / 1000)} s`);
+
+  // Un couloir de ski n'est pas fermé : son tour, c'est l'aller-retour. Le bout du couloir
+  // vaut parcours entier (avancement à 1), et le retour au départ solde le tour — la même
+  // règle, sans qu'on ait eu à distinguer les deux formes de trajet.
+  const outAndBack = lapRun([[0, 4, 0], [1, 620, 60e3], [1, 300, 90e3], [1, 12, 120e3]]);
+  check('tours : un couloir ouvert se boucle en aller-retour',
+    outAndBack.laps === 1 && outAndBack.lapped === true,
+    `${outAndBack.laps} tour en ${Math.round(outAndBack.lastLapMs / 1000)} s`);
+
+  const twoLaps = lapRun([
+    [0, 4, 0], [0.9, 200, 60e3], [1, 8, 100e3],
+    [0.9, 200, 140e3], [1, 6, 160e3],
+  ]);
+  check('tours : le meilleur tour est le plus court, et non le dernier',
+    twoLaps.laps === 2 && twoLaps.lastLapMs === 60e3 && twoLaps.bestLapMs === 60e3,
+    `dernier ${twoLaps.lastLapMs / 1000} s, meilleur ${twoLaps.bestLapMs / 1000} s`);
+
   // --- vignettes de trajets ---------------------------------------------------
   // Module pur : c'est tout l'intérêt de sortir la géométrie du DOM. Ce qui est vérifié ici
   // n'est pas l'apparence mais l'invariant qui fait la vignette utile — le cadrage sur le
@@ -983,22 +1037,36 @@ export async function run(base = '..') {
   // La moyenne générale porte sur les distances et les durées cumulées, jamais sur les
   // moyennes : dix minutes de slalom et deux heures de balade ne pèsent pas pareil.
   const totals = skiTotals([
-    { distanceM: 6000, durationS: 600, falls: 2, chronoS: 300 },
-    { distanceM: 10000, durationS: 7200, falls: 1, chronoS: 900 },
+    { distanceM: 6000, durationS: 600, falls: 2, chronoS: 300, laps: 4, bestLapS: 128 },
+    { distanceM: 10000, durationS: 7200, falls: 1, chronoS: 900, laps: 3, bestLapS: 96 },
   ]);
   check('cumuls de ski : moyenne pondérée par les durées, pas moyenne des moyennes',
     totals.count === 2 && totals.distanceM === 16000 && totals.falls === 3
     && near(totals.avgKmh, 16 / (7800 / 3600), 1e-9),
     `${totals.avgKmh.toFixed(2)} km/h (et non ${((36 + 5) / 2).toFixed(2)})`);
 
+  // Les tours s'additionnent ; le meilleur tour est un RECORD, donc le plus court des deux,
+  // et une sortie qui n'a bouclé aucun tour ne doit pas le tirer vers zéro.
+  check('cumuls de ski : les tours s’additionnent, le meilleur tour se garde le plus court',
+    totals.laps === 7 && totals.bestLapS === 96
+    && skiTotals([{ distanceM: 1000, durationS: 600 }]).bestLapS === null,
+    `${totals.laps} tours, meilleur ${totals.bestLapS} s`);
+
   const summary = skiSummary({
     activity: 'monoski', who: 'adulte', env: mono, targetS: 900, chronoS: 873.4,
     chronoRuns: 2, falls: 3, avgKmh: 27.456, topKmh: 41.2, inZonePct: 78.6,
+    laps: 5, bestLapS: 142.6,
   });
   check('synthèse de session : arrondie, nommée, prête pour le partage',
     summary.activityName === 'Monoski' && summary.min_kmh === 32 && summary.max_kmh === 38
     && summary.chrono_s === 873 && summary.avg_kmh === 27.46 && summary.in_zone_pct === 79,
     JSON.stringify(summary));
+  // Zéro tour n'a pas de meilleur tour : `null`, et non zéro seconde, qui se lirait comme
+  // un record imbattable au moment de comparer deux sorties.
+  check('synthèse de session : les tours partent avec elle, le meilleur tour aussi',
+    summary.laps === 5 && summary.best_lap_s === 143
+    && skiSummary({ activity: 'bouee', who: 'enfant', env: mono }).best_lap_s === null,
+    `${summary.laps} tours, meilleur ${summary.best_lap_s} s`);
 
   // Le partage doit emporter la synthèse : sans elle, une session de ski vue d'un autre
   // bateau ne serait qu'une trace de plus, et tout le mode perdrait son intérêt commun.

@@ -547,6 +547,23 @@
       </button>
     </div>
     <p class="route__hint" id="route-hint">Touchez la carte pour poser les points de passage.</p>
+    <!--
+      Menu d'un point du brouillon (L20).
+
+      Toucher un point le SUPPRIMAIT, sans rien demander. C'était l'édition la plus directe
+      qui soit, et la plus traîtresse : on touche un point pour le rattraper de quelques
+      mètres, ou pour refermer la boucle dessus, et le parcours est à refaire. Le toucher
+      ouvre donc ce menu, qui tient sur la ligne de la consigne — il ne coûte pas un pixel de
+      carte de plus, et il se referme sur ↩ comme sur le prochain point posé.
+    -->
+    <div class="pickbar" id="route-pick" hidden>
+      <span class="pickbar__lab" id="route-pick-lab">Point</span>
+      <button class="pickbar__act" id="btn-pick-move" type="button">⇢ Déplacer</button>
+      <button class="pickbar__act" id="btn-pick-loop" type="button" hidden>⟲ Fermer la boucle</button>
+      <button class="pickbar__act pickbar__act--danger" id="btn-pick-del" type="button">✕ Supprimer</button>
+      <button class="pickbar__act pickbar__act--ghost" id="btn-pick-cancel" type="button"
+              title="Fermer le menu" aria-label="Fermer le menu">↩</button>
+    </div>
     <!-- Métier du trajet (L16). Une route de navigation et un couloir de ski ne sont pas le
          même objet, et chaque mode ne montre que les siens : c'est ici — et seulement ici —
          qu'on RECLASSE un trajet tracé avant que le ski n'existe. Réservé à l'édition depuis
@@ -738,6 +755,12 @@
           <span class="ski__chip-num" id="ski-falls-num">0</span>
           <span class="ski__chip-lab">chutes</span>
         </button>
+        <!-- Tours bouclés (L20). Masqué en sortie libre : sans parcours, il n'y a pas de
+             tour à compter, et un « 0 tours » qui ne bougera jamais n'apprend rien. -->
+        <span class="ski__chip ski__chip--laps" id="ski-laps" hidden>
+          <span class="ski__chip-num" id="ski-laps-num">0</span>
+          <span class="ski__chip-lab">tours</span>
+        </span>
         <span class="ski__chip ski__chip--depth">
           <span class="ski__chip-num" id="ski-depth-num">—</span>
           <span class="ski__chip-lab">m de fond</span>

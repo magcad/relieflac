@@ -2,9 +2,9 @@
 
 **Dernière mise à jour** : 18 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 216 contrôles, **tous au
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 225 contrôles, **tous au
 vert**
-**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 128 gestes,
+**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 137 gestes,
 **tous au vert**
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
@@ -46,6 +46,41 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L17** | Le **foil tracté** entre au tableau des épreuves, et le défaut cesse d'être positionnel | ✅ terminé le 17/08/2026 (v2026-08-17.5) — voir § 1 |
 | **L18** | Retour de la première sortie en ski : **le catalogue s'efface pendant le tracé**, la caméra de barre ne se déverrouille plus, les commandes du HUD s'empilent au-dessus des bandeaux, et les **plages de vitesse se règlent** | ✅ terminé le 18/08/2026 (v2026-08-18.2) — voir § 1 |
 | **L19** | Le constructeur de trajet **rend la carte** : le panneau de tracé passe de 34 % à 17 % de l'écran d'un téléphone, et le banc traque désormais tout `hidden` qu'une règle `display` annulerait | ✅ terminé le 18/08/2026 (v2026-08-18.3) — voir § 1 |
+| **L20** | **Un point se retouche** (menu : déplacer, supprimer, fermer la boucle) et un parcours bouclé **se compte en tours**, du HUD jusqu'aux cumuls de l'Historique | ✅ terminé le 18/08/2026 (v2026-08-18.4) — voir § 1 |
+
+**Lot L20 — un point se retouche, un parcours se compte en tours** (18/08/2026,
+v2026-08-18.4). Deux demandes qui n'en font qu'une : le circuit.
+
+- **Toucher un point ouvre son menu**, au lieu de le supprimer. L'ancien geste était le plus
+  direct qui soit, et le plus coûteux à l'usage : on touche un point pour le rattraper de
+  quelques mètres, ou pour refermer la boucle dessus, et le parcours entier était à retracer.
+  Le menu tient sur la ligne de la consigne — il ne prend donc rien à la carte qu'elle ne
+  prenait déjà — et propose **Déplacer**, **Fermer / Rouvrir la boucle**, **Supprimer**.
+- **Déplacer se fait en deux temps** : le menu retient le point, le toucher suivant dit où le
+  poser. Ce second toucher ne pose surtout pas un point de plus, ce qui est tout le piège de
+  ce genre de geste.
+- **Fermer la boucle** recopie le point de départ à la fin : le trajet revient d'où il part.
+  La copie n'est pas un sommet — elle ne se compte pas (« 3 points · boucle »), son marqueur
+  n'est pas dessiné (deux pastilles superposées se disputeraient les touchers), et retirer le
+  départ referme sur le nouveau plutôt que de laisser la copie orpheline derrière lui.
+- **Les tours se comptent** pendant la sortie. Un tour, c'est **revenir à son point de départ
+  après avoir fait le parcours** — une seule définition, qui couvre le circuit fermé qu'on
+  tourne comme le couloir ouvert qu'on remonte et redescend : le bout du couloir vaut parcours
+  entier, et le retour au départ solde le tour. Compté par `lapTracker` (nav.js), module pur,
+  avec un verrou d'armement à 70 % du parcours sans lequel tourner au ponton en compterait
+  toute la journée. Témoin dans le HUD de ski, ligne du restant en navigation, et **tours +
+  meilleur tour** dans la synthèse, le partage et les cumuls de l'Historique.
+
+Une chose ne se devine pas à la lecture : **l'avancement repart de zéro** quand un tour est
+bouclé. Le ciblage de `navSolution` est séquentiel et ne saute qu'en avant ; arrivé au bout du
+couloir il y reste, la progression afficherait cent pour cent pour toujours et le tour suivant
+se compterait au premier passage près du départ.
+
+**Cinquième `[hidden]` piégé — et la première fois que le banc l'a vu avant l'eau.**
+`.ski__chip` est en `display: grid` : la pastille des tours restait affichée en sortie libre,
+à compter les tours d'un parcours inexistant. Le contrôle installé au L19, qui lit dans
+`main.js` tous les identifiants masqués et vérifie qu'ils s'effacent, l'a signalé au premier
+passage.
 
 **Lot L19 — le constructeur rend la carte** (18/08/2026, v2026-08-18.3). Capture d'écran de
 l'utilisateur sur iPhone : le panneau de tracé occupait **34 % de la hauteur**, et c'est
@@ -224,7 +259,7 @@ chose, sinon tout le rendu accroché à `change` se relancerait pour rien toutes
 
 **Ce que la réalisation a ajouté à la spécification** :
 - Tout le raisonnement est dans le module pur `src/ski.js` (réducteurs `autoStartTracker` et
-  `fallTracker`, `envelopeState`, `gaugePosition`, cumuls) : **30 contrôles au banc**. C'est
+  `fallTracker`, `envelopeState`, `gaugePosition`, cumuls) : **32 contrôles au banc**. C'est
   la seule façon d'être sûr — on ne met pas au point un chrono avec quelqu'un au bout d'une
   corde.
 - Le déclencheur automatique rend un **front** (`fire`) et non un état : l'appelant n'a rien

@@ -1110,6 +1110,26 @@ se posent au-dessus d'elle, jamais à un décalage deviné. En ski le groupe est
 navigation, et un décalage fixe faisait passer le bouton de recentrage sur le bateau — le plus
 bas des trois, celui qu'on atteint sans lâcher la barre — derrière la barre de progression.
 
+**Un point se retouche, il ne se détruit pas** (L20). Toucher un point du brouillon ouvre un
+menu — **déplacer**, **supprimer**, **fermer ou rouvrir la boucle** — là où le toucher le
+supprimait sans rien demander. C'est le geste qu'on fait pour rattraper un point de quelques
+mètres ou pour refermer un circuit dessus, et il coûtait le parcours entier. Le déplacement se
+fait en deux temps : le menu retient le point, le toucher suivant dit où — et ne pose surtout
+pas un point de plus. Le menu occupe la ligne de la consigne, donc rien de plus que ce que le
+panneau prenait déjà.
+
+**Un parcours qui revient à son départ se compte en tours** (L20). Fermer la boucle recopie le
+point de départ à la fin ; cette copie n'est pas un sommet — elle ne se compte pas, son marqueur
+n'est pas dessiné, et retirer le départ referme sur le nouveau. Un **tour**, c'est revenir à son
+point de départ **après avoir fait le parcours**, et cette seule définition couvre les deux
+formes de trajet : le circuit fermé qu'on tourne, et le couloir ouvert qu'on remonte puis
+redescend — dont le bout vaut parcours entier, si bien qu'un tour de couloir est un
+aller-retour, ce qui est bien ce que compte un skieur. Un verrou d'armement (70 % du parcours)
+interdit de compter en tournant au ponton, et l'avancement repart de zéro à chaque tour bouclé,
+faute de quoi la progression resterait à cent pour cent et compterait un tour à chaque passage
+près du départ. Les tours et le **meilleur tour** — un record, donc le plus court, jamais une
+somme — accompagnent la session dans l'Historique et dans le partage.
+
 **Le panneau de tracé ne montre que ce qui aide à poser un point** (L19). Il flotte sur le
 tiers bas de la carte, c'est-à-dire sur la zone où l'on vise : tout ce qu'il porte se paie en
 carte. Le métier est décidé par le mode d'où l'on vient et ne se choisit donc qu'en

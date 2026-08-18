@@ -16,9 +16,10 @@ import { LakeMap } from './map.js';
 import { applyPaletteOverride, bandColors, bandLimits, buildLut, depthColor, hexToVec4, legendEntries } from './palette.js';
 import { Probes, makeProbe } from './probes.js';
 import {
-  CRUISE_KMH, estimatedDuration, formatDistance, formatDuration, Routes, routeKind, routeLength,
+  closeRouteLoop, CRUISE_KMH, estimatedDuration, formatDistance, formatDuration, isClosedRoute,
+  openRouteLoop, Routes, routeKind, routeLength,
 } from './routes.js';
-import { angleDelta, navSolution } from './nav.js';
+import { angleDelta, lapTracker, navSolution } from './nav.js';
 import {
   AUTO_START_HOLD_MS, autoStartTracker, averageKmh, CHRONO_PRESETS_S, chronoLabel,
   envelopeLabel, envelopeState,
@@ -71,6 +72,10 @@ const app = {
   // laquelle le trajet enregistré ira se ranger.
   routes: null, routeKind: 'nav',
   routeMode: false, routeTracing: false, routeDraft: [], editingRouteId: null,
+  // Point du brouillon dont le menu est ouvert, et point qu'on est en train de déplacer.
+  // Deux états distincts : le menu se referme au premier geste, le déplacement survit
+  // jusqu'au toucher qui dit OÙ — c'est un geste en deux temps, et lui seul.
+  routePick: null, routeMoving: null,
   // Sorties parcourues, et le mode Historique qui les revoit sur la carte.
   trips: null, histMode: false, histReviewId: null,
   // Menu à modes : quel métier de l'application est affiché dans la feuille.
@@ -3083,11 +3088,26 @@ function wireRoutes() {
   $('btn-route-go').addEventListener('click', goFromDraft);
   wireArmed('btn-route-del', 'Confirmer ?', deleteSelectedRoute);
 
+  $('btn-pick-move').addEventListener('click', startRouteMove);
+  $('btn-pick-del').addEventListener('click', () => {
+    const index = app.routePick;
+    if (index != null) removeRouteVertex(index);
+  });
+  $('btn-pick-loop').addEventListener('click', toggleRouteLoop);
+  $('btn-pick-cancel').addEventListener('click', () => closeRoutePick());
+
   app.lakeMap.addEventListener('routevertex', (event) => addRouteVertex(event.detail));
-  // Toucher un sommet du brouillon le retire — l'édition la plus directe qui soit.
+  // Toucher un sommet du brouillon ouvre son menu (L20). Il le SUPPRIMAIT auparavant, sans
+  // rien demander : le geste le plus direct, mais aussi le plus coûteux à l'usage — on
+  // touche un point pour le rattraper de quelques mètres ou pour refermer la boucle dessus,
+  // et tout le parcours était à refaire.
   app.lakeMap.addEventListener('wptselect', (event) => {
     const { index, active } = event.detail;
-    if (!active && app.routeMode && app.routeTracing) removeRouteVertex(index);
+    if (active || !app.routeMode || !app.routeTracing) return;
+    // Pendant un déplacement, c'est la CARTE qui répond : le marqueur ne dit que « d'où »,
+    // et l'on attend « vers où ». Rouvrir son menu ici annulerait le geste en cours.
+    if (app.routeMoving != null) return;
+    pickRouteVertex(index);
   });
 
   app.routes.addEventListener('change', () => {
@@ -3133,6 +3153,7 @@ function exitRouteMode() {
   app.routeMode = false;
   app.routeTracing = false;
   app.routeDraft = [];
+  closeRoutePick();
   app.editingRouteId = null;
   disarmAll();
   refreshRoutePanel();
@@ -3143,6 +3164,7 @@ function startRouteDraft() {
   app.routeTracing = true;
   app.routeDraft = [];
   app.editingRouteId = null;
+  closeRoutePick();
   $('route-name').value = '';
   refreshRoutePanel();
   toast('Touchez la carte pour poser les points de passage', 4000);
@@ -3158,6 +3180,7 @@ function editRoute(id) {
   app.routeTracing = true;
   app.editingRouteId = id;
   app.routeDraft = route.points.map((p) => [p[0], p[1]]);
+  closeRoutePick();
   $('route-name').value = route.name;
   refreshRoutePanel();
   toast('Édition : ajoutez des points, ou enregistrez', 4000);
@@ -3165,24 +3188,99 @@ function editRoute(id) {
 
 function addRouteVertex(lngLat) {
   if (!app.routeTracing) return; // hors tracé, un toucher ne pose rien
+  // Second temps d'un déplacement : le toucher dit OÙ, il ne pose pas un point de plus.
+  if (app.routeMoving != null) { moveRouteVertex(app.routeMoving, lngLat); return; }
+  app.routePick = null; // poser ailleurs, c'est en avoir fini avec le point choisi
   app.routeDraft.push([lngLat.lng, lngLat.lat]);
   refreshRoutePanel();
 }
 
+/**
+ * Retire le dernier point posé. Sur un circuit, ce dernier point EST la copie du départ :
+ * défaire rouvre alors la boucle, ce qui est bien le geste qu'on vient de faire.
+ */
 function undoRouteVertex() {
+  closeRoutePick();
   app.routeDraft.pop();
   refreshRoutePanel();
 }
 
+/**
+ * Retire un point du brouillon, sans défaire la boucle qui l'englobait.
+ *
+ * Un circuit fermé porte à la fin la copie de son premier point. Retirer ce premier point
+ * laisserait donc une copie orpheline, et le trajet cesserait d'être un circuit sans que
+ * personne l'ait demandé : on referme sur le nouveau départ. Et si la boucle n'a plus assez
+ * de sommets pour tenir — moins de trois — elle se rouvre franchement, plutôt que de
+ * dégénérer en aller-retour déguisé.
+ */
 function removeRouteVertex(index) {
-  app.routeDraft.splice(index, 1);
+  const loop = isClosedRoute(app.routeDraft);
+  // On raisonne toujours sur les SOMMETS, la boucle ouverte : sinon, retirer le point de
+  // départ laissait sa copie de fermeture derrière lui, promue sommet à part entière — le
+  // point supprimé restait sur la carte.
+  const points = loop ? openRouteLoop(app.routeDraft) : app.routeDraft;
+  points.splice(index, 1);
+  app.routeDraft = loop ? closeRouteLoop(points) : points;
+  closeRoutePick();
   refreshRoutePanel();
+}
+
+/** Déplace un point, en emmenant avec lui la fermeture de boucle s'il en portait une. */
+function moveRouteVertex(index, lngLat) {
+  const loop = isClosedRoute(app.routeDraft);
+  if (!app.routeDraft[index]) { closeRoutePick(); refreshRoutePanel(); return; }
+  app.routeDraft[index] = [lngLat.lng, lngLat.lat];
+  if (loop && index === 0) app.routeDraft[app.routeDraft.length - 1] = [lngLat.lng, lngLat.lat];
+  closeRoutePick();
+  refreshRoutePanel();
+  toast(`Point ${index + 1} déplacé`, 2000);
+}
+
+// ------------------------------------------------------------ menu d'un point du brouillon
+
+/** Ouvre le menu d'un point : déplacer, supprimer, fermer ou rouvrir la boucle. */
+function pickRouteVertex(index) {
+  app.routePick = index;
+  app.routeMoving = null;
+  refreshRoutePanel();
+}
+
+/** Referme le menu et abandonne un déplacement en cours. */
+function closeRoutePick() {
+  app.routePick = null;
+  app.routeMoving = null;
+}
+
+/** Premier temps du déplacement : on retient le point, la carte dira où le poser. */
+function startRouteMove() {
+  if (app.routePick == null) return;
+  app.routeMoving = app.routePick;
+  app.routePick = null;
+  refreshRoutePanel();
+  toast(`Touchez le nouvel emplacement du point ${app.routeMoving + 1}`, 4000);
+}
+
+/**
+ * Ferme la boucle du brouillon, ou la rouvre.
+ *
+ * Fermer, c'est recopier le point de départ à la fin : le trajet revient d'où il part, et
+ * devient un CIRCUIT — ce qui se compte alors en tours, pendant la sortie. Rouvrir retire
+ * cette copie et rend le couloir à ses deux bouts.
+ */
+function toggleRouteLoop() {
+  const loop = isClosedRoute(app.routeDraft);
+  app.routeDraft = loop ? openRouteLoop(app.routeDraft) : closeRouteLoop(app.routeDraft);
+  closeRoutePick();
+  refreshRoutePanel();
+  toast(loop ? 'Boucle rouverte' : 'Boucle fermée — le trajet revient à son départ', 3000);
 }
 
 function cancelRouteDraft() {
   app.routeTracing = false;
   app.editingRouteId = null;
   app.routeDraft = [];
+  closeRoutePick();
   refreshRoutePanel();
 }
 
@@ -3208,6 +3306,7 @@ function saveRoute() {
   app.routeTracing = false;
   app.editingRouteId = null;
   app.routeDraft = [];
+  closeRoutePick();
   refreshRoutePanel();
   refreshRoutePicker();
   return id;
@@ -3290,17 +3389,43 @@ function refreshRoutePanel() {
 
   if (tracing) {
     const n = app.routeDraft.length;
+    const loop = isClosedRoute(app.routeDraft);
+    // Un circuit compte ses sommets, pas la copie du départ qui le referme : « 5 points »
+    // pour un carré bouclé ferait chercher le cinquième.
+    const shownPoints = loop ? n - 1 : n;
     const len = routeLength(app.routeDraft);
+    const moving = app.routeMoving != null;
+    const picked = app.routePick != null && app.routeDraft[app.routePick];
+
     // La consigne ne vaut que tant qu'on ne l'a pas suivie : dès le premier point posé, elle
     // décrit un geste qu'on vient de faire, et la ligne de compte dit déjà tout le reste.
-    $('route-hint').hidden = n > 0;
-    $('route-hint').textContent = 'Touchez la carte pour poser les points de passage.';
-    $('route-meta').textContent = n < 2
-      ? `${n} point${n > 1 ? 's' : ''} — il en faut au moins 2, touchez-en un pour le retirer`
-      : `${n} points · ${formatDistance(len)} · ~${formatDuration(estimatedDuration(len))} à ${CRUISE_KMH} km/h`;
-    app.lakeMap.setRouteDraft(app.routeDraft);
+    // Un déplacement en cours la reprend, parce qu'elle attend alors un geste PRÉCIS.
+    $('route-hint').hidden = n > 0 && !moving;
+    $('route-hint').textContent = moving
+      ? `Touchez le nouvel emplacement du point ${app.routeMoving + 1}.`
+      : 'Touchez la carte pour poser les points de passage.';
+
+    $('route-pick').hidden = !picked;
+    if (picked) {
+      $('route-pick-lab').textContent = loop && app.routePick === 0
+        ? 'Départ du circuit'
+        : `Point ${app.routePick + 1}`;
+      // Fermer la boucle demande de quoi la tenir : trois sommets. La rouvrir se propose dès
+      // qu'elle est fermée, quel que soit le point touché — c'est le trajet qu'on rouvre.
+      $('btn-pick-loop').hidden = !loop && shownPoints < 3;
+      $('btn-pick-loop').textContent = loop ? '⟲ Rouvrir la boucle' : '⟲ Fermer la boucle';
+    }
+
+    $('route-meta').textContent = shownPoints < 2
+      ? `${shownPoints} point${shownPoints > 1 ? 's' : ''} — il en faut au moins 2, touchez-en un pour l’éditer`
+      : `${shownPoints} points${loop ? ' · boucle' : ''} · ${formatDistance(len)} · `
+        + `~${formatDuration(estimatedDuration(len))} à ${CRUISE_KMH} km/h`;
+    app.lakeMap.setRouteDraft(app.routeDraft, {
+      editingIndex: app.routeMoving ?? app.routePick ?? -1, loop,
+    });
   } else {
     $('route-hint').hidden = false;
+    $('route-pick').hidden = true;
     const some = app.routes.records.some((r) => routeKind(r) === app.routeKind);
     $('route-hint').textContent = some
       ? `Reprenez un ${noun}, ou créez-en un nouveau.`
@@ -3522,6 +3647,9 @@ function startGo(routeId, ski = null) {
     routeName: route?.name ?? (ski ? `Ski libre · ${skiActivity(ski.activity).name}` : 'Sortie'),
     points: route ? route.points.map((p) => [p[0], p[1]]) : null,
     fromIndex: 0, arrived: false, lastSol: null,
+    // Tours bouclés (L20) : `null` tant qu'aucun échantillon n'est passé — c'est le premier
+    // point GPS qui date le début du premier tour, et non l'ouverture de l'écran.
+    lap: null,
     track: [], startedAt: new Date().toISOString(),
   };
   if (route) saveLastRoute(route.id);
@@ -3646,7 +3774,10 @@ function updateGoHud(position) {
   app.go.lastSol = sol;
 
   // Ce qui est derrière le bateau passe au vert, chevrons compris.
-  app.lakeMap.setRouteProgress(sol.fromIndex, sol.snapped, routeDoneMetres(app.go.points, sol));
+  const doneM = routeDoneMetres(app.go.points, sol);
+  app.lakeMap.setRouteProgress(sol.fromIndex, sol.snapped, doneM);
+
+  const lapped = countLap(boat, doneM);
 
   // Objectif : prochain point, sa distance, et ce qu'il reste du trajet.
   $('go-wp').textContent = sol.arrived ? 'ARRIVÉE' : `WP ${sol.targetIndex + 1}/${sol.waypointCount}`;
@@ -3656,6 +3787,12 @@ function updateGoHud(position) {
   const total = routeLength(app.go.points) || 1;
   const pct = Math.max(0, Math.min(100, (1 - sol.distRemaining / total) * 100));
   $('go-progress').style.width = `${pct}%`;
+
+  // Le compteur de tours se lit dans le HUD de ski ; en navigation, il tient sur la ligne
+  // du restant, où il ne coûte rien.
+  if (app.go.lap?.laps > 0 && app.go.kind !== 'ski') {
+    $('go-remain').textContent += ` · tour ${app.go.lap.laps + 1}`;
+  }
 
   // Écart de route : le sens dit où revenir.
   const xte = $('go-xte');
@@ -3670,18 +3807,54 @@ function updateGoHud(position) {
 
   app.lakeMap.setGate(sol.arrived ? null : sol.target);
 
-  if (sol.arrived && !app.go.arrived) {
+  if (sol.arrived && !app.go.arrived && !lapped) {
     app.go.arrived = true;
     $('go-arrived-detail').textContent = `${app.routes.get(app.go.routeId)?.name ?? ''} · ${formatDistance(total)}`;
     // En ski, atteindre le bout du couloir n'est pas arriver : on fait demi-tour et l'on
     // repasse. Annoncer « arrivé à destination » à chaque bout de piste serait absurde.
-    $('go-arrived').hidden = app.go.kind === 'ski';
+    // Un CIRCUIT non plus n'arrive nulle part : il se boucle, et c'est le tour qui le dit.
+    $('go-arrived').hidden = app.go.kind === 'ski' || isClosedRoute(app.go.points);
   } else if (!sol.arrived && app.go.arrived) {
     app.go.arrived = false;
     $('go-arrived').hidden = true;
   }
 
   updateGoSteer();
+}
+
+/**
+ * Compte les tours du parcours, et remet l'avancement au départ quand un tour est bouclé.
+ *
+ * Un tour, c'est revenir à son point de départ après avoir fait le parcours — la définition
+ * et sa mécanique sont dans `lapTracker` (nav.js), qui ne connaît ni carte ni horloge. Ce
+ * qui appartient à l'application, c'est ce qui suit le tour : l'avancement REPART DE ZÉRO.
+ *
+ * Sans cette remise à zéro, rien ne se recompterait jamais. Le ciblage de `navSolution` est
+ * séquentiel et ne saute qu'en avant (voir `rejoinIndex`) : arrivé au bout du couloir, il y
+ * reste, l'avancement affiche cent pour cent pour toujours et le tour suivant se compterait
+ * au premier passage près du départ. La remise à zéro rend au parcours son sens de la
+ * marche, et à la barre de progression sa raison d'être.
+ *
+ * @returns {boolean} vrai si un tour vient d'être bouclé sur cet échantillon
+ */
+function countLap(boat, doneM) {
+  const points = app.go.points;
+  if (!points || points.length < 2) return false;
+  const total = routeLength(points) || 1;
+  const lap = lapTracker(app.go.lap, {
+    progressRatio: doneM / total,
+    distToStartM: distanceMeters(boat[0], boat[1], points[0][0], points[0][1]),
+    atMs: Date.now(),
+  });
+  app.go.lap = lap;
+  if (!lap.lapped) return false;
+
+  app.go.fromIndex = 0;
+  app.go.arrived = false;
+  $('go-arrived').hidden = true;
+  $('ski-laps-num').textContent = String(lap.laps);
+  toast(`Tour ${lap.laps} bouclé · ${formatChrono(Math.round(lap.lastLapMs / 1000))}`, 3000);
+  return true;
 }
 
 /**
@@ -4239,6 +4412,9 @@ function beginSkiSession({ activity, who, env, targetS }) {
   $('ski-hud').hidden = false;
   $('ski-act').textContent = `${skiActivity(activity).name} · ${whoLabel(who)}`;
   $('ski-falls-num').textContent = '0';
+  // Sans parcours, il n'y a pas de tour à compter : la pastille reste dehors.
+  $('ski-laps').hidden = !app.go.points;
+  $('ski-laps-num').textContent = '0';
   $('ski-depth-num').textContent = '—';
   $('ski-cursor').style.left = '0%';
 
@@ -4447,6 +4623,10 @@ function skiRunSummary(distanceM) {
     avgKmh: averageKmh(distanceM, seconds),
     topKmh: ski.topKmh,
     inZonePct: ski.sampleMs > 0 ? (ski.inZoneMs / ski.sampleMs) * 100 : 0,
+    // Les tours sont comptés par la SORTIE, non par la session de ski : c'est le parcours
+    // qui se boucle, et il se boucle de la même façon quand on ne skie pas.
+    laps: app.go.lap?.laps ?? 0,
+    bestLapS: app.go.lap?.bestLapMs != null ? app.go.lap.bestLapMs / 1000 : null,
   });
 }
 
@@ -4571,6 +4751,7 @@ function refreshHistPanel() {
   const sessions = app.trips.records.map((t) => ({
     distanceM: tripDistance(t), durationS: tripDuration(t),
     falls: t.ski?.falls, chronoS: t.ski?.chrono_s,
+    laps: t.ski?.laps, bestLapS: t.ski?.best_lap_s,
   }));
   const all = skiTotals(sessions);
   $('hist-total').textContent = n
@@ -4583,6 +4764,8 @@ function refreshHistPanel() {
     ? `dont ski : ${ski.count} session${ski.count > 1 ? 's' : ''} · ${formatDistance(ski.distanceM)} · `
       + `${ski.avgKmh.toFixed(1)} km/h de moyenne · ${formatDuration(ski.chronoS)} de chrono · `
       + `${ski.falls} chute${ski.falls > 1 ? 's' : ''}`
+      + (ski.laps ? ` · ${ski.laps} tour${ski.laps > 1 ? 's' : ''}` : '')
+      + (ski.bestLapS ? ` · meilleur ${formatChrono(ski.bestLapS)}` : '')
     : '';
   fillTripList($('hist-list'));
   stackBottomBars();
@@ -4611,7 +4794,9 @@ function fillTripList(el) {
       ski.className = 'route__stat route__stat--ski';
       ski.textContent = `${t.ski.activityName} · ${whoLabel(t.ski.who)} · ${t.ski.avg_kmh} km/h moy · `
         + `${t.ski.in_zone_pct} % dans la plage · ${formatDuration(t.ski.chrono_s)} de chrono · `
-        + `${t.ski.falls} chute${t.ski.falls > 1 ? 's' : ''}`;
+        + `${t.ski.falls} chute${t.ski.falls > 1 ? 's' : ''}`
+        + (t.ski.laps ? ` · ${t.ski.laps} tour${t.ski.laps > 1 ? 's' : ''}` : '')
+        + (t.ski.best_lap_s ? ` · meilleur tour ${formatChrono(t.ski.best_lap_s)}` : '');
       name.append(ski);
     }
     li.append(name);

@@ -57,7 +57,11 @@ export class LakeMap extends EventTarget {
   setRoute(points) { this.route = points.map((p) => [p[0], p[1]]); }
   setRouteProgress(fromIndex, snapped, alongM) { this.progress = { fromIndex, snapped, alongM }; }
   clearRoute() { this.route = null; }
-  setRouteDraft(points) { this.routeDraft = points.map((p) => [p[0], p[1]]); }
+  setRouteDraft(points, opts = {}) {
+    this.routeDraft = points.map((p) => [p[0], p[1]]);
+    this.draftLoop = Boolean(opts.loop);
+    this.draftEditing = opts.editingIndex ?? -1;
+  }
   clearRouteDraft() { this.routeDraft = []; }
   setRouteMode(active) { this.routeMode = Boolean(active); }
   setRouteStyle(kind) { this.routeStyle = kind; }

@@ -9,7 +9,7 @@
 // réponse en cache, et on ne se rabat sur le cache qu'en cas d'échec réseau. Les requêtes
 // vers d'autres origines (tuiles IGN, API GitHub, cote EDF) ne sont pas interceptées.
 
-const CACHE = 'relieflac-2026-08-18.3';
+const CACHE = 'relieflac-2026-08-18.4';
 
 self.addEventListener('install', () => self.skipWaiting());
 

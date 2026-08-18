@@ -41,6 +41,53 @@ export function routeKind(route) {
   return route?.kind === 'ski' ? 'ski' : 'nav';
 }
 
+/**
+ * Tolérance de fermeture d'une boucle, en mètres.
+ *
+ * Une boucle se ferme par un GESTE — « fermer la boucle » recopie le premier point — donc
+ * ses deux extrémités sont rigoureusement identiques. La tolérance ne sert qu'aux trajets
+ * venus d'ailleurs, où l'écriture puis la relecture du JSON ont pu bouger la dernière
+ * décimale : un mètre ne referme aucun trajet qui ne l'était pas.
+ */
+export const LOOP_TOLERANCE_M = 1;
+
+/**
+ * Le trajet revient-il à son point de départ ?
+ *
+ * C'est ce qui distingue un COULOIR — qu'on remonte et qu'on redescend — d'un CIRCUIT, qu'on
+ * tourne. Le circuit se compte en tours (voir `lapTracker` dans nav.js) ; le couloir, lui,
+ * n'a que deux bouts. Quatre points au minimum : trois sommets et la copie du premier, sans
+ * quoi l'aller-retour le plus simple (A → B → A) passerait pour une boucle alors qu'il n'a
+ * pas de surface.
+ */
+export function isClosedRoute(points) {
+  if (!Array.isArray(points) || points.length < 4) return false;
+  const first = points[0];
+  const last = points[points.length - 1];
+  return distanceMeters(first[0], first[1], last[0], last[1]) <= LOOP_TOLERANCE_M;
+}
+
+/**
+ * Referme le trajet sur son point de départ, en recopiant le premier point à la fin.
+ *
+ * Une COPIE, et non une référence : le point de départ se déplace ensuite tout seul, et
+ * deux extrémités qui partagent le même tableau se déplaceraient à deux.
+ */
+export function closeRouteLoop(points) {
+  const list = (points ?? []).map((p) => [p[0], p[1]]);
+  if (list.length < 3 || isClosedRoute(list)) return list;
+  list.push([list[0][0], list[0][1]]);
+  return list;
+}
+
+/** Rouvre la boucle : le point de fermeture s'en va, les sommets restent. */
+export function openRouteLoop(points) {
+  const list = (points ?? []).map((p) => [p[0], p[1]]);
+  if (!isClosedRoute(list)) return list;
+  list.pop();
+  return list;
+}
+
 export class Routes extends EventTarget {
   constructor() {
     super();

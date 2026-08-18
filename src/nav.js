@@ -258,3 +258,62 @@ export function routeChevrons(points, spacingM = 40) {
   }
   return marks;
 }
+
+/**
+ * Part du parcours à avoir couverte avant qu'un retour au départ vaille un tour.
+ *
+ * Sans ce verrou, tourner en rond au ponton compterait un tour toutes les vingt secondes.
+ * Sept dixièmes plutôt que la totalité : sur un circuit, le bateau coupe le dernier virage
+ * plus souvent qu'à son tour, et exiger le parcours entier ne compterait jamais rien.
+ */
+export const LAP_ARM_RATIO = 0.7;
+
+/** Rayon autour du point de départ qui vaut « revenu » (m). */
+export const LAP_RADIUS_M = 40;
+
+/** Durée en deçà de laquelle un tour n'en est pas un (ms) — garde-fou contre le bruit GPS. */
+export const LAP_MIN_MS = 20_000;
+
+/**
+ * Compteur de tours : combien de fois le bateau a bouclé son parcours.
+ *
+ * Un tour, c'est REVENIR À SON POINT DE DÉPART après avoir fait le parcours. Cette seule
+ * définition couvre les deux formes de trajet sans les distinguer :
+ *
+ * - un CIRCUIT fermé se boucle en le tournant — on s'arme au fil de l'avancement, et le
+ *   retour au départ solde le tour ;
+ * - un COULOIR ouvert, celui du ski, se boucle en ALLER-RETOUR — l'avancement atteint le
+ *   bout (donc la totalité du parcours, donc l'armement), et le retour au départ solde de
+ *   même. Un tour de couloir est un aller-retour, ce qui est bien ce que compte un skieur.
+ *
+ * L'armement est ce qui empêche de compter deux fois : une fois le tour soldé, il faut
+ * refaire le parcours pour en compter un autre. Réducteur pur, sans horloge à lui : c'est
+ * l'appelant qui fournit l'instant, et le banc peut donc faire tourner un bateau en une
+ * poignée d'appels.
+ *
+ * @param {?object} prev  état précédent, ou `null` au départ de la sortie
+ * @param {{progressRatio:number, distToStartM:number, atMs:number}} sample
+ * @returns {{laps:number, armed:boolean, since:number, lastLapMs:?number, bestLapMs:?number, lapped:boolean}}
+ */
+export function lapTracker(prev, {
+  progressRatio, distToStartM, atMs,
+  armRatio = LAP_ARM_RATIO, radiusM = LAP_RADIUS_M, minLapMs = LAP_MIN_MS,
+} = {}) {
+  const state = prev ?? {
+    laps: 0, armed: false, since: atMs, lastLapMs: null, bestLapMs: null, lapped: false,
+  };
+  const armed = state.armed || progressRatio >= armRatio;
+  const back = distToStartM <= radiusM;
+  if (armed && back && atMs - state.since >= minLapMs) {
+    const lapMs = atMs - state.since;
+    return {
+      laps: state.laps + 1,
+      armed: false,
+      since: atMs,
+      lastLapMs: lapMs,
+      bestLapMs: state.bestLapMs == null ? lapMs : Math.min(state.bestLapMs, lapMs),
+      lapped: true,
+    };
+  }
+  return { ...state, armed, lapped: false };
+}

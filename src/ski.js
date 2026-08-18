@@ -362,6 +362,9 @@ export function skiTotals(sessions) {
   const list = Array.isArray(sessions) ? sessions : [];
   const distanceM = list.reduce((sum, s) => sum + (Number(s.distanceM) || 0), 0);
   const durationS = list.reduce((sum, s) => sum + (Number(s.durationS) || 0), 0);
+  // Le meilleur tour est le PLUS COURT, et il ne s'additionne pas : c'est un record, pas un
+  // cumul. Les sorties sans tour ne pèsent pas dessus — `null` n'est pas un tour de zéro.
+  const bests = list.map((s) => Number(s.bestLapS)).filter((v) => v > 0);
   return {
     count: list.length,
     distanceM,
@@ -369,12 +372,15 @@ export function skiTotals(sessions) {
     avgKmh: averageKmh(distanceM, durationS),
     falls: list.reduce((sum, s) => sum + (Number(s.falls) || 0), 0),
     chronoS: list.reduce((sum, s) => sum + (Number(s.chronoS) || 0), 0),
+    laps: list.reduce((sum, s) => sum + (Number(s.laps) || 0), 0),
+    bestLapS: bests.length ? Math.min(...bests) : null,
   };
 }
 
 /** Résumé d'une session, tel qu'il part à l'Historique puis au partage. */
 export function skiSummary({
   activity, who, env, targetS, chronoS, chronoRuns, falls, avgKmh, topKmh, inZonePct,
+  laps, bestLapS,
 }) {
   return {
     activity,
@@ -390,6 +396,10 @@ export function skiSummary({
     avg_kmh: round2(avgKmh),
     top_kmh: round2(topKmh),
     in_zone_pct: Math.round(inZonePct || 0),
+    laps: Math.round(laps || 0),
+    // Meilleur tour : absent tant qu'aucun tour n'a été bouclé. Zéro dirait « en un
+    // instant », ce qui se lirait comme un record imbattable.
+    best_lap_s: bestLapS > 0 ? Math.round(bestLapS) : null,
   };
 }
 

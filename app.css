@@ -932,6 +932,33 @@ button.is-arming {
 }
 
 /* Point de passage posé sur la carte : pastille bleue numérotée, départ et arrivée marqués. */
+/* Menu d'un point du brouillon (L20) : il occupe la ligne de la consigne, donc rien de plus
+   que ce que le panneau prenait déjà. Les actions passent à la ligne plutôt que de rétrécir :
+   « Supprimer » à moitié lisible sur un bateau qui bouge ne vaut pas mieux qu'un doigt qui
+   glisse. `[hidden]` est explicite — `display: flex` l'emporterait sinon (cf. `.segbar`). */
+.pickbar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: .3rem;
+  margin: .35rem 0 .5rem; padding: .3rem .35rem;
+  background: #ffffff0e; border: 1px solid var(--line); border-radius: 9px;
+}
+.pickbar[hidden] { display: none; }
+.pickbar__lab {
+  font-size: .74rem; font-weight: 700; color: var(--fg);
+  padding: 0 .25rem; font-variant-numeric: tabular-nums;
+}
+.pickbar__act {
+  flex: 0 1 auto; padding: .3rem .5rem; font-size: .78rem;
+  background: #ffffff14; color: var(--fg);
+  border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.pickbar__act:active { background: #ffffff26; }
+.pickbar__act[hidden] { display: none; }
+.pickbar__act--danger { color: #ffb4a8; border-color: #ffb4a840; }
+.pickbar__act--ghost { color: var(--muted); }
+
+/* Tours bouclés : même pastille que les chutes et le fond, à l'écart du bateau. */
+.ski__chip--laps .ski__chip-num { color: #a7f3c0; }
+
 .wpt-mark {
   display: grid; place-items: center; width: 24px; height: 24px;
   background: var(--m-nav); border: 2px solid #04101f; border-radius: 50%;
@@ -939,6 +966,8 @@ button.is-arming {
   box-shadow: 0 1px 4px #0009; cursor: pointer;
 }
 .wpt-mark.is-start { background: #a7f3c0; }
+/* Départ d'un circuit : le même point sert d'arrivée, et le signe le dit. */
+.wpt-mark.is-loop { background: #a7f3c0; border-color: #04101f; box-shadow: 0 0 0 2px #a7f3c066, 0 1px 4px #0009; }
 .wpt-mark.is-end { background: #ffd9a8; border-radius: 6px 6px 50% 50%; }
 .wpt-mark.is-editing { outline: 2px solid #fff; outline-offset: 1px; }
 
@@ -1486,6 +1515,11 @@ body.mode-ski .go__speed-num.is-fast { color: #ff8a75; }
   background: var(--glass-2); border: 1px solid var(--line);
   backdrop-filter: var(--blur); color: var(--text); box-shadow: var(--shadow);
 }
+/* Cinquième fois — et la première où c'est le BANC qui l'a vue avant l'eau : `display: grid`
+   l'emporte sur l'attribut `hidden`, et la pastille des tours restait affichée en sortie
+   libre, à compter des tours d'un parcours qui n'existe pas. Voir le contrôle « tout ce que
+   le code masque disparaît vraiment de l'écran » dans test/interaction.js. */
+.ski__chip[hidden] { display: none; }
 .ski__chip--falls { cursor: pointer; border-color: color-mix(in srgb, var(--m-ski) 45%, transparent); }
 .ski__chip--falls:active { background: color-mix(in srgb, var(--m-ski) 28%, var(--glass-2)); }
 .ski__chip-num { font-size: 1.15rem; font-weight: 750; line-height: 1.05; font-variant-numeric: tabular-nums; }

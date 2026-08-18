@@ -882,17 +882,17 @@ export class LakeMap extends EventTarget {
     }
   }
 
-  #renderWaypointMarkers(field, points, { active }) {
+  #renderWaypointMarkers(field, points, { active, loop = false }) {
     if (!this[field]) this[field] = [];
     for (const m of this[field]) m.remove();
-    const last = points.length - 1;
+    const last = loop ? -1 : points.length - 1;
     this[field] = points.map((p, i) => {
       const el = document.createElement('div');
       el.className = 'wpt-mark';
-      if (i === 0) el.classList.add('is-start');
+      if (i === 0) el.classList.add(loop ? 'is-loop' : 'is-start');
       else if (i === last) el.classList.add('is-end');
       if (p.editing) el.classList.add('is-editing');
-      el.textContent = i === 0 ? '⚑' : i === last ? '◎' : String(i + 1);
+      el.textContent = i === 0 ? (loop ? '⟲' : '⚑') : i === last ? '◎' : String(i + 1);
       el.addEventListener('click', (event) => {
         event.stopPropagation();
         this.dispatchEvent(new CustomEvent('wptselect', { detail: { index: i, active } }));
@@ -963,14 +963,22 @@ export class LakeMap extends EventTarget {
     this.#renderWaypointMarkers('routeMarkers', [], { active: true });
   }
 
-  /** Trajet en construction : ligne pointillée + sommets numérotés (marqueurs HTML). */
-  setRouteDraft(points, { editingIndex = -1 } = {}) {
+  /**
+   * Trajet en construction : ligne pointillée + sommets numérotés (marqueurs HTML).
+   *
+   * `loop` dit que le dernier point est la copie du premier. Son marqueur n'est alors pas
+   * dessiné : deux pastilles exactement superposées ne se distinguent pas, et c'est celle du
+   * dessus — le point de fermeture — qui recevrait les touchers destinés au départ. Le
+   * départ porte ⟲ au lieu de ⚑ : la boucle se lit sur la carte, et non dans le panneau.
+   */
+  setRouteDraft(points, { editingIndex = -1, loop = false } = {}) {
     const coords = points.map((p) => [p[0], p[1]]);
     this.map.getSource('route-draft').setData(coords.length >= 2
       ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }
       : EMPTY);
-    const marks = coords.map((c, i) => ({ 0: c[0], 1: c[1], editing: i === editingIndex }));
-    this.#renderWaypointMarkers('draftMarkers', marks, { active: false });
+    const shown = loop ? coords.slice(0, -1) : coords;
+    const marks = shown.map((c, i) => ({ 0: c[0], 1: c[1], editing: i === editingIndex }));
+    this.#renderWaypointMarkers('draftMarkers', marks, { active: false, loop });
   }
 
   clearRouteDraft() {

@@ -694,6 +694,61 @@ async function run() {
   check('le champ de nom paraît quand le trajet devient enregistrable',
     !$('route-name-box').hidden && !$('btn-route-save').disabled,
     $('route-meta').textContent);
+
+  // ------------------------------------------------- le menu d'un point du brouillon (L20)
+  //
+  // Toucher un point le SUPPRIMAIT. C'était direct, et c'était le piège : on touche un point
+  // pour le rattraper de quelques mètres, ou pour refermer la boucle dessus, et le parcours
+  // entier est à retracer. Le toucher ouvre donc un menu, et chacune de ses trois issues est
+  // vérifiée ici — déplacer, fermer/rouvrir la boucle, supprimer.
+  fire('wptselect', { index: 1, active: false });
+  check('toucher un point ouvre son menu au lieu de l’effacer',
+    !$('route-pick').hidden && map.routeDraft.length === 3,
+    `${map.routeDraft.length} points, menu ${$('route-pick').hidden ? 'fermé' : 'ouvert'}`);
+  check('le menu nomme le point touché, et propose de fermer la boucle',
+    $('route-pick-lab').textContent === 'Point 2'
+    && !$('btn-pick-loop').hidden && $('btn-pick-loop').textContent.includes('Fermer'),
+    `${$('route-pick-lab').textContent} · ${$('btn-pick-loop').textContent}`);
+
+  // Déplacer se fait en DEUX temps : le menu retient le point, la carte dit où le poser.
+  // Le second toucher ne doit surtout pas poser un point de plus.
+  $('btn-pick-move').click();
+  check('« Déplacer » demande où, et referme le menu',
+    $('route-pick').hidden && !$('route-hint').hidden
+    && $('route-hint').textContent.includes('point 2'),
+    $('route-hint').textContent);
+  fire('routevertex', { lng: 1.8730, lat: 45.7950 });
+  check('… et le toucher suivant déplace le point, sans en ajouter un',
+    map.routeDraft.length === 3 && Math.abs(map.routeDraft[1][1] - 45.7950) < 1e-9,
+    `${map.routeDraft.length} points, 2ᵉ à ${map.routeDraft[1][1]}`);
+
+  // Fermer la boucle recopie le point de départ : le trajet revient d'où il part, et se
+  // comptera en tours. Le compte affiché ignore cette copie — « 4 points » pour un triangle
+  // bouclé ferait chercher le quatrième.
+  fire('wptselect', { index: 0, active: false });
+  $('btn-pick-loop').click();
+  check('« Fermer la boucle » ramène le trajet à son départ',
+    map.routeDraft.length === 4 && map.draftLoop === true
+    && map.routeDraft[3][0] === map.routeDraft[0][0]
+    && $('route-meta').textContent.includes('3 points · boucle'),
+    $('route-meta').textContent);
+  fire('wptselect', { index: 0, active: false });
+  check('et le départ d’un circuit se nomme comme tel, avec de quoi le rouvrir',
+    $('route-pick-lab').textContent === 'Départ du circuit'
+    && $('btn-pick-loop').textContent.includes('Rouvrir'),
+    `${$('route-pick-lab').textContent} · ${$('btn-pick-loop').textContent}`);
+  $('btn-pick-loop').click();
+  check('« Rouvrir la boucle » rend au couloir ses deux bouts',
+    map.routeDraft.length === 3 && map.draftLoop === false,
+    `${map.routeDraft.length} points`);
+
+  fire('wptselect', { index: 1, active: false });
+  $('btn-pick-del').click();
+  check('« Supprimer » retire le point, et referme le menu',
+    map.routeDraft.length === 2 && $('route-pick').hidden,
+    `${map.routeDraft.length} points`);
+  fire('routevertex', { lng: 1.8790, lat: 45.7930 });
+
   $('route-name').value = 'Couloir de slalom';
   $('btn-route-save').click();
   // Le catalogue n'est pas vide pour autant : `initSync` a déjà descendu les trajets
@@ -845,6 +900,11 @@ async function run() {
     + `jauge à ${Math.round(rect($('ski-gauge')).top)} px`);
   check('le chrono affiche la durée demandée, en décompte',
     $('ski-time').textContent === '10:00', $('ski-time').textContent);
+  // Un couloir se boucle, donc il se compte en tours (L20). Le témoin n'existe que là où il
+  // veut dire quelque chose : en sortie libre, il n'y a pas de parcours, donc pas de tour.
+  check('le couloir compte ses tours, et le témoin les porte',
+    !$('ski-laps').hidden && $('ski-laps-num').textContent === '0',
+    `pastille ${$('ski-laps').hidden ? 'absente' : 'présente'}`);
 
   // Vitesse tenue : le compteur se colore de l'écart à la plage, la jauge suit.
   gps(1.8700, 45.7930, 35);
@@ -890,7 +950,8 @@ async function run() {
   const session = trips[trips.length - 1];
   check('la session est versée à l’Historique avec sa synthèse',
     Boolean(session?.ski) && session.ski.activityName === 'Monoski' && session.ski.who === 'adulte'
-    && session.ski.falls === 2 && session.ski.min_kmh === 32 && session.ski.target_s === 600,
+    && session.ski.falls === 2 && session.ski.min_kmh === 32 && session.ski.target_s === 600
+    && session.ski.laps === 0 && session.ski.best_lap_s === null,
     JSON.stringify(session?.ski ?? null).slice(0, 120));
   check('quitter la session rend la carte à la navigation',
     !document.body.classList.contains('mode-ski') && $('ski-hud').hidden
