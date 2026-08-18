@@ -863,9 +863,18 @@ async function run() {
   $('mode-nav').click();
   $('btn-nav-hist').click();
   await sleep(60);
-  check('l’Historique affiche les cumuls de ski à part',
-    $('hist-ski').textContent.startsWith('dont ski : 1 session'),
-    `${$('hist-total').textContent} | ${$('hist-ski').textContent}`);
+  // Troisième fois que le même piège se referme — après les zones et les couloirs, ce sont
+  // les SORTIES qui descendent du dépôt : de vraies sessions de ski y sont désormais
+  // publiées, et « dont ski : 1 session » n'a tenu que le temps qu'aucune ne le soit. Le
+  // banc ne compte pas ce que l'appareil contient. Ce qui se vérifie, c'est que la ligne
+  // EXISTE, qu'elle porte bien les grandeurs du ski, et qu'elle est distincte des cumuls
+  // généraux — un ski compté avec la balade ne dirait plus rien.
+  const skiLine = $('hist-ski').textContent;
+  const sessions = Number(skiLine.match(/dont ski : (\d+) session/)?.[1] ?? 0);
+  check('l’Historique tient les cumuls de ski à part des cumuls généraux',
+    sessions >= 1 && /chrono/.test(skiLine) && /chute/.test(skiLine)
+    && skiLine !== $('hist-total').textContent,
+    `${$('hist-total').textContent} | ${skiLine}`);
   check('la ligne de la sortie porte sa synthèse',
     document.querySelector('#hist-list .route__stat--ski')?.textContent.includes('Monoski'),
     document.querySelector('#hist-list .route__stat--ski')?.textContent ?? 'aucune ligne');
