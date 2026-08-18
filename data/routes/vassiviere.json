@@ -1,7 +1,7 @@
 {
   "schema": "relieflac.routes/1",
   "waterbody": "vassiviere",
-  "updated_at": "2026-08-18T16:10:58.251Z",
+  "updated_at": "2026-08-18T16:11:06.749Z",
   "routes": [
     {
       "id": "f0cdb997-161c-4bf5-8597-1ee757fee201",
@@ -406,7 +406,7 @@
     {
       "id": "4ea590d0-6578-4853-b2bb-7f282a2a07bc",
       "name": "Basic Ski Auchez",
-      "at": "2026-08-18T16:10:56.744Z",
+      "at": "2026-08-18T16:11:05.238Z",
       "kind": "ski",
       "points": [
         [
