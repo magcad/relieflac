@@ -1,7 +1,7 @@
 {
   "schema": "relieflac.trips-index/1",
   "waterbody": "vassiviere",
-  "updated_at": "2026-08-18T16:29:21.313Z",
+  "updated_at": "2026-08-18T17:14:07.871Z",
   "trips": [
     {
       "id": "121a44cd-c840-42ca-8602-b9990d106169",
@@ -122,6 +122,38 @@
         ]
       },
       "file": "37603f9d-60cd-4877-8197-44e6e7f64c63.json"
+    },
+    {
+      "id": "5954fdab-9ac1-4922-bbd1-eabfff6c5ce2",
+      "name": "Auchez Ski Nautique",
+      "at": "2026-08-18T16:36:30.790Z",
+      "ended_at": "2026-08-18T17:14:06.103Z",
+      "length_m": 9293,
+      "points": 1269,
+      "route_id": "69857439-ff66-4f5e-89c1-f62bdac9ab7b",
+      "by": null,
+      "ski": {
+        "activity": "wakeboard",
+        "activityName": "Wakeboard",
+        "who": "adulte",
+        "min_kmh": 30,
+        "max_kmh": 38,
+        "open_ended": false,
+        "target_s": 600,
+        "chrono_s": 1326,
+        "chrono_runs": 2,
+        "falls": 5,
+        "avg_kmh": 14.83,
+        "top_kmh": 35,
+        "in_zone_pct": 16,
+        "laps": 2,
+        "best_lap_s": 212,
+        "lap_times_s": [
+          1170,
+          212
+        ]
+      },
+      "file": "5954fdab-9ac1-4922-bbd1-eabfff6c5ce2.json"
     }
   ]
 }
