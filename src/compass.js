@@ -20,6 +20,7 @@ export class Compass extends EventTarget {
     this.source = null;       // 'ios' | 'absolute' | 'relative'
     this.active = false;
     this.granted = false;
+    this.hasAbsolute = false; // une source référencée au nord a-t-elle déjà parlé ?
   }
 
   get available() {
@@ -83,6 +84,19 @@ export class Compass extends EventTarget {
       source = event.absolute ? 'absolute' : 'relative';
     }
     if (heading == null) return;
+
+    // Un cap n'a de sens que référencé au nord. `deviceorientationabsolute` (Android) et
+    // webkitCompassHeading (iOS) le sont ; le `deviceorientation` simple de Chrome Android
+    // NE l'est PAS — son alpha part d'une origine arbitraire fixée au chargement. Or les deux
+    // événements se déclenchent sur Android et arrivent tous deux ici : les mélanger dans le
+    // même cap lissé tirait l'aiguille entre deux repères décalés, d'où des sauts erratiques.
+    // Dès qu'une source absolue a parlé, on ignore les lectures relatives ; elles ne servent
+    // que de dernier recours sur un appareil qui n'offre rien de mieux.
+    if (source === 'relative') {
+      if (this.hasAbsolute) return;
+    } else {
+      this.hasAbsolute = true;
+    }
 
     this.heading = smoothAngle(this.heading, (heading + 360) % 360, SMOOTHING);
     this.source = source;

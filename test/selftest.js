@@ -36,6 +36,7 @@ import {
 import { LAKE_OUTLINE } from '../src/lake-outline.js';
 import { projectPoint, thumbKey, thumbSvg } from '../src/thumb.js';
 import { closeRing, dedupeRing, groundAltitude, ringArea, Zones } from '../src/zones.js';
+import { Compass } from '../src/compass.js';
 import { runShaderChecks } from './shader.js';
 
 const results = [];
@@ -1504,6 +1505,38 @@ export async function run(base = '..') {
     const ref37 = matrixFor(37);
     check('ancrage : seule la translation est modifiée',
       [0, 1, 4, 5, 10].every((i) => out[i] === f(ref37[i])));
+  }
+
+  // --- boussole : ne pas mélanger deux repères de cap ---------------------------
+  //
+  // Sur Android, `deviceorientationabsolute` (référencé au nord) ET `deviceorientation`
+  // (relatif, origine arbitraire fixée au chargement) se déclenchent tous deux et arrivent
+  // au même gestionnaire. Les fondre dans le même cap lissé tirait l'aiguille entre deux
+  // repères décalés — des sauts erratiques signalés depuis un téléphone Android. Dès qu'une
+  // source absolue a parlé, les lectures relatives doivent être ignorées ; elles ne servent
+  // que de dernier recours sur un appareil qui n'offre rien de mieux.
+  if ('DeviceOrientationEvent' in window) {
+    const abs = (alpha) => new DeviceOrientationEvent('deviceorientationabsolute', { alpha, absolute: true });
+    const rel = (alpha) => new DeviceOrientationEvent('deviceorientation', { alpha, absolute: false });
+
+    const c1 = new Compass();
+    await c1.start();
+    window.dispatchEvent(abs(90));                                  // cap = (360 − 90) % 360 = 270
+    const afterAbsolute = c1.heading;
+    for (let i = 0; i < 20; i += 1) window.dispatchEvent(rel(0));   // cap relatif = 0/360, à écarter
+    const afterRelative = c1.heading;
+    c1.stop();
+    check('boussole : une source absolue fige le repère, le relatif est ignoré',
+      near(afterAbsolute, 270, 1) && near(afterRelative, 270, 1),
+      `absolu ${afterAbsolute?.toFixed(1)}° puis 20 lectures relatives → ${afterRelative?.toFixed(1)}°`);
+
+    const c2 = new Compass();
+    await c2.start();
+    window.dispatchEvent(rel(45));                                  // sans absolu, dernier recours
+    const relativeOnly = c2.heading;
+    c2.stop();
+    check('boussole : sans source absolue, le relatif sert de repli',
+      near(relativeOnly, 315, 1), `${relativeOnly?.toFixed(1)}°`);
   }
 
   // --- shader de profondeur -----------------------------------------------------
