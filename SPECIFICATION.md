@@ -1048,6 +1048,23 @@ bout de la corde ce jour-là. L'ordre des lignes est celui des **vitesses croiss
 revanche l'activité proposée par défaut est **nommée** (la bouée), et non « la première de la
 liste » : ajouter une épreuve plus lente ne doit pas changer ce qui démarre pour tout le monde.
 
+**Ce tableau est celui d'origine, et il se règle** (L18). Un bateau lourd, un plan d'eau court,
+un enfant léger : les plages du livre ne valent que comme point de départ, et les ressaisir à
+chaque sortie dans la feuille de préparation était le geste de trop. Une section « Ski
+nautique » des Paramètres les rend modifiables, épreuve par épreuve et personne par personne.
+Trois règles, et elles comptent :
+
+- **seuls les écarts sont mémorisés.** Ressaisir la valeur du livre n'est pas une retouche —
+  la mémoriser figerait la ligne, et une correction du tableau, plus tard, ne la rattraperait
+  plus ;
+- **la valeur d'origine reste affichée** en face de chaque champ, et chaque ligne se rend d'un
+  bouton, sans emporter les autres avec elle ;
+- **ce qui est réglé là commande tout le mode Ski** : la plage annoncée, la jauge, la couleur
+  du compteur, le départ automatique du chrono et le seuil au-dessous duquel une chute est
+  comptée. Une plage saisie de travers ne se voit donc pas seulement à l'écran ; le chrono
+  part tout seul, ou ne part jamais. D'où des bornes au plausible et une remise dans l'ordre
+  silencieuse, plutôt qu'un refus.
+
 - **Le compteur de vitesse est l'instrument.** Il se colore selon l'écart à la plage, et une
   jauge montre où l'on se situe. La plage y occupe **toujours le tiers central**, quelle que
   soit sa largeur : à échelle absolue, une plage étroite (wakeskate, 28–32) se réduirait à un
@@ -1081,6 +1098,17 @@ liste » : ajouter une épreuve plus lente ne doit pas changer ce qui démarre p
   **à part** des cumuls généraux : une heure de balade à 20 km/h et dix minutes de slalom à 35
   ne font pas une moyenne — et cette moyenne porte sur les distances et les durées cumulées,
   jamais sur les moyennes.
+
+**Deux choses ne se voient qu'une fois le bateau lancé** (L18). La caméra de barre — bateau
+verrouillé au centre, cap verrouillé vers l'étrave, vue inclinée — appartient au **mode**, et
+non aux préférences : elle est forcée au départ de toute sortie, navigation comme ski, et
+rendue à ce que l'utilisateur avait choisi en sortant. Rien de ce qui s'écrit dans les réglages
+pendant une sortie ne doit la relâcher, sous peine de voir le bateau s'échapper de l'écran sans
+que personne n'ait rien touché. Et tout ce qui est **ancré en bas** de la surcouche — HUD,
+barre de progression, jauge d'enveloppe — forme une **pile mesurée** : les commandes de carte
+se posent au-dessus d'elle, jamais à un décalage deviné. En ski le groupe est plus épais qu'en
+navigation, et un décalage fixe faisait passer le bouton de recentrage sur le bateau — le plus
+bas des trois, celui qu'on atteint sans lâcher la barre — derrière la barre de progression.
 
 **Les trajets ont un métier** (L16). Une route de navigation relie deux points en évitant les
 hauts-fonds ; un couloir de ski est un aller-retour en eau libre, choisi pour sa longueur et

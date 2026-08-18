@@ -466,6 +466,11 @@ a { color: var(--accent); }
 /* Liste de trajets, dans le menu Navigation comme dans le constructeur. */
 .routelist { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; max-height: 46vh; overflow-y: auto; }
 .routelist:empty { display: none; }
+/* `display: grid` ci-dessus l'emporte sur l'attribut `hidden`. Sans cette règle, le
+   constructeur avait beau poser `route-list.hidden` en entrant dans le tracé, le catalogue
+   des trajets restait affiché par-dessus la carte — donc plus de place pour poser le
+   moindre point de passage. Même piège que `.rail__btn[hidden]` et `.capture[hidden]`. */
+.routelist[hidden] { display: none; }
 .routelist li {
   display: flex; align-items: center; gap: .4rem;
   padding: .35rem .4rem; border-radius: var(--r-sm);
@@ -1086,6 +1091,37 @@ legend { padding: 0 .4rem; color: var(--muted); font-size: .78rem; text-transfor
 .tag--off { background: #3a2f14; color: #f5deb0; }
 .records button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 1.1rem; }
 
+/* Plages de vitesse du ski, dans les Réglages. Une ligne par épreuve : l'icône et le nom
+   au-dessus, les deux plages en dessous, et la valeur d'origine rappelée en petit — c'est
+   elle qui donne son sens à ce qu'on est en train de changer. Le liseré corail marque les
+   lignes retouchées, pour qu'on retrouve d'un coup d'œil ce qu'on a écarté du livre. */
+.skiset { display: grid; gap: .5rem; margin-top: .7rem; }
+.skiset__row {
+  display: grid; gap: .35rem;
+  padding: .55rem .6rem; background: var(--surface-2);
+  border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--r-sm);
+}
+.skiset__row.is-custom { border-left-color: var(--m-ski); }
+.skiset__head { display: flex; align-items: center; gap: .45rem; }
+.skiset__icon { font-size: 1.15rem; line-height: 1; }
+.skiset__name { font-size: .86rem; font-weight: 650; }
+.skiset__revert {
+  margin-left: auto; padding: .2rem .5rem; cursor: pointer; font-size: .7rem;
+  background: none; border: 1px solid var(--line); border-radius: var(--r-pill); color: var(--muted);
+}
+.skiset__revert[hidden] { display: none; }
+.skiset__ranges { display: grid; gap: .3rem; }
+.skiset__pair { display: flex; align-items: center; gap: .35rem; }
+.skiset__who { min-width: 3.6rem; font-size: .76rem; color: var(--muted); }
+.skiset__num {
+  width: 4.1rem; padding: .3rem .35rem; font: inherit; font-size: .82rem;
+  font-variant-numeric: tabular-nums; text-align: right;
+  background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--text);
+}
+.skiset__num:focus { outline: 2px solid color-mix(in srgb, var(--m-ski) 60%, transparent); outline-offset: 1px; }
+.skiset__dash, .skiset__unit { font-size: .76rem; color: var(--muted); }
+.skiset__factory { font-size: .68rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
 .prose h2 { font-size: 1rem; margin: 1.6rem 0 .5rem; }
 .prose ul { padding-left: 1.15rem; }
 .prose li { margin: .3rem 0; }
@@ -1189,10 +1225,17 @@ body.mode-go .navstrip { border-bottom-color: color-mix(in srgb, var(--m-nav) 45
 
 /* Commandes de carte en navigation : zoom et recentrage, empilés au-dessus du HUD, du
    côté de la main qui tient le téléphone. Elles reprennent l'aspect du rail, qui est
-   masqué en Go : même geste, même bouton, à un autre endroit. */
+   masqué en Go : même geste, même bouton, à un autre endroit.
+
+   Elles ne visent PAS le HUD directement mais `--go-stack`, la hauteur réellement occupée
+   par tout ce qui est ancré en bas — HUD, barre de progression, et en ski la jauge
+   d'enveloppe. Adossées au seul HUD par un décalage deviné, elles passaient sous la jauge
+   et sous la barre de progression, et le bouton de recentrage sur le bateau — le plus bas
+   des trois, donc celui qu'on atteint sans lâcher la barre — devenait intouchable. La
+   mesure est faite par `stackGoBars()`, comme `stackBottomBars()` le fait pour le rail. */
 .go__ctrl {
   position: absolute; right: .6rem;
-  bottom: calc(var(--go-hud-h, 128px) + var(--safe-bottom) + 1.4rem);
+  bottom: calc(var(--go-stack, 150px) + .55rem);
   display: grid; gap: .4rem;
 }
 .go__ctrl-btn {

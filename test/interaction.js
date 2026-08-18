@@ -638,6 +638,21 @@ async function run() {
   check('le mode Ski montre son panneau et son catalogue',
     !$('pane-ski').hidden && $('pane-nav').hidden && $('ski-picker') !== null);
   $('btn-ski-new').click();
+  // Tracer, c'est avoir la CARTE devant soi. Le catalogue des trajets occupe près de la
+  // moitié de la hauteur : tant qu'il est là, il n'y a plus où poser un point de passage.
+  // Vérifié sur l'écran et non sur l'attribut, parce que c'est exactement là qu'est passée
+  // la panne — `hidden` était bien posé, mais le `display: grid` de la feuille de style
+  // l'emportait dessus, faute d'une règle `[hidden]`, et la liste restait affichée.
+  const shown = (id) => getComputedStyle($(id)).display !== 'none';
+  check('« Nouveau couloir » ouvre le tracé et efface le catalogue de l’écran',
+    $('sheet').hidden && !shown('route-list')
+    && !$('route-name-box').hidden && !$('btn-route-save').hidden,
+    `liste : ${getComputedStyle($('route-list')).display}`);
+  $('btn-route-cancel').click();
+  check('… et le catalogue revient dès qu’on sort du tracé',
+    shown('route-list') && $('route-name-box').hidden,
+    `liste : ${getComputedStyle($('route-list')).display}`);
+  $('btn-route-new').click();
   for (const [lng, lat] of [[1.8700, 45.7930], [1.8730, 45.7930], [1.8760, 45.7930]]) {
     fire('routevertex', { lng, lat });
   }
@@ -742,11 +757,54 @@ async function run() {
   check('le chrono se choisit d’un appui', $('btn-ski-start').textContent.includes('10 min'),
     $('btn-ski-start').textContent);
 
+  // Le suivi est coupé d'abord, comme le fait un glissement de carte (`userpan` le mémorise
+  // dans les réglages) : c'est dans cet état — et seulement dans celui-là — que le verrou de
+  // la sortie retombait tout seul une seconde après le départ.
+  $('btn-suivi').click();
+  check('suivi coupé avant de partir, comme après un glissement de carte',
+    map.follow === false, `suivi ${map.follow}`);
+
   $('btn-ski-start').click();
   check('la session part en plein écran, avec son HUD et son couloir élargi',
     document.body.classList.contains('mode-ski') && !$('ski-hud').hidden
     && map.routeStyle === 'ski' && map.goMode === true,
     `allure ${map.routeStyle}`);
+
+  // Caméra de barre : bateau verrouillé au centre, cap verrouillé vers l'étrave, vue
+  // inclinée. Elle prend le relais après l'aperçu du couloir — une seconde et demie à plat,
+  // le temps de reconnaître où il mène.
+  await until(() => map.navCam === 55, 5000);
+  check('la sortie passe en suivi isométrique : bateau verrouillé, cap verrouillé',
+    map.follow === true && map.trackUp === true && map.navCam === 55,
+    `suivi ${map.follow}, cap ${map.trackUp}, tangage ${map.navCam}°`);
+  // Et elle y RESTE. `refreshCameraUi` repoussait les préférences de l'utilisateur sur la
+  // carte à CHAQUE écriture de réglage — or la boucle de suivi en écrit une toute seule, le
+  // zoom, 800 ms après le cadrage de départ. Les deux verrous sautaient donc sans que
+  // personne n'ait rien touché, et la vue restait inclinée : un défaut qui ne se voit pas.
+  $('set-sun').click();
+  $('set-sun').click();
+  check('et aucun réglage écrit en cours de sortie ne la déverrouille',
+    map.follow === true && map.trackUp === true && map.navCam === 55,
+    `suivi ${map.follow}, cap ${map.trackUp}`);
+
+  // Ce qui est ancré en bas forme une pile, et les commandes de carte se posent DESSUS.
+  // En ski le groupe s'épaissit d'une jauge d'enveloppe et d'une barre de progression
+  // remontée : adossées au seul HUD par un décalage deviné — 128 px, une hauteur que
+  // personne n'écrivait — les commandes passaient derrière, et le bouton de recentrage sur
+  // le bateau, le plus bas des trois, devenait intouchable.
+  const rect = (el) => el.getBoundingClientRect();
+  const ctrl = document.querySelector('.go__ctrl');
+  check('la hauteur du HUD est mesurée, et non devinée',
+    getComputedStyle(document.documentElement).getPropertyValue('--go-hud-h').trim()
+      === `${Math.round($('go-hud').offsetHeight)}px`,
+    getComputedStyle(document.documentElement).getPropertyValue('--go-hud-h').trim() || 'absente');
+  check('les commandes de carte restent au-dessus de la jauge et de la progression',
+    rect(ctrl).height > 0
+    && rect(ctrl).bottom <= rect($('go-progress-box')).top
+    && rect(ctrl).bottom <= rect($('ski-gauge')).top,
+    `commandes jusqu’à ${Math.round(rect(ctrl).bottom)} px, `
+    + `progression à ${Math.round(rect($('go-progress-box')).top)} px, `
+    + `jauge à ${Math.round(rect($('ski-gauge')).top)} px`);
   check('le chrono affiche la durée demandée, en décompte',
     $('ski-time').textContent === '10:00', $('ski-time').textContent);
 
@@ -812,6 +870,69 @@ async function run() {
     document.querySelector('#hist-list .route__stat--ski')?.textContent.includes('Monoski'),
     document.querySelector('#hist-list .route__stat--ski')?.textContent ?? 'aucune ligne');
   $('btn-hist-exit').click();
+  $('btn-suivi').click(); // on rend le suivi comme on l'a trouvé
+
+  // ------------------------------------------------- les plages de vitesse se règlent
+  //
+  // Le tableau du livre décrit un usage, pas les skieurs de la maison. Ce qui compte, c'est
+  // que la retouche traverse toute la chaîne — le champ des Réglages, la table en vigueur,
+  // la plage annoncée à la préparation — et qu'elle se rende d'un bouton sans emporter les
+  // autres lignes avec elle.
+  group('Ski nautique : les plages de vitesse se règlent');
+  location.hash = '#/parametres';
+  await sleep(60);
+
+  const skiRow = (id) => document.querySelector(`#ski-speeds [data-act="${id}"]`);
+  const skiField = (id, who, bound) => skiRow(id).querySelector(`[data-who="${who}"][data-bound="${bound}"]`);
+  check('la section reprend toutes les épreuves du tableau, avec leurs deux plages',
+    $('ski-speeds').children.length === 7
+    && skiRow('foil') !== null
+    && skiField('monoski', 'adulte', 'max').value === '38'
+    && skiField('monoski', 'enfant', 'min').value === '25',
+    [...$('ski-speeds').children].map((r) => r.dataset.act).join(' · '));
+  check('et elle rappelle la plage d’origine en face de chaque épreuve',
+    skiRow('monoski').querySelector('.skiset__factory').textContent.includes('32–38'),
+    skiRow('monoski').querySelector('.skiset__factory').textContent);
+
+  skiField('monoski', 'adulte', 'max').value = '36';
+  skiField('monoski', 'adulte', 'max').dispatchEvent(new Event('change'));
+  await sleep(30);
+  check('une plage retouchée est mémorisée, et elle seule',
+    JSON.stringify(settings().skiSpeeds) === '{"monoski":{"adulte":[32,36]}}',
+    JSON.stringify(settings().skiSpeeds));
+  check('la ligne retouchée se signale et offre son retour à l’origine',
+    skiRow('monoski').classList.contains('is-custom')
+    && !skiRow('monoski').querySelector('.skiset__revert').hidden
+    && !skiRow('bouee').classList.contains('is-custom'),
+    $('ski-speeds-state').textContent);
+
+  // Le seul essai qui compte : ce que le bateau devra tenir.
+  location.hash = '#/';
+  await sleep(60);
+  $('btn-menu').click();
+  $('mode-ski').click();
+  await sleep(60);
+  document.querySelector('#ski-picker .route__open').click();
+  document.querySelector('#ski-activities [data-act="monoski"]').click();
+  document.querySelector('#ski-who [data-who="adulte"]').click();
+  check('la préparation annonce la plage réglée, pas celle du livre',
+    $('ski-env').textContent === '32 – 36 km/h', $('ski-env').textContent);
+  check('et la tuile de l’épreuve la porte aussi',
+    document.querySelector('#ski-activities [data-act="monoski"] .act__range').textContent === '32–36 km/h',
+    document.querySelector('#ski-activities [data-act="monoski"] .act__range').textContent);
+  $('btn-ski-cancel').click();
+
+  location.hash = '#/parametres';
+  await sleep(60);
+  skiRow('monoski').querySelector('.skiset__revert').click();
+  await sleep(30);
+  check('le retour à l’origine rend la ligne, et le champ avec elle',
+    JSON.stringify(settings().skiSpeeds) === '{}'
+    && skiField('monoski', 'adulte', 'max').value === '38'
+    && !skiRow('monoski').classList.contains('is-custom'),
+    `${JSON.stringify(settings().skiSpeeds)} · champ ${skiField('monoski', 'adulte', 'max').value}`);
+  location.hash = '#/';
+  await sleep(60);
 
   render();
 }

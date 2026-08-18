@@ -1,10 +1,10 @@
 # État du projet — reprise de session
 
-**Dernière mise à jour** : 17 août 2026
+**Dernière mise à jour** : 18 août 2026
 **Application en ligne** : <https://magcad.github.io/relieflac/>
-**Vérifications** : <https://magcad.github.io/relieflac/test/> — 210 contrôles, **tous au
+**Vérifications** : <https://magcad.github.io/relieflac/test/> — 216 contrôles, **tous au
 vert**
-**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 110 gestes,
+**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 124 gestes,
 **tous au vert**
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
@@ -43,6 +43,57 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L14** | Mode Navigation refondu : **la liste des trajets devient le mode**, avec une **vignette** par trajet (silhouette du lac + tracé) | ✅ terminé le 16/08/2026 (v2026-08-16.9) — voir § 1 |
 | **L15** | Mode **Ski nautique** : enveloppe de vitesse par activité et par personne, chrono à départ automatique, compteur de chutes, HUD de glisse — et **récupération automatique du partage** | ✅ terminé le 17/08/2026 (v2026-08-17.1) — voir § 1 |
 | **L16** | **Trajets typés** : un trajet appartient à la navigation ou au ski, chaque mode ne montre que les siens, et le couloir de ski est corail | ✅ terminé le 17/08/2026 (v2026-08-17.2) — voir § 1 |
+| **L17** | Le **foil tracté** entre au tableau des épreuves, et le défaut cesse d'être positionnel | ✅ terminé le 17/08/2026 (v2026-08-17.5) — voir § 1 |
+| **L18** | Retour de la première sortie en ski : **le catalogue s'efface pendant le tracé**, la caméra de barre ne se déverrouille plus, les commandes du HUD s'empilent au-dessus des bandeaux, et les **plages de vitesse se règlent** | ✅ terminé le 18/08/2026 (v2026-08-18.1) — voir § 1 |
+
+**Lot L18 — ce que la première sortie en ski a révélé** (18/08/2026, v2026-08-18.1).
+Quatre retours de l'utilisateur, dont un **bloquant**, et trois défauts de disposition ou de
+verrouillage qui ne se voient qu'une fois le bateau lancé.
+
+- **Bloquant : le catalogue des trajets couvrait la carte pendant le tracé.** Le constructeur
+  posait bien `route-list.hidden` en entrant dans le tracé — mais `.routelist` est en
+  `display: grid`, et sans règle `[hidden]` cette déclaration l'emporte sur l'attribut. La
+  liste restait donc affichée, occupant près de la moitié de la hauteur, et **il n'y avait
+  plus où poser un point de passage**. Une ligne de feuille de style, `.routelist[hidden]
+  { display: none; }` — le même piège que `.rail__btn[hidden]` et `.capture[hidden]`, tous
+  deux déjà commentés dans `app.css`. Le banc le vérifie maintenant **sur l'écran**
+  (`getComputedStyle(…).display`) et non sur l'attribut, qui était juste.
+- **La caméra de barre se déverrouillait toute seule, une seconde après le départ.**
+  `startGo` force suivi, cap en haut et vue inclinée à 55° sans toucher aux réglages ; mais
+  `refreshCameraUi()` repoussait les préférences mémorisées sur la carte à **chaque**
+  événement `change` des réglages — et la boucle de suivi en écrit un toute seule, le zoom,
+  800 ms après le cadrage de départ. Pour qui avait coupé le suivi en faisant glisser la
+  carte (ce que `userpan` mémorise), les deux verrous sautaient donc sans que personne n'ait
+  rien touché. La vue, elle, restait inclinée : **le défaut ne se voyait pas**, on constatait
+  seulement que le bateau s'échappait de l'écran. `refreshCameraUi` rend désormais la main au
+  mode tant qu'une sortie est active, et `exitGo` restitue les réglages comme avant. Au
+  passage, le zoom n'est plus mémorisé pendant une sortie : c'est celui de la caméra de
+  barre, bien plus serré, et l'application rouvrait collée au bateau.
+- **Les commandes de carte passaient derrière la jauge et la barre de progression.** Elles
+  s'adossaient au HUD par `--go-hud-h`, une variable que **personne n'écrivait** — donc
+  toujours ramenée à son repli de 128 px — plus un décalage choisi à l'œil. En ski, où le bas
+  de l'écran s'épaissit d'une jauge d'enveloppe et d'une barre de progression remontée, le
+  bouton de recentrage sur le bateau, le plus bas des trois, finissait sous la progression.
+  `stackGoBars()` mesure maintenant la hauteur vraie du HUD **puis** la hauteur totale du
+  groupe ancré en bas, et publie `--go-hud-h` et `--go-stack` ; les commandes se posent sur
+  la seconde. Ajouter un bandeau au groupe, c'est l'inscrire dans `GO_BOTTOM_BARS` — les
+  boutons se recalent d'eux-mêmes. Même principe que `stackBottomBars()` / `liftRail()` pour
+  le rail de la carte.
+- **Les plages de vitesse se règlent**, dans une section « Ski nautique » des Paramètres. Le
+  tableau de `src/ski.js` devient le tableau **d'origine** : `setSkiSpeeds()` installe la
+  table **en vigueur**, et tout ce qui en dépend — plage annoncée, jauge, couleur du
+  compteur, départ automatique du chrono, seuil de traction — la suit sans qu'aucun appelant
+  n'ait à passer un paramètre de plus. Seuls les **écarts** sont mémorisés
+  (`normalizeSkiSpeeds` : ce qui égale l'origine n'est pas une retouche, sans quoi ressaisir
+  la valeur du livre figerait la ligne pour toujours). Chaque ligne rappelle sa plage
+  d'origine et porte son propre bouton de retour ; un bouton rend tout le tableau. La grille
+  de la section est **engendrée** depuis `SKI_ACTIVITIES`, comme celle de la préparation :
+  ajouter une épreuve reste une ligne de données, et cet écran la porte sans être touché.
+
+**Ce qui reste à voir sur l'eau** : la disposition du HUD ne se vérifie qu'à l'écran d'un
+téléphone. Le banc contrôle désormais que les commandes sont **au-dessus** de la jauge et de
+la progression (une comparaison de rectangles, pas une capture), mais ni la taille des cibles
+ni la lisibilité en plein soleil.
 
 **Lot L16 — les trajets ont un métier** (17/08/2026, v2026-08-17.2). Retour de l'utilisateur
 après le L15 : les trajets de navigation et les couloirs de ski ne sont pas les mêmes objets,
@@ -91,7 +142,8 @@ vitesse** pendant qu'un chrono tourne.
 - **Enveloppe de vitesse.** Le tableau fourni (7 activités × enfant/adulte, le foil tracté
   ajouté le 17/08/2026) vit dans `src/ski.js`, seule source de vérité ; la grille de la
   feuille de préparation est engendrée à partir de lui — ajouter une épreuve est une ligne de
-  données, et rien d'autre. La colonne « vitesse typique » en nœuds est gardée **telle quelle**
+  données, et rien d'autre. Depuis le L18 il est le tableau **d'origine** : les plages se
+  règlent dans les Paramètres, et c'est `skiActivities()` qui dit ce qui s'applique. La colonne « vitesse typique » en nœuds est gardée **telle quelle**
   et non recalculée : ce n'est pas exactement l'union des deux plages (le foil, le wakeskate et
   le slalom s'en écartent), c'est un usage constaté. Le « 55+ » du slalom adulte est un `openEnded` : au-delà
   on n'est pas hors plage. La plage reste **corrigeable à la main** (petit `✎`) — un tableau
@@ -141,7 +193,7 @@ chose, sinon tout le rendu accroché à `change` se relancerait pour rien toutes
 
 **Ce que la réalisation a ajouté à la spécification** :
 - Tout le raisonnement est dans le module pur `src/ski.js` (réducteurs `autoStartTracker` et
-  `fallTracker`, `envelopeState`, `gaugePosition`, cumuls) : **24 contrôles au banc**. C'est
+  `fallTracker`, `envelopeState`, `gaugePosition`, cumuls) : **30 contrôles au banc**. C'est
   la seule façon d'être sûr — on ne met pas au point un chrono avec quelqu'un au bout d'une
   corde.
 - Le déclencheur automatique rend un **front** (`fire`) et non un état : l'appelant n'a rien

@@ -678,8 +678,10 @@
 
     <div class="go__progress" id="go-progress-box"><span class="go__progress-bar" id="go-progress"></span></div>
 
-    <!-- Barre du bas : vitesse à gauche, gouverne à droite. -->
-    <div class="go__hud">
+    <!-- Barre du bas : vitesse à gauche, gouverne à droite. Elle porte un identifiant
+         parce que sa hauteur est MESURÉE (`stackGoBars`) : tout ce qui flotte au-dessus
+         d'elle s'y adosse, et une hauteur devinée les faisait se recouvrir. -->
+    <div class="go__hud" id="go-hud">
       <div class="go__speed">
         <span class="go__speed-num" id="go-speed">—</span>
         <span class="go__speed-unit" id="go-speed-unit">km/h</span>
@@ -737,7 +739,7 @@
 
       <!-- Jauge d'enveloppe : la bande claire est la plage à tenir, le curseur la vitesse.
            La plage occupe toujours le tiers central, si étroite soit-elle (voir ski.js). -->
-      <div class="ski__gauge">
+      <div class="ski__gauge" id="ski-gauge">
         <span class="ski__gauge-band"></span>
         <span class="ski__gauge-cursor" id="ski-cursor"></span>
         <span class="ski__gauge-min" id="ski-gauge-min">—</span>
@@ -763,7 +765,7 @@
     <h1>Paramètres</h1>
   </header>
 
-  <!-- Repère de position dans une page longue : neuf sections, dont trois seulement
+  <!-- Repère de position dans une page longue : dix sections, dont trois seulement
        servent sur l'eau. Ce sont des boutons et non des ancres — une ancre changerait
        `location.hash`, que le routeur interpréterait comme un changement d'écran. -->
   <nav class="quicknav" aria-label="Sections des paramètres">
@@ -774,6 +776,7 @@
     <button type="button" data-goto="sec-cote">Cote</button>
     <button type="button" data-goto="sec-sondes">Mes sondes</button>
     <button type="button" data-goto="sec-zones">Zones</button>
+    <button type="button" data-goto="sec-ski">Ski</button>
     <button type="button" data-goto="sec-sync">Partage</button>
     <button type="button" data-goto="sec-app">Application</button>
   </nav>
@@ -1098,6 +1101,44 @@
       <div class="actions">
         <button type="button" id="btn-zone-geojson">Exporter GeoJSON</button>
         <button type="button" class="danger" id="btn-zone-clear">Tout effacer</button>
+      </div>
+    </fieldset>
+
+    <!-- Plages de vitesse du ski nautique. La grille est ENGENDRÉE depuis le tableau de
+         src/ski.js (`buildSkiSettings`) : ajouter une épreuve reste une ligne de données,
+         et cet écran la porte sans être touché. -->
+    <fieldset id="sec-ski">
+      <legend>Ski nautique</legend>
+      <p class="hint">
+        Les plages de vitesse tenues par le bateau, par épreuve et par personne tractée.
+        <button class="infobtn" type="button" data-info="note-ski-speeds"
+                aria-expanded="false" aria-label="En savoir plus sur les plages de vitesse">i</button>
+      </p>
+      <div class="note" id="note-ski-speeds" hidden>
+        <p>
+          Le tableau livré avec l'application décrit un <strong>usage</strong>, pas la
+          personne qui est derrière la corde ce jour-là. C'est ici qu'on l'accorde au bateau,
+          au plan d'eau et aux skieurs de la maison — un enfant léger décolle plus tôt, une
+          coque lourde tire différemment.
+        </p>
+        <p>
+          Ce qui est réglé ici commande <strong>tout le mode Ski</strong> : la plage annoncée
+          à la préparation, la jauge du HUD, la couleur du compteur de vitesse, le départ
+          automatique du chrono et le seuil au-dessous duquel une chute est comptée. Une
+          plage saisie de travers ne se voit donc pas seulement à l'écran ; le chrono part
+          tout seul, ou ne part jamais.
+        </p>
+        <p>
+          Seuls les <strong>écarts</strong> au tableau d'origine sont mémorisés, et chaque
+          ligne se rend d'un bouton. La plage d'une session peut de toute façon se corriger
+          au dernier moment, dans la feuille de préparation : ce qui se règle ici, c'est ce
+          qu'on n'a plus envie de ressaisir à chaque sortie.
+        </p>
+      </div>
+      <div class="skiset" id="ski-speeds"></div>
+      <p class="hint" id="ski-speeds-state"></p>
+      <div class="actions">
+        <button type="button" class="danger" id="btn-ski-speeds-reset">Revenir au tableau d'origine</button>
       </div>
     </fieldset>
 

@@ -12,7 +12,9 @@
 // et d'où le fait que tout le reste (chrono, chutes) s'en déduise.
 
 /**
- * Plages de vitesse par activité et par personne, en km/h, telles que fournies.
+ * Plages de vitesse par activité et par personne, en km/h, telles que fournies — le tableau
+ * **d'usine**, celui du livre. Ce que l'application applique, c'est `skiActivities()`, qui
+ * peut en différer : voir `setSkiSpeeds`.
  *
  * `enfant` et `adulte` sont les plages de travail : c'est l'une des deux qui devient
  * l'enveloppe à tenir. `typicalKn` est la colonne « vitesse typique » du tableau d'origine,
@@ -85,10 +87,98 @@ export const TOW_RATIO = 0.7;
  */
 export const DEFAULT_ACTIVITY_ID = 'bouee';
 
+/**
+ * Plages retouchées par l'utilisateur, par activité : `{ monoski: { adulte: [30, 36] } }`.
+ *
+ * Pourquoi une table « en vigueur » distincte du tableau d'usine, et non un tableau qu'on
+ * modifierait sur place : le tableau du livre reste la référence affichée en face de chaque
+ * champ des Réglages, et il faut pouvoir y revenir d'un bouton. On ne mémorise donc que les
+ * ÉCARTS — une plage retouchée aujourd'hui n'empêchera pas une correction d'usine, demain,
+ * de rattraper toutes celles qu'on n'a pas touchées.
+ *
+ * L'état est ici, et non dans les réglages, parce que tout le reste du module en dépend :
+ * l'enveloppe, la jauge, le départ automatique, le seuil de traction, la grille de
+ * préparation. Les faire tous passer un paramètre de plus, c'était la certitude qu'un
+ * endroit l'oublie et affiche encore la plage d'usine pendant que le bateau tient l'autre.
+ */
+let inForce = SKI_ACTIVITIES;
+
+/**
+ * Installe les plages retouchées. Rend la table en vigueur.
+ *
+ * Appelée au démarrage avec ce que portent les réglages, et à chaque changement. Une valeur
+ * vide, illisible ou hors du plausible rend simplement le tableau d'usine : sur l'eau, une
+ * plage absurde vaudrait chrono qui ne part jamais et chutes comptées sans arrêt.
+ */
+export function setSkiSpeeds(overrides) {
+  inForce = mergeSkiSpeeds(SKI_ACTIVITIES, overrides);
+  return inForce;
+}
+
+/** Le tableau réellement appliqué : usine, retouches comprises. */
+export function skiActivities() {
+  return inForce;
+}
+
+/**
+ * Applique des retouches sur un tableau d'activités. Pur : rend un nouveau tableau.
+ *
+ * Une retouche n'est retenue que si elle décrit une plage lisible (deux nombres, dans les
+ * bornes du plausible) ; sinon la ligne d'usine est gardée. `openEnded` et `typicalKn` ne
+ * se retouchent pas : le premier dit qu'un sport n'a pas de plafond, la seconde est une
+ * colonne d'origine qu'on ne recalcule jamais (voir en tête de module).
+ */
+export function mergeSkiSpeeds(base, overrides) {
+  const map = overrides && typeof overrides === 'object' ? overrides : {};
+  return base.map((activity) => {
+    const patch = map[activity.id];
+    if (!patch || typeof patch !== 'object') return activity;
+    const enfant = readRange(patch.enfant) ?? activity.enfant;
+    const adulte = readRange(patch.adulte) ?? activity.adulte;
+    if (enfant === activity.enfant && adulte === activity.adulte) return activity;
+    return { ...activity, enfant, adulte };
+  });
+}
+
+/**
+ * Retouches nettoyées, telles qu'on les mémorise : bornées, remises dans l'ordre, et
+ * **débarrassées de ce qui égale l'usine**. Sans ce dernier tri, saisir 28–34 au monoski
+ * adulte — la valeur du livre — figerait cette ligne pour toujours.
+ */
+export function normalizeSkiSpeeds(overrides) {
+  const map = overrides && typeof overrides === 'object' ? overrides : {};
+  const out = {};
+  for (const activity of SKI_ACTIVITIES) {
+    const patch = map[activity.id];
+    if (!patch || typeof patch !== 'object') continue;
+    const kept = {};
+    for (const who of ['enfant', 'adulte']) {
+      const range = readRange(patch[who]);
+      if (!range) continue;
+      if (range[0] === activity[who][0] && range[1] === activity[who][1]) continue;
+      kept[who] = range;
+    }
+    if (Object.keys(kept).length) out[activity.id] = kept;
+  }
+  return out;
+}
+
+/** Une plage lisible, remise dans l'ordre et bornée — ou `null` si ce n'en est pas une. */
+function readRange(value) {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const lo = Number(value[0]);
+  const hi = Number(value[1]);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+  const a = clampKmh(lo);
+  const b = clampKmh(hi);
+  return [Math.min(a, b), Math.max(a, b)];
+}
+
 export function skiActivity(id) {
-  return SKI_ACTIVITIES.find((a) => a.id === id)
-    ?? SKI_ACTIVITIES.find((a) => a.id === DEFAULT_ACTIVITY_ID)
-    ?? SKI_ACTIVITIES[0];
+  const table = skiActivities();
+  return table.find((a) => a.id === id)
+    ?? table.find((a) => a.id === DEFAULT_ACTIVITY_ID)
+    ?? table[0];
 }
 
 export function whoLabel(who) {

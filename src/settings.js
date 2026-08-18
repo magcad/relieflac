@@ -177,6 +177,11 @@ export function defaultsFrom(palette, model) {
     // trajet et ne sera jamais modifiée. Voir src/sync.js.
     syncRoutesPath: 'data/routes/vassiviere.json',
     syncTripsDir: 'data/trips/vassiviere',
+    // Plages de vitesse du ski nautique retouchées par l'utilisateur, par activité :
+    // { monoski: { adulte: [30, 36] } }. Seuls les ÉCARTS au tableau d'usine sont
+    // mémorisés — voir `normalizeSkiSpeeds` dans src/ski.js — pour qu'une correction
+    // d'usine ultérieure rattrape toutes les lignes qu'on n'a pas touchées.
+    skiSpeeds: {},
     // Retouches de couleurs par l'utilisateur, par préréglage : { marine: { emerged_color,
     // bands: [{ max_depth_m, color }] , stops: [...] } }. Appliquées sur la palette en
     // mémoire au démarrage ; « réinitialiser » les efface.

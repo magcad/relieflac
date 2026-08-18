@@ -29,6 +29,7 @@ import { SimPoints } from '../src/sim.js';
 import { Soundings } from '../src/soundings.js';
 import {
   AUTO_START_HOLD_MS, autoStartTracker, averageKmh, DEFAULT_ACTIVITY_ID, envelopeLabel,
+  mergeSkiSpeeds, normalizeSkiSpeeds, setSkiSpeeds, skiActivities,
   envelopeState, fallTracker, formatChrono, gaugePosition, GAUGE_BAND, manualEnvelope,
   skiActivity, SKI_ACTIVITIES, skiSummary, skiTotals, speedEnvelope,
 } from '../src/ski.js';
@@ -847,6 +848,56 @@ export async function run(base = '..') {
   check('enveloppe : le monoski suit le tableau, enfant comme adulte',
     mono.minKmh === 32 && mono.maxKmh === 38
     && monoEnfant.minKmh === 25 && monoEnfant.maxKmh === 30);
+
+  // ------------------------------------------- plages retouchées par l'utilisateur
+  //
+  // Le tableau du livre décrit un usage, pas les skieurs de la maison. Ce qui compte ici,
+  // c'est qu'une retouche traverse TOUT le module — l'enveloppe et donc la jauge, le
+  // départ automatique et le seuil de traction en dépendent — et qu'elle n'aille jamais
+  // écraser la référence, qui reste affichée en face du champ dans les Réglages.
+  const patched = mergeSkiSpeeds(SKI_ACTIVITIES, { monoski: { adulte: [30, 36] } });
+  check('retouche : elle est pure, le tableau d’origine n’est pas touché',
+    patched.find((a) => a.id === 'monoski').adulte[0] === 30
+    && SKI_ACTIVITIES.find((a) => a.id === 'monoski').adulte[0] === 32,
+    `retouché ${patched.find((a) => a.id === 'monoski').adulte.join('–')}, `
+    + `origine ${SKI_ACTIVITIES.find((a) => a.id === 'monoski').adulte.join('–')}`);
+  check('retouche : elle ne déborde pas sur les autres épreuves ni sur l’autre personne',
+    patched.find((a) => a.id === 'monoski').enfant.join() === '25,30'
+    && patched.find((a) => a.id === 'slalom').adulte.join() === '35,55'
+    && patched.find((a) => a.id === 'slalom').openEnded === true);
+
+  setSkiSpeeds({ monoski: { adulte: [30, 36] } });
+  const custom = speedEnvelope('monoski', 'adulte');
+  check('retouche : l’enveloppe en vigueur la suit, et la jauge avec elle',
+    custom.minKmh === 30 && custom.maxKmh === 36
+    && Math.abs(gaugePosition(33, custom) - 0.5) < 1e-9
+    && skiActivity('monoski').adulte[1] === 36,
+    envelopeLabel(custom));
+  // Une plage écrite à l'envers ou hors du plausible : remise d'aplomb, jamais rejetée en
+  // silence — une enveloppe absurde, sur l'eau, c'est un chrono qui ne part jamais.
+  setSkiSpeeds({ bouee: { adulte: [40, 12] }, foil: { enfant: [0, 500] } });
+  const swapped = speedEnvelope('bouee', 'adulte');
+  const bounded = speedEnvelope('foil', 'enfant');
+  check('retouche : bornée au plausible et remise dans l’ordre',
+    swapped.minKmh === 12 && swapped.maxKmh === 40
+    && bounded.minKmh === 1 && bounded.maxKmh === 90,
+    `${envelopeLabel(swapped)} · ${envelopeLabel(bounded)}`);
+  // Ce qui égale l'origine n'est pas une retouche : le mémoriser figerait la ligne, et une
+  // correction du tableau, plus tard, ne la rattraperait plus.
+  const gaps = normalizeSkiSpeeds({
+    monoski: { adulte: [32, 38], enfant: [24, 30] },
+    slalom: { adulte: [35, 55] },
+    inconnu: { adulte: [10, 20] },
+  });
+  check('retouche : seuls les écarts sont mémorisés',
+    Object.keys(gaps).join() === 'monoski'
+    && gaps.monoski.enfant.join() === '24,30' && gaps.monoski.adulte === undefined,
+    JSON.stringify(gaps));
+  // Et l'on doit pouvoir tout rendre : c'est le bouton « Revenir au tableau d'origine ».
+  setSkiSpeeds({});
+  check('retouche : tout se rend, le tableau d’origine revient entier',
+    skiActivities().every((a, i) => a === SKI_ACTIVITIES[i])
+    && speedEnvelope('monoski', 'adulte').maxKmh === 38);
   // Le « 55+ » du slalom ne vaut que pour l'adulte : au-delà on n'est pas hors plage, on
   // est dans le haut du sport. La plage enfant, elle, est bel et bien fermée à 40.
   const slalom = speedEnvelope('slalom', 'adulte');

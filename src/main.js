@@ -22,8 +22,9 @@ import { angleDelta, navSolution } from './nav.js';
 import {
   AUTO_START_HOLD_MS, autoStartTracker, averageKmh, CHRONO_PRESETS_S, chronoLabel,
   envelopeLabel, envelopeState,
-  fallTracker, formatChrono, gaugePosition, KN_PER_KMH, manualEnvelope, rangeLabel,
-  skiActivity, SKI_ACTIVITIES, SKI_WHO, skiSummary, skiTotals, speedEnvelope, whoLabel,
+  fallTracker, formatChrono, gaugePosition, KN_PER_KMH, manualEnvelope, normalizeSkiSpeeds,
+  rangeLabel, skiActivities, skiActivity, SKI_ACTIVITIES, SKI_WHO, skiSummary, skiTotals,
+  setSkiSpeeds, speedEnvelope, whoLabel,
 } from './ski.js';
 import { thumbKey, thumbSvg } from './thumb.js';
 import { hasTrack, tripDistance, Trips, tripDuration, tripLabel } from './trips.js';
@@ -115,6 +116,10 @@ async function boot() {
     // Retouches de couleurs mémorisées : appliquées sur la palette en mémoire, dont tout
     // le rendu (table, légende, shader) dérive ensuite.
     applyAllPaletteOverrides();
+    // Même principe pour les plages de vitesse du ski : la table en vigueur est installée
+    // AVANT que quoi que ce soit ne la lise — la grille de préparation est engendrée une
+    // seule fois, et elle serait née avec les plages d'usine.
+    setSkiSpeeds(app.settings.get('skiSpeeds'));
     app.probes = new Probes();
     app.sim = new SimPoints();
     app.zones = new Zones();
@@ -1237,6 +1242,10 @@ function wireSettings() {
   $('btn-reload').addEventListener('click', reloadApp);
 
   s.addEventListener('change', (event) => {
+    // Les plages du ski sont relues avant tout rendu : la feuille de préparation, ouverte
+    // ou non, et la session en cours lisent la table en vigueur, pas les réglages.
+    setSkiSpeeds(s.get('skiSpeeds'));
+    if (app.skiPending) refreshSkiLaunch();
     refreshSettingsUi();
     // La cote affichée dépend d'un réglage — `manualLevel` — qui change par le champ de
     // saisie, le bouton « Revenir à la cote EDF », la sortie de simulation, un profil
@@ -1270,6 +1279,7 @@ function wireSettings() {
   });
 
   wirePaletteEditor();
+  buildSkiSettings();
 }
 
 function bind(id, event, handler) {
@@ -1355,6 +1365,7 @@ function refreshSettingsUi() {
   refreshBedSourceUi();
   refreshProbesUi();
   refreshZonesUi();
+  refreshSkiSpeedsUi();
 
   $('hint-safety').textContent = `Contour de sécurité tracé à ${s.safetyDepth.toFixed(2)} m `
     + `(tirant d'eau ${s.get('draft_m')} + marge ${s.get('margin_m')}).`;
@@ -1567,6 +1578,47 @@ function liftRail(stack) {
   if (stack > room()) rail.classList.add('is-compact');
   const lift = Math.max(0, Math.min(stack, room()));
   document.documentElement.style.setProperty('--stack', `${lift}px`);
+}
+
+/**
+ * Bandeaux du bas de la surcouche de navigation : on mesure, on ne devine pas.
+ *
+ * Tout ce qui flotte au-dessus du HUD s'y adossait par une constante — `--go-hud-h`, jamais
+ * écrite nulle part, donc toujours ramenée à sa valeur de repli de 128 px — et par des
+ * décalages en rem choisis à l'œil. Deux conséquences : sur un téléphone dont le HUD est
+ * plus haut que la constante, tout descend derrière ; et en ski, où le groupe s'épaissit
+ * d'une jauge d'enveloppe et d'une barre de progression remontée, les commandes de carte
+ * se retrouvaient DERRIÈRE elles — le bouton de recentrage sur le bateau, le plus bas des
+ * trois, était perdu sous la barre de progression.
+ *
+ * D'où deux mesures publiées en variables CSS : `--go-hud-h`, la hauteur vraie du HUD, à
+ * laquelle s'adossent la barre de progression et la jauge ; et `--go-stack`, la hauteur
+ * totale du groupe ancré en bas, sur laquelle se posent les commandes. Ajouter un bandeau
+ * au groupe, c'est l'inscrire dans `GO_BOTTOM_BARS` — les boutons se recalent d'eux-mêmes.
+ */
+const GO_BOTTOM_BARS = ['go-progress-box', 'ski-gauge'];
+
+function stackGoBars() {
+  const root = document.documentElement;
+  const go = $('go');
+  const hud = $('go-hud');
+  if (!go || !hud || go.hidden) {
+    root.style.removeProperty('--go-hud-h');
+    root.style.removeProperty('--go-stack');
+    return;
+  }
+  // La hauteur du HUD d'abord : les bandeaux s'y accrochent, donc les mesurer avant elle
+  // les mesurerait à leur ancienne place. Lire un rectangle ensuite force la mise en page.
+  root.style.setProperty('--go-hud-h', `${Math.round(hud.offsetHeight)}px`);
+
+  const floor = go.getBoundingClientRect().bottom;
+  let top = hud.getBoundingClientRect().top;
+  for (const id of GO_BOTTOM_BARS) {
+    const el = $(id);
+    if (!el || el.hidden || el.offsetParent === null) continue;
+    top = Math.min(top, el.getBoundingClientRect().top);
+  }
+  root.style.setProperty('--go-stack', `${Math.max(0, Math.round(floor - top))}px`);
 }
 
 // ------------------------------------------- point désigné à la main (sans GPS)
@@ -2852,6 +2904,9 @@ function wireMap() {
   // Le cadrage est retrouvé à la réouverture : sur l'eau, on ne veut pas refaire ses
   // réglages à chaque démarrage.
   app.lakeMap.addEventListener('zoomchange', (event) => {
+    // Sauf pendant une sortie : le zoom y est celui de la caméra de barre, bien plus serré
+    // que le cadrage de travail. Mémorisé, il rouvrait l'application collée au bateau.
+    if (app.go?.active) return;
     app.settings.set('zoom', round2(event.detail));
   });
 
@@ -2911,6 +2966,9 @@ function wireMap() {
   // Rotation de l'écran : la hauteur disponible change, donc la remontée du rail et son
   // repli. Sans cela, un panneau ouvert avant la bascule laisse le rail au mauvais endroit.
   window.addEventListener('resize', stackBottomBars);
+  // La surcouche de navigation a sa propre pile, et elle change aussi de hauteur à la
+  // rotation : le HUD passe d'une colonne à l'autre et la jauge s'allonge.
+  window.addEventListener('resize', stackGoBars);
 
   refreshCameraUi();
   refreshBasemapUi();
@@ -3463,6 +3521,9 @@ function startGo(routeId, ski = null) {
   $('go-speed-unit').textContent = app.settings.get('speedUnit') === 'kn' ? 'nds' : 'km/h';
   buildGoTicks();
   if (ski) beginSkiSession(ski); else $('ski-hud').hidden = true;
+  // Le groupe du bas est complet — HUD, progression, et la jauge si l'on skie : on le
+  // mesure maintenant, pour que les commandes de carte se posent au-dessus et non dessous.
+  stackGoBars();
 
   app.lakeMap.setGoMode(true);
   ensureCompass();
@@ -3514,6 +3575,7 @@ function exitGo() {
   app.go.lastSol = null;
   document.body.classList.remove('mode-go', 'mode-ski');
   $('go').hidden = true;
+  stackGoBars();
   app.lakeMap.setGoMode(false);
   app.lakeMap.clearRoute();
   app.lakeMap.setRouteStyle('nav');
@@ -3819,6 +3881,165 @@ function refreshSkiPicker() {
   fillRouteList(list, 'ski');
 }
 
+// ------------------------------------------- plages de vitesse, dans les Réglages
+
+/**
+ * Section « Ski nautique » des Réglages : le tableau des plages, rendu modifiable.
+ *
+ * Engendrée depuis `SKI_ACTIVITIES`, comme la grille de préparation l'est depuis la table
+ * en vigueur — ajouter une épreuve reste une ligne de données, et cet écran la porte sans
+ * qu'on y touche. Chaque ligne montre en clair la plage **d'origine**, sans quoi on ne
+ * saurait plus d'où l'on est parti une fois la valeur retouchée, et porte son propre
+ * bouton de retour : réinitialiser tout le tableau pour rendre une seule ligne serait
+ * perdre les autres du même coup.
+ *
+ * La saisie est validée à la sortie du champ (`change`) et non à la frappe, comme les
+ * autres champs numériques de cet écran : réécrire un `input` pendant qu'on le remplit
+ * replace le curseur au début, et « 28 » y devient « 82 » au caractère suivant.
+ */
+function buildSkiSettings() {
+  const host = $('ski-speeds');
+  if (!host) return;
+
+  host.replaceChildren(...SKI_ACTIVITIES.map((factory) => {
+    const row = document.createElement('div');
+    row.className = 'skiset__row';
+    row.dataset.act = factory.id;
+
+    const head = document.createElement('div');
+    head.className = 'skiset__head';
+    const icon = document.createElement('span');
+    icon.className = 'skiset__icon';
+    icon.textContent = factory.icon;
+    const name = document.createElement('span');
+    name.className = 'skiset__name';
+    name.textContent = factory.name;
+    const revert = document.createElement('button');
+    revert.type = 'button';
+    revert.className = 'skiset__revert';
+    revert.textContent = '↺ Origine';
+    revert.title = `Rendre à ${factory.name} ses plages d'origine`;
+    revert.hidden = true;
+    revert.addEventListener('click', () => {
+      const next = { ...app.settings.get('skiSpeeds') };
+      delete next[factory.id];
+      app.settings.set('skiSpeeds', next);
+      toast(`${factory.name} : plages d'origine rendues`);
+    });
+    head.append(icon, name, revert);
+
+    const ranges = document.createElement('div');
+    ranges.className = 'skiset__ranges';
+    for (const who of SKI_WHO) {
+      const pair = document.createElement('div');
+      pair.className = 'skiset__pair';
+      const caption = document.createElement('span');
+      caption.className = 'skiset__who';
+      caption.textContent = who.label;
+      pair.append(caption);
+      for (const bound of ['min', 'max']) {
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.inputMode = 'decimal';
+        input.min = '1';
+        input.max = '90';
+        input.step = '0.5';
+        input.className = 'skiset__num';
+        input.dataset.who = who.id;
+        input.dataset.bound = bound;
+        input.setAttribute('aria-label', `${factory.name}, ${who.label.toLowerCase()}, `
+          + `vitesse ${bound === 'min' ? 'minimale' : 'maximale'} en km/h`);
+        input.addEventListener('change', commitSkiSpeeds);
+        pair.append(input);
+        if (bound === 'min') {
+          const dash = document.createElement('span');
+          dash.className = 'skiset__dash';
+          dash.textContent = '–';
+          pair.append(dash);
+        }
+      }
+      const unit = document.createElement('span');
+      unit.className = 'skiset__unit';
+      unit.textContent = 'km/h';
+      pair.append(unit);
+      ranges.append(pair);
+    }
+
+    const origin = document.createElement('span');
+    origin.className = 'skiset__factory';
+    origin.textContent = `Origine — enfant ${rangeLabel(factory.enfant)}, adulte `
+      + `${rangeLabel(factory.adulte, Boolean(factory.openEnded))}`;
+
+    row.append(head, ranges, origin);
+    return row;
+  }));
+
+  $('btn-ski-speeds-reset').addEventListener('click', () => {
+    app.settings.set('skiSpeeds', {});
+    toast('Tableau des vitesses de ski remis à l’origine');
+  });
+}
+
+/**
+ * Relit toute la grille et mémorise ce qui s'écarte de l'origine.
+ *
+ * On repart de l'écran entier plutôt que du seul champ modifié : les deux bornes d'une
+ * plage se lisent ensemble, et un champ vidé doit rendre sa valeur d'origine plutôt que
+ * zéro — sans quoi effacer un minimum ferait tenir une plage qui commence à l'arrêt, dans
+ * laquelle le chrono partirait dès la première manœuvre.
+ */
+function commitSkiSpeeds() {
+  const host = $('ski-speeds');
+  const draft = {};
+  for (const row of host.children) {
+    const factory = SKI_ACTIVITIES.find((a) => a.id === row.dataset.act);
+    if (!factory) continue;
+    const patch = {};
+    for (const who of ['enfant', 'adulte']) {
+      const read = (bound) => {
+        const el = row.querySelector(`[data-who="${who}"][data-bound="${bound}"]`);
+        const raw = el?.value?.trim();
+        const fallback = factory[who][bound === 'min' ? 0 : 1];
+        if (!raw) return fallback;
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : fallback;
+      };
+      patch[who] = [read('min'), read('max')];
+    }
+    draft[factory.id] = patch;
+  }
+  app.settings.set('skiSpeeds', normalizeSkiSpeeds(draft));
+}
+
+/** Écrit dans la grille les plages en vigueur, et dit combien de lignes sont retouchées. */
+function refreshSkiSpeedsUi() {
+  const host = $('ski-speeds');
+  if (!host || !host.children.length) return;
+  const custom = app.settings.get('skiSpeeds') ?? {};
+  const table = skiActivities();
+
+  for (const row of host.children) {
+    const activity = table.find((a) => a.id === row.dataset.act);
+    if (!activity) continue;
+    const touched = Boolean(custom[row.dataset.act]);
+    row.classList.toggle('is-custom', touched);
+    row.querySelector('.skiset__revert').hidden = !touched;
+    for (const input of row.querySelectorAll('.skiset__num')) {
+      // Jamais le champ qu'on est en train de remplir : la valeur y est encore incomplète.
+      if (input === document.activeElement) continue;
+      const range = activity[input.dataset.who];
+      input.value = String(range[input.dataset.bound === 'min' ? 0 : 1]);
+    }
+  }
+
+  const count = Object.keys(custom).length;
+  $('ski-speeds-state').textContent = count
+    ? `${count} épreuve${count > 1 ? 's' : ''} retouchée${count > 1 ? 's' : ''}`
+      + ' — les autres suivent le tableau d’origine.'
+    : 'Aucune retouche : le tableau d’origine s’applique.';
+  $('btn-ski-speeds-reset').disabled = count === 0;
+}
+
 // ---------------------------------------------------- préparation de la session
 
 /** Grille des activités et segments, engendrés une fois depuis la table de `ski.js`. */
@@ -3830,7 +4051,7 @@ function buildSkiLaunch() {
     return span;
   };
 
-  $('ski-activities').replaceChildren(...SKI_ACTIVITIES.map((activity) => {
+  $('ski-activities').replaceChildren(...skiActivities().map((activity) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'act';
@@ -4453,6 +4674,14 @@ function refreshCameraUi() {
   $('btn-cap').setAttribute('aria-pressed', String(trackUp));
   $('ico-cap').setAttribute('href', trackUp ? '#i-heading' : '#i-north');
   $('btn-cap').title = trackUp ? 'Cap en haut' : 'Nord en haut';
+  // Pendant une sortie, la caméra appartient au mode : `startGo` la verrouille sur le
+  // bateau, cap en haut, vue inclinée, sans toucher aux réglages — et cette fonction est
+  // appelée à CHAQUE `change` de réglage. Or la boucle de suivi écrit `zoom` 800 ms après
+  // le cadrage de départ : les deux verrous retombaient donc tout seuls une seconde après
+  // le lancement, pour qui avait désactivé le suivi en faisant glisser la carte (ce que
+  // `userpan` mémorise). La carte restait inclinée — d'où un défaut qu'on ne voit pas — et
+  // le bateau s'échappait de l'écran. Les réglages sont rendus à la sortie, par `exitGo`.
+  if (app.go?.active) return;
   app.lakeMap.setFollow(follow);
   app.lakeMap.setTrackUp(trackUp);
 }
