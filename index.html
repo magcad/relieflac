@@ -549,7 +549,9 @@
     <p class="route__hint" id="route-hint">Touchez la carte pour poser les points de passage.</p>
     <!-- Métier du trajet (L16). Une route de navigation et un couloir de ski ne sont pas le
          même objet, et chaque mode ne montre que les siens : c'est ici — et seulement ici —
-         qu'on choisit, ou qu'on reclasse un trajet tracé avant que le ski n'existe. -->
+         qu'on RECLASSE un trajet tracé avant que le ski n'existe. Réservé à l'édition depuis
+         le L19 : à la création, le métier vient du mode d'où l'on arrive, et ces deux
+         boutons ne faisaient que repousser la carte sur laquelle on vise. -->
     <div class="segbar segbar--kind" id="route-kind" hidden>
       <button class="seg" data-kind="nav" type="button">Navigation</button>
       <button class="seg" data-kind="ski" type="button">Ski nautique</button>
@@ -562,9 +564,14 @@
     <p class="route__meta" id="route-meta"></p>
     <div class="route__btns">
       <button class="sim__reset" id="btn-route-new" type="button">✚ Nouveau trajet</button>
-      <button class="sim__reset" id="btn-route-undo" type="button" hidden>↶ Point</button>
+      <!-- Défaire et abandonner sont des gestes de repli : ils gardent leur place mais pas
+           leur largeur, pour que les quatre commandes tiennent sur UNE ligne. Deux lignes de
+           boutons, c'est quarante pixels de carte en moins pendant qu'on vise. -->
+      <button class="sim__reset sim__reset--tight" id="btn-route-undo" type="button" hidden
+              title="Retirer le dernier point" aria-label="Retirer le dernier point">↶</button>
       <button class="sim__reset" id="btn-route-save" type="button" hidden>✓ Enregistrer</button>
-      <button class="sim__reset" id="btn-route-cancel" type="button" hidden>✕ Annuler</button>
+      <button class="sim__reset sim__reset--tight" id="btn-route-cancel" type="button" hidden
+              title="Abandonner le tracé" aria-label="Abandonner le tracé">✕</button>
       <button class="sim__reset" id="btn-route-go" type="button" hidden>▶ Go</button>
       <button class="sim__reset sim__reset--danger" id="btn-route-del" type="button" hidden>Supprimer</button>
     </div>

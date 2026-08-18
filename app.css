@@ -898,6 +898,7 @@ button.is-arming {
 .segbar--kind { margin: 0 0 .5rem; }
 .segbar--kind .seg.is-on { border-color: var(--m-route); background: color-mix(in srgb, var(--m-route) 20%, var(--surface-2)); color: var(--m-route); }
 .route__hint { margin: .35rem 0 .5rem; font-size: .74rem; color: var(--muted); }
+.route__hint[hidden] { display: none; }
 .route .routelist { margin-bottom: .5rem; }
 .route__field { display: flex; align-items: center; gap: .5rem; font-size: .72rem; color: var(--muted); margin: .1rem 0 .2rem; }
 .route__field[hidden] { display: none; }
@@ -908,7 +909,10 @@ button.is-arming {
 }
 .route__meta { margin: .35rem 0 0; font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .route__btns { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .55rem; }
-.route__btns .sim__reset { flex: 1; min-width: 6rem; }
+.route__btns .sim__reset { flex: 1; min-width: 5rem; }
+/* Défaire et abandonner ne prennent que leur place : c'est ce qui fait tenir les quatre
+   commandes sur une ligne au lieu de deux, sur un écran de téléphone. */
+.route__btns .sim__reset--tight { flex: 0 0 auto; min-width: 2.4rem; padding: .35rem .5rem; font-size: .85rem; }
 #btn-route-go { color: var(--m-route); border-color: color-mix(in srgb, var(--m-route) 55%, transparent); font-weight: 700; }
 
 /* Historique : même panneau que le constructeur, mais en ambre — les sorties sont des faits
@@ -1373,8 +1377,13 @@ body.is-sun .go__speed-num { text-shadow: 0 2px 3px #000, 0 0 8px #000; }
 .act.is-on { border-color: var(--m-ski); background: color-mix(in srgb, var(--m-ski) 18%, var(--surface-2)); }
 .act.is-on .act__name { color: var(--m-ski); }
 
-/* Segments : personne tractée, durée de chrono. Même objet, deux emplois. */
+/* Segments : personne tractée, durée de chrono, métier du trajet. Même objet, trois emplois. */
 .segbar { display: flex; gap: .35rem; }
+/* Quatrième fois que ce piège se referme dans cette feuille (voir `.rail__btn`, `.capture`,
+   `.routelist`) : `display: flex` l'emporte sur l'attribut `hidden`, et le sélecteur de
+   métier restait affiché quoi que le code demande. Un contrôle du banc parcourt désormais
+   TOUS les éléments que `main.js` masque et vérifie qu'ils s'effacent pour de bon. */
+.segbar[hidden] { display: none; }
 .seg {
   flex: 1; padding: .45rem .3rem; cursor: pointer; font-size: .78rem; font-weight: 600;
   background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--text);

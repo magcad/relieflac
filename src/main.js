@@ -3260,13 +3260,24 @@ function refreshRoutePanel() {
   for (const button of $('route-kind').children) {
     button.classList.toggle('is-on', button.dataset.kind === app.routeKind);
   }
-  $('route-kind').hidden = !tracing;
+  // Le panneau mange le tiers bas de l'écran d'un téléphone, et c'est exactement la part de
+  // carte sur laquelle on vise pendant qu'on trace. Tout ce qui n'aide pas à POSER UN POINT
+  // reste donc dehors tant qu'il n'a pas de raison d'être là.
+  //
+  // Le métier, d'abord : il est déjà décidé quand on arrive ici — « Nouveau couloir » depuis
+  // le mode Ski, « Nouveau trajet » depuis la Navigation — et le titre comme la couleur du
+  // panneau le disent. Ce sélecteur n'a jamais servi qu'à RECLASSER un trajet existant, ce
+  // qui est le propre de l'édition ; il ne paraît donc plus qu'en édition.
+  $('route-kind').hidden = !editing;
 
   $('route-title').textContent = editing
     ? `${ski ? 'Couloir' : 'Trajet'} — édition`
     : tracing ? `Nouveau ${noun}` : `${ski ? 'Couloirs' : 'Trajets'} enregistrés`;
   $('route-list').hidden = !listing;
-  $('route-name-box').hidden = !tracing;
+  // Le nom, ensuite : on ne nomme pas un trajet qui n'existe pas encore. Le champ paraît
+  // quand le trajet devient enregistrable — deux points — c'est-à-dire au moment précis où
+  // il sert à quelque chose. Avant, il ne fait que repousser la carte de quarante pixels.
+  $('route-name-box').hidden = !tracing || app.routeDraft.length < 2;
   $('btn-route-new').hidden = !listing;
   $('btn-route-undo').hidden = !tracing;
   $('btn-route-save').hidden = !tracing;
@@ -3280,14 +3291,16 @@ function refreshRoutePanel() {
   if (tracing) {
     const n = app.routeDraft.length;
     const len = routeLength(app.routeDraft);
-    $('route-hint').textContent = n === 0
-      ? 'Touchez la carte pour poser les points de passage.'
-      : 'Ajoutez des points (ou touchez-en un pour le retirer), puis ✓ Enregistrer.';
+    // La consigne ne vaut que tant qu'on ne l'a pas suivie : dès le premier point posé, elle
+    // décrit un geste qu'on vient de faire, et la ligne de compte dit déjà tout le reste.
+    $('route-hint').hidden = n > 0;
+    $('route-hint').textContent = 'Touchez la carte pour poser les points de passage.';
     $('route-meta').textContent = n < 2
-      ? `${n} point${n > 1 ? 's' : ''} — il en faut au moins 2`
+      ? `${n} point${n > 1 ? 's' : ''} — il en faut au moins 2, touchez-en un pour le retirer`
       : `${n} points · ${formatDistance(len)} · ~${formatDuration(estimatedDuration(len))} à ${CRUISE_KMH} km/h`;
     app.lakeMap.setRouteDraft(app.routeDraft);
   } else {
+    $('route-hint').hidden = false;
     const some = app.routes.records.some((r) => routeKind(r) === app.routeKind);
     $('route-hint').textContent = some
       ? `Reprenez un ${noun}, ou créez-en un nouveau.`

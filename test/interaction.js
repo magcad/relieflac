@@ -643,19 +643,57 @@ async function run() {
   // Vérifié sur l'écran et non sur l'attribut, parce que c'est exactement là qu'est passée
   // la panne — `hidden` était bien posé, mais le `display: grid` de la feuille de style
   // l'emportait dessus, faute d'une règle `[hidden]`, et la liste restait affichée.
+  // Quatre fois de suite, le même piège : le code pose `hidden`, la feuille de style déclare
+  // `display: flex` ou `grid` sur la même règle, et l'attribut ne pèse rien. À chaque fois
+  // l'élément est resté à l'écran pendant que le code le croyait masqué — le catalogue des
+  // trajets par-dessus la carte, le sélecteur de métier qu'on venait d'en retirer. On ne
+  // corrige plus au cas par cas : on lit dans `main.js` TOUS les identifiants qu'il masque,
+  // et l'on vérifie que chacun s'efface pour de bon. `import.meta.url` et non un chemin
+  // relatif — les pages du dépôt portent un `<base href>` qui renverrait à la racine.
+  const source = await fetch(new URL('../src/main.js', import.meta.url), { cache: 'no-cache' })
+    .then((r) => r.text());
+  const hidable = [...new Set([...source.matchAll(/\$\('([a-z0-9-]+)'\)\.hidden\s*=/g)]
+    .map((m) => m[1]))];
+  const stubborn = hidable.filter((id) => {
+    const el = $(id);
+    if (!el) return true;
+    const was = el.hidden;
+    el.hidden = true;
+    const display = getComputedStyle(el).display;
+    el.hidden = was;
+    return display !== 'none';
+  });
+  check('tout ce que le code masque disparaît vraiment de l’écran',
+    hidable.length > 30 && stubborn.length === 0,
+    stubborn.length ? `entêtés : ${stubborn.join(', ')}` : `${hidable.length} éléments vérifiés`);
+
   const shown = (id) => getComputedStyle($(id)).display !== 'none';
   check('« Nouveau couloir » ouvre le tracé et efface le catalogue de l’écran',
-    $('sheet').hidden && !shown('route-list')
-    && !$('route-name-box').hidden && !$('btn-route-save').hidden,
+    $('sheet').hidden && !shown('route-list') && !$('btn-route-save').hidden,
     `liste : ${getComputedStyle($('route-list')).display}`);
+  // Le panneau mange le tiers bas d'un écran de téléphone, c'est-à-dire la carte sur
+  // laquelle on vise. Tant qu'aucun point n'est posé, il ne doit porter QUE de quoi en
+  // poser un : ni sélecteur de métier (il est déjà décidé par le mode d'où l'on vient),
+  // ni champ de nom (on ne nomme pas un trajet qui n'existe pas encore).
+  check('et il ne porte que ce qui sert à poser un point',
+    $('route-kind').hidden && $('route-name-box').hidden && !$('route-hint').hidden,
+    `métier ${$('route-kind').hidden ? 'masqué' : 'affiché'}, `
+    + `nom ${$('route-name-box').hidden ? 'masqué' : 'affiché'}`);
   $('btn-route-cancel').click();
   check('… et le catalogue revient dès qu’on sort du tracé',
     shown('route-list') && $('route-name-box').hidden,
     `liste : ${getComputedStyle($('route-list')).display}`);
   $('btn-route-new').click();
-  for (const [lng, lat] of [[1.8700, 45.7930], [1.8730, 45.7930], [1.8760, 45.7930]]) {
+  fire('routevertex', { lng: 1.8700, lat: 45.7930 });
+  check('un premier point posé retire la consigne, qui vient d’être suivie',
+    $('route-hint').hidden && $('route-name-box').hidden,
+    $('route-meta').textContent);
+  for (const [lng, lat] of [[1.8730, 45.7930], [1.8760, 45.7930]]) {
     fire('routevertex', { lng, lat });
   }
+  check('le champ de nom paraît quand le trajet devient enregistrable',
+    !$('route-name-box').hidden && !$('btn-route-save').disabled,
+    $('route-meta').textContent);
   $('route-name').value = 'Couloir de slalom';
   $('btn-route-save').click();
   // Le catalogue n'est pas vide pour autant : `initSync` a déjà descendu les trajets
@@ -699,7 +737,7 @@ async function run() {
   const navRoute = names('route-picker')[0];
   document.querySelector('#route-picker .route__edit').click();
   await sleep(60);
-  check('l’éditeur affiche le métier du trajet repris',
+  check('l’éditeur, lui, affiche le métier du trajet repris — c’est sa seule raison d’être',
     !$('route-kind').hidden
     && $('route-kind').querySelector('[data-kind="nav"]').classList.contains('is-on'));
   $('route-kind').querySelector('[data-kind="ski"]').click();

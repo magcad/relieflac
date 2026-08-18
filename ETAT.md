@@ -4,7 +4,7 @@
 **Application en ligne** : <https://magcad.github.io/relieflac/>
 **Vérifications** : <https://magcad.github.io/relieflac/test/> — 216 contrôles, **tous au
 vert**
-**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 124 gestes,
+**Enchaînements** : <https://magcad.github.io/relieflac/test/interaction.html> — 128 gestes,
 **tous au vert**
 **Dépôt** : <https://github.com/magcad/relieflac> (public, branche `main`)
 
@@ -44,7 +44,38 @@ pièges. Les deux se lisent dans cet ordre : ici d'abord, la spécification au b
 | **L15** | Mode **Ski nautique** : enveloppe de vitesse par activité et par personne, chrono à départ automatique, compteur de chutes, HUD de glisse — et **récupération automatique du partage** | ✅ terminé le 17/08/2026 (v2026-08-17.1) — voir § 1 |
 | **L16** | **Trajets typés** : un trajet appartient à la navigation ou au ski, chaque mode ne montre que les siens, et le couloir de ski est corail | ✅ terminé le 17/08/2026 (v2026-08-17.2) — voir § 1 |
 | **L17** | Le **foil tracté** entre au tableau des épreuves, et le défaut cesse d'être positionnel | ✅ terminé le 17/08/2026 (v2026-08-17.5) — voir § 1 |
-| **L18** | Retour de la première sortie en ski : **le catalogue s'efface pendant le tracé**, la caméra de barre ne se déverrouille plus, les commandes du HUD s'empilent au-dessus des bandeaux, et les **plages de vitesse se règlent** | ✅ terminé le 18/08/2026 (v2026-08-18.1) — voir § 1 |
+| **L18** | Retour de la première sortie en ski : **le catalogue s'efface pendant le tracé**, la caméra de barre ne se déverrouille plus, les commandes du HUD s'empilent au-dessus des bandeaux, et les **plages de vitesse se règlent** | ✅ terminé le 18/08/2026 (v2026-08-18.2) — voir § 1 |
+| **L19** | Le constructeur de trajet **rend la carte** : le panneau de tracé passe de 34 % à 17 % de l'écran d'un téléphone, et le banc traque désormais tout `hidden` qu'une règle `display` annulerait | ✅ terminé le 18/08/2026 (v2026-08-18.3) — voir § 1 |
+
+**Lot L19 — le constructeur rend la carte** (18/08/2026, v2026-08-18.3). Capture d'écran de
+l'utilisateur sur iPhone : le panneau de tracé occupait **34 % de la hauteur**, et c'est
+précisément le tiers bas de la carte sur lequel on vise pour poser un point. Quatre coupes,
+toutes fondées sur la même question — *cela aide-t-il à poser un point ?*
+
+- **Le sélecteur de métier sort de la création.** Le métier est déjà décidé quand on arrive
+  dans le constructeur : « Nouveau couloir » vient du mode Ski, « Nouveau trajet » de la
+  Navigation, et le titre comme la couleur du panneau le disent. Ce sélecteur n'a jamais eu
+  qu'un emploi — **reclasser** un trajet existant — qui est le propre de l'édition. Il n'y
+  paraît plus qu'en édition.
+- **Le champ de nom paraît quand le trajet devient enregistrable** (deux points), c'est-à-dire
+  au moment précis où il sert. Avant, il ne faisait que repousser la carte de quarante pixels.
+- **La consigne s'efface au premier point posé** : elle décrit alors un geste qu'on vient de
+  faire, et la ligne de compte porte déjà le reste (« 3 points · 466 m »), à quoi s'ajoute le
+  rappel qu'un point se retire en le touchant.
+- **Les quatre commandes tiennent sur une ligne** : « ↶ » et « ✕ » gardent leur place mais pas
+  leur largeur (`sim__reset--tight`), et « ✓ Enregistrer » / « ▶ Go » se partagent le reste.
+  Deux lignes de boutons coûtaient quarante pixels de carte.
+
+Mesuré à 393 pt de large : **286 px → 147 px** pendant qu'on vise (34 % → 17 % de l'écran),
+161 px une fois le trajet nommable.
+
+**Et un piège qui s'est refermé pour la quatrième fois.** `.segbar` est en `display: flex`
+sans règle `[hidden]` : le sélecteur de métier restait affiché quoi que le code demande — la
+coupe ci-dessus n'aurait rien donné, et c'est une **capture d'écran**, non le banc, qui l'a
+montré. Après `.rail__btn`, `.capture` et `.routelist`, on cesse de corriger au cas par cas :
+le banc lit désormais dans `main.js` **tous** les identifiants qu'il masque (41 aujourd'hui,
+par expression régulière sur le source) et vérifie que chacun s'efface pour de bon. Un
+élément ajouté demain sera couvert sans qu'on y pense.
 
 **Lot L18 — ce que la première sortie en ski a révélé** (18/08/2026, v2026-08-18.1).
 Quatre retours de l'utilisateur, dont un **bloquant**, et trois défauts de disposition ou de

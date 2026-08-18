@@ -1110,6 +1110,13 @@ se posent au-dessus d'elle, jamais à un décalage deviné. En ski le groupe est
 navigation, et un décalage fixe faisait passer le bouton de recentrage sur le bateau — le plus
 bas des trois, celui qu'on atteint sans lâcher la barre — derrière la barre de progression.
 
+**Le panneau de tracé ne montre que ce qui aide à poser un point** (L19). Il flotte sur le
+tiers bas de la carte, c'est-à-dire sur la zone où l'on vise : tout ce qu'il porte se paie en
+carte. Le métier est décidé par le mode d'où l'on vient et ne se choisit donc qu'en
+**édition**, là où il sert à reclasser ; le nom paraît quand le trajet devient enregistrable ;
+la consigne s'efface une fois suivie. Il passe ainsi du tiers au sixième de la hauteur d'un
+téléphone pendant qu'on trace.
+
 **Les trajets ont un métier** (L16). Une route de navigation relie deux points en évitant les
 hauts-fonds ; un couloir de ski est un aller-retour en eau libre, choisi pour sa longueur et
 son abri du vent. Ce ne sont pas les mêmes objets, et les réunir dans un catalogue unique
