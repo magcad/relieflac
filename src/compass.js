@@ -12,12 +12,6 @@
 // On lisse en circulaire (plus court chemin angulaire) pour que l'aiguille ne tremble pas.
 
 const SMOOTHING = 0.25;
-/**
- * Le capteur émet à ~60 Hz, mais l'aiguille est lissée sur une bonne fraction de seconde :
- * inutile d'inonder l'affichage et la carte à cette cadence. On lisse à chaque lecture (le
- * filtre garde sa finesse) mais on ne prévient l'app qu'à ~20 Hz.
- */
-const EMIT_INTERVAL_MS = 50;
 
 export class Compass extends EventTarget {
   constructor() {
@@ -28,7 +22,6 @@ export class Compass extends EventTarget {
     this.granted = false;
     this.hasAbsolute = false; // une source référencée au nord a-t-elle déjà parlé ?
     this.pruned = false;      // l'écouteur relatif redondant a-t-il été retiré ? (Android)
-    this.lastEmit = 0;        // dernière émission, pour espacer les 'heading' (voir EMIT_INTERVAL_MS)
   }
 
   get available() {
@@ -118,14 +111,8 @@ export class Compass extends EventTarget {
       }
     }
 
-    // Le lissage tourne à chaque lecture pour garder toute sa finesse…
     this.heading = smoothAngle(this.heading, (heading + 360) % 360, SMOOTHING);
     this.source = source;
-
-    // …mais on n'émet — donc on ne réveille l'affichage et la carte — qu'à ~20 Hz.
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    if (now - this.lastEmit < EMIT_INTERVAL_MS) return;
-    this.lastEmit = now;
     this.dispatchEvent(new CustomEvent('heading', {
       detail: { heading: this.heading, source },
     }));

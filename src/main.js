@@ -2144,8 +2144,16 @@ function editorRow(label, color, depth, onColor, onDepth, fixedLabel, onRemove) 
 const RIBBON_PX_PER_DEG = 3;
 const WINDS = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
 
+// Demi-largeur du bandeau de cap, mise en cache. Elle est relue à chaque mesure de boussole
+// (jusqu'à 60/s) par le ruban et le repère de cap cible : un `clientWidth` y forcerait un
+// recalcul de mise en page à chaque fois. La largeur ne change qu'au redimensionnement
+// (rotation de l'écran) — on la remesure alors, et paresseusement tant qu'elle est nulle.
+let compassHalf = 0;
+function measureCompass() { compassHalf = ($('compass')?.clientWidth ?? 0) / 2; }
+
 function wireCompass() {
   buildCompassRibbon();
+  measureCompass();
   updateCompass(null);
 
   app.compass.addEventListener('heading', (event) => {
@@ -2163,7 +2171,10 @@ function wireCompass() {
   $('compass-tap').addEventListener('click', ask);
 
   // Recadrer le ruban quand la largeur change (rotation de l'écran).
-  window.addEventListener('resize', () => updateCompass(app.heading, app.compass?.source));
+  window.addEventListener('resize', () => {
+    measureCompass();
+    updateCompass(app.heading, app.compass?.source);
+  });
 }
 
 async function ensureCompass() {
@@ -2238,7 +2249,8 @@ function updateCompass(heading, source) {
   // On centre sur le deuxième tour (cap + 360) pour disposer d'un tour de marge de chaque
   // côté : le ruban défile dans les deux sens sans découvrir de vide. Au repos, on cadre
   // le nord pour que la barre paraisse posée plutôt que décalée.
-  const half = $('compass').clientWidth / 2;
+  if (!compassHalf) measureCompass();
+  const half = compassHalf;
   const centre = (idle ? 0 : heading) + 360;
   ribbon.style.transform = `translateX(${half - centre * RIBBON_PX_PER_DEG}px)`;
 }
@@ -4087,7 +4099,8 @@ function updateGoSteer() {
 
   // Repère de cap cible sur le ruban de la boussole, borné à la largeur visible.
   if (target) {
-    const half = $('compass').clientWidth / 2;
+    if (!compassHalf) measureCompass();
+    const half = compassHalf;
     const px = Math.max(-half + 8, Math.min(half - 8, delta * RIBBON_PX_PER_DEG));
     target.style.transform = `translateX(${px}px)`;
   }
