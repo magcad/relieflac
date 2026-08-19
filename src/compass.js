@@ -12,6 +12,12 @@
 // On lisse en circulaire (plus court chemin angulaire) pour que l'aiguille ne tremble pas.
 
 const SMOOTHING = 0.25;
+/**
+ * Le capteur émet à ~60 Hz, mais l'aiguille est lissée sur une bonne fraction de seconde :
+ * inutile d'inonder l'affichage et la carte à cette cadence. On lisse à chaque lecture (le
+ * filtre garde sa finesse) mais on ne prévient l'app qu'à ~20 Hz.
+ */
+const EMIT_INTERVAL_MS = 50;
 
 export class Compass extends EventTarget {
   constructor() {
@@ -21,6 +27,8 @@ export class Compass extends EventTarget {
     this.active = false;
     this.granted = false;
     this.hasAbsolute = false; // une source référencée au nord a-t-elle déjà parlé ?
+    this.pruned = false;      // l'écouteur relatif redondant a-t-il été retiré ? (Android)
+    this.lastEmit = 0;        // dernière émission, pour espacer les 'heading' (voir EMIT_INTERVAL_MS)
   }
 
   get available() {
@@ -41,7 +49,9 @@ export class Compass extends EventTarget {
     if (!this.available) return false;
     if (this.active) return true;
 
-    if (this.needsPermission) {
+    // Une fois l'autorisation accordée (iOS), elle vaut pour toute la session : inutile de la
+    // redemander à chaque reprise après veille — et hors d'un geste, la redemande échouerait.
+    if (this.needsPermission && !this.granted) {
       try {
         const state = await DeviceOrientationEvent.requestPermission();
         if (state !== 'granted') return false;
@@ -53,6 +63,7 @@ export class Compass extends EventTarget {
 
     // `deviceorientationabsolute` fournit un cap référencé au nord ; à défaut on retombe
     // sur `deviceorientation`, absolu sur iOS via webkitCompassHeading.
+    this.pruned = false; // les deux écouteurs sont ré-armés ; le tri se refera à la volée
     if ('ondeviceorientationabsolute' in window) {
       window.addEventListener('deviceorientationabsolute', this.#onEvent);
     }
@@ -96,10 +107,25 @@ export class Compass extends EventTarget {
       if (this.hasAbsolute) return;
     } else {
       this.hasAbsolute = true;
+      // Sur Android, `deviceorientation` ET `deviceorientationabsolute` se déclenchent tous
+      // deux : une fois l'absolu confirmé, l'écouteur relatif ne fait plus que doubler les
+      // appels pour un cap qu'on ignore de toute façon. On le retire. (iOS n'émet jamais
+      // l'événement absolu ; son écouteur relatif, seul porteur de webkitCompassHeading,
+      // n'est donc jamais retiré.)
+      if (event.type === 'deviceorientationabsolute' && !this.pruned) {
+        this.pruned = true;
+        window.removeEventListener('deviceorientation', this.#onEvent);
+      }
     }
 
+    // Le lissage tourne à chaque lecture pour garder toute sa finesse…
     this.heading = smoothAngle(this.heading, (heading + 360) % 360, SMOOTHING);
     this.source = source;
+
+    // …mais on n'émet — donc on ne réveille l'affichage et la carte — qu'à ~20 Hz.
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - this.lastEmit < EMIT_INTERVAL_MS) return;
+    this.lastEmit = now;
     this.dispatchEvent(new CustomEvent('heading', {
       detail: { heading: this.heading, source },
     }));

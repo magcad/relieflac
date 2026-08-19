@@ -208,6 +208,7 @@ async function boot() {
     app.geo.addEventListener('position', onPosition);
     app.geo.addEventListener('status', onGeoStatus);
     app.geo.start();
+    suspendSensorsWhenHidden();
 
     // La cote bouge de quelques centimètres par heure : un rafraîchissement toutes les
     // dix minutes suffit largement, et le fichier est servi depuis le cache si inchangé.
@@ -435,6 +436,48 @@ function onGeoStatus(event) {
   if (status !== 'active') $('prof-label').textContent = 'position en attente';
   if (status === 'denied' || status === 'unsupported') setGpsState(null, status);
   else if (status !== 'active') setGpsState(null, 'searching');
+}
+
+/**
+ * Coupe le GPS haute précision et le magnétomètre quand l'app passe en arrière-plan.
+ *
+ * Les deux restaient au chaud écran éteint : pure conso pour des mesures que personne ne
+ * regarde. On les coupe — mais seulement après un délai de grâce : une bascule d'application
+ * de quelques secondes ne doit pas relancer une recherche GPS (le réveil du GPS après veille
+ * est précisément le désagrément qu'on cherche à éviter). La boussole n'est relancée que si
+ * elle tournait déjà, et `start()` ne redemande pas l'autorisation une fois accordée.
+ */
+const SENSOR_IDLE_MS = 25e3;
+
+function suspendSensorsWhenHidden() {
+  let idleTimer = 0;
+  let suspended = false;
+  let hadCompass = false;
+
+  const suspend = () => {
+    idleTimer = 0;
+    if (suspended || !document.hidden) return;
+    suspended = true;
+    hadCompass = app.compass?.active ?? false;
+    app.geo.stop();
+    app.compass?.stop();
+  };
+
+  const resume = () => {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = 0; }
+    if (!suspended) return;
+    suspended = false;
+    app.geo.start();
+    if (hadCompass) app.compass.start();
+  };
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (!idleTimer && !suspended) idleTimer = window.setTimeout(suspend, SENSOR_IDLE_MS);
+    } else {
+      resume();
+    }
+  });
 }
 
 // ----------------------------------------------- grand affichage sous le bateau

@@ -744,7 +744,16 @@ export class LakeMap extends EventTarget {
   setHeading(heading) {
     if (!Number.isFinite(heading)) return;
     this.follow.setHeading(heading);
-    this.#kick();
+    // On ne réveille la boucle que si le cap pilote vraiment le cadrage : « cap en haut », ou
+    // un retour au nord encore en cours. « Nord en haut » à l'arrêt, la boussole relançait la
+    // boucle image après image pour un cap que la carte n'applique pas — 60 fps de rendu et un
+    // magnétomètre au chaud pour rien, c'est ce qui chauffait le téléphone au mouillage.
+    if (this.follow.trackUp || this.follow.toNorth) this.#kick();
+    // Sinon la boucle ne tournera pas pour orienter le bateau : on le fait ici, directement.
+    // C'est un simple `transform` de marqueur HTML, pas un rendu de carte. Quand la boucle
+    // tourne (cas ci-dessus), c'est elle qui l'oriente, avec le cap amorti — comportement
+    // « cap en haut » inchangé.
+    else this.boat.setRotation(heading);
   }
 
   /** Suivre le bateau : la carte le ramène au centre et l'y garde. */
