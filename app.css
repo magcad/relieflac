@@ -364,6 +364,29 @@ a { color: var(--accent); }
   backdrop-filter: var(--blur); box-shadow: var(--shadow);
 }
 
+/* Bandeau « nouvelle version » : posé en haut, au-dessus de la carte mais sous
+   l'avertissement d'ouverture. Discret, tapable, et refermable — il ne masque jamais
+   durablement les instruments de navigation. */
+.update {
+  position: fixed; top: calc(var(--safe-top) + .4rem); left: 50%;
+  transform: translateX(-50%); z-index: 15;
+  display: flex; align-items: center; gap: .5rem; max-width: 94vw;
+  padding: .4rem .5rem .4rem .85rem; border-radius: var(--r-pill);
+  background: var(--glass-2); border: 1px solid var(--accent);
+  backdrop-filter: var(--blur); box-shadow: var(--shadow); font-size: .85rem;
+}
+.update[hidden] { display: none; }
+.update__txt { font-weight: 600; white-space: nowrap; }
+.update__go {
+  padding: .32rem .7rem; border-radius: var(--r-pill); border: 0;
+  background: var(--accent); color: var(--accent-ink); font-weight: 700; cursor: pointer;
+}
+.update__x {
+  display: grid; place-items: center; width: 1.7rem; height: 1.7rem; flex: none;
+  border-radius: 50%; border: 1px solid var(--line); background: transparent;
+  color: var(--text); font-size: 1.15rem; line-height: 1; cursor: pointer;
+}
+
 /* --------------------------------------------------------- feuille d'outils
 
    Tout ce qui ne se touche pas en barrant. Chaque tuile porte un libellé : c'est ce qui

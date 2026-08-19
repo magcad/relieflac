@@ -802,6 +802,14 @@
   <div class="toast" id="toast" hidden></div>
 </section>
 
+<!-- Bandeau de mise à jour : paraît quand une version plus récente est en ligne. Jamais
+     de rechargement automatique — sur l'eau, c'est l'utilisateur qui décide quand recharger. -->
+<div class="update" id="update-banner" hidden>
+  <span class="update__txt">Nouvelle version disponible</span>
+  <button type="button" class="update__go" id="btn-update">Mettre à jour</button>
+  <button type="button" class="update__x" id="btn-update-dismiss" aria-label="Ignorer">×</button>
+</div>
+
 <!-- ------------------------------------------------------- écran paramètres -->
 <section id="vue-parametres" class="view panel">
   <header class="panel__head">
@@ -815,6 +823,7 @@
        servent sur l'eau. Ce sont des boutons et non des ancres — une ancre changerait
        `location.hash`, que le routeur interpréterait comme un changement d'écran. -->
   <nav class="quicknav" aria-label="Sections des paramètres">
+    <button type="button" data-goto="sec-contact">Contact</button>
     <button type="button" data-goto="sec-bateau">Bateau</button>
     <button type="button" data-goto="sec-fond">Fond</button>
     <button type="button" data-goto="sec-lisibilite">Lisibilité</button>
@@ -828,6 +837,18 @@
   </nav>
 
   <div class="panel__body">
+
+    <!-- En tête, et non enfoui : c'est le seul canal pour remonter un bug ou une idée, et
+         personne ne va le chercher. Le mail part pré-rempli du contexte technique. -->
+    <fieldset id="sec-contact">
+      <legend>Un problème ? Une idée ?</legend>
+      <p class="hint">Une zone fausse, un haut-fond manquant, un bug, une suggestion ?
+        Écris-moi : le mail s'ouvre déjà rempli du contexte utile (version, cote, appareil),
+        tu n'as plus qu'à décrire.</p>
+      <div class="actions">
+        <button type="button" class="primary" id="btn-feedback">Signaler ou suggérer</button>
+      </div>
+    </fieldset>
 
     <fieldset id="sec-bateau">
       <legend>Bateau et sécurité</legend>
@@ -1345,6 +1366,9 @@ profondeur = cote_du_jour − z_fond</code></pre>
       chaque cellule.
     </p>
 
+    <p class="hint">
+      Un problème ou une suggestion ? <a href="#" id="apropos-feedback">Écris-moi un mail</a>.
+    </p>
     <p class="hint">
       <a href="https://github.com/magcad/relieflac">Code source et spécification</a> ·
       <span id="apropos-version"></span>

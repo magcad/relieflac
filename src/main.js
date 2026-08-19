@@ -1275,6 +1275,12 @@ function wireSettings() {
     toast('Réglages réinitialisés');
   });
   $('btn-reload').addEventListener('click', reloadApp);
+  $('btn-feedback').addEventListener('click', openFeedback);
+  $('apropos-feedback').addEventListener('click', (event) => {
+    event.preventDefault();
+    openFeedback();
+  });
+  initUpdateChecks();
 
   s.addEventListener('change', (event) => {
     // Les plages du ski sont relues avant tout rendu : la feuille de préparation, ouverte
@@ -5069,6 +5075,100 @@ function registerServiceWorker() {
   try {
     navigator.serviceWorker.register(new URL('../sw.js', import.meta.url)).catch(() => {});
   } catch { /* contexte sans service worker (ex. certains navigateurs privés) */ }
+}
+
+// ------------------------------------------------------------------ contact
+//
+// Le seul canal de retour des utilisateurs — pour la plupart des plaisanciers sans compte
+// GitHub, un mail est ce qui s'ouvre en un geste sur n'importe quel téléphone. On y glisse
+// un bloc de diagnostic (version, cote affichée, appareil) pour qu'un « ça marche pas »
+// arrive déjà exploitable, sans avoir à relancer la personne.
+
+const FEEDBACK_EMAIL = 'magcadsupport@gmail.com';
+
+function openFeedback() {
+  const level = currentLevel().value;
+  const cote = Number.isFinite(level) ? `${level.toFixed(2)} m NGF` : 'indisponible';
+  const fond = BED_SOURCES[app.bed?.source]?.label ?? app.bed?.source ?? '—';
+  const body = [
+    '', '', // l'utilisateur écrit ici, au-dessus du bloc technique
+    '——— informations techniques (à ne pas effacer) ———',
+    `Version : ${VERSION}`,
+    `Date : ${new Date().toLocaleString('fr-FR')}`,
+    `Cote affichée : ${cote}`,
+    `Fond : ${fond}`,
+    `Appareil : ${navigator.userAgent}`,
+  ].join('\n');
+  const href = `mailto:${FEEDBACK_EMAIL}`
+    + `?subject=${encodeURIComponent(`ReliefLac — retour (v${VERSION})`)}`
+    + `&body=${encodeURIComponent(body)}`;
+  location.href = href;
+}
+
+// ------------------------------------------------------- détection de version
+//
+// Le service worker sert déjà la dernière version au rechargement, mais un PWA iOS peut
+// rester ouvert des jours sans jamais être relancé. On lit donc la version DÉPLOYÉE (le
+// version.js du serveur, cache contourné) et, si elle est plus récente que celle embarquée,
+// on invite à recharger. Jamais d'office : sur l'eau, recharger la carte se décide.
+
+const UPDATE_CHECK_KEY = 'relieflac.updateCheck.at';
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60e3; // « une fois par jour » tant que l'appli tourne
+
+/** « 2026-08-19.1 » vs « 2026-08-18.8 » : vrai si `remote` est strictement plus récente. */
+function versionIsNewer(remote, local) {
+  const parts = (v) => String(v).split(/[.\-]/).map((n) => parseInt(n, 10) || 0);
+  const a = parts(remote); const b = parts(local);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const x = a[i] ?? 0; const y = b[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+async function fetchDeployedVersion() {
+  const url = new URL('./version.js', import.meta.url);
+  url.searchParams.set('cb', Date.now()); // adresse neuve : on veut la version du serveur
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const text = await res.text();
+  const found = text.match(/VERSION\s*=\s*['"]([^'"]+)['"]/);
+  if (!found) throw new Error('numéro de version introuvable');
+  return found[1];
+}
+
+let updateBannerShown = false;
+async function checkForUpdate() {
+  if (updateBannerShown) return;
+  try {
+    const remote = await fetchDeployedVersion();
+    if (!versionIsNewer(remote, VERSION)) return;
+    updateBannerShown = true;
+    $('update-banner').querySelector('.update__txt').textContent = `Nouvelle version (${remote})`;
+    $('update-banner').hidden = false;
+  } catch {
+    // hors ligne ou serveur muet : on retentera au prochain passage au premier plan
+  }
+}
+
+/** Vérifie si le délai « une fois par jour » est écoulé (ou `force` au démarrage). */
+function maybeCheckForUpdate(force = false) {
+  const last = Number(localStorage.getItem(UPDATE_CHECK_KEY)) || 0;
+  if (!force && Date.now() - last < UPDATE_CHECK_INTERVAL_MS) return;
+  try { localStorage.setItem(UPDATE_CHECK_KEY, String(Date.now())); } catch { /* stockage plein */ }
+  checkForUpdate();
+}
+
+function initUpdateChecks() {
+  $('btn-update').addEventListener('click', reloadApp);
+  $('btn-update-dismiss').addEventListener('click', () => { $('update-banner').hidden = true; });
+  maybeCheckForUpdate(true); // au démarrage, toujours
+  // Appli laissée ouverte : on revérifie au retour au premier plan, throttlé à un jour…
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) maybeCheckForUpdate(false);
+  });
+  // …et un battement horaire couvre l'écran resté allumé au-delà de 24 h sans être masqué.
+  setInterval(() => maybeCheckForUpdate(false), 60 * 60e3);
 }
 
 function download(filename, content, type) {
