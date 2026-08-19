@@ -1276,6 +1276,7 @@ function wireSettings() {
   });
   $('btn-reload').addEventListener('click', reloadApp);
   $('btn-feedback').addEventListener('click', openFeedback);
+  $('btn-feedback-menu').addEventListener('click', openFeedback);
   $('apropos-feedback').addEventListener('click', (event) => {
     event.preventDefault();
     openFeedback();

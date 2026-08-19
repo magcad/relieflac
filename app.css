@@ -485,6 +485,11 @@ a { color: var(--accent); }
 
 .tile--wide { grid-column: 1 / -1; }
 .tile--wide.tile { padding: .9rem .6rem; }
+/* Tuile contact : un léger halo d'accent pour qu'elle se lise comme une action, sans crier. */
+.tile--contact {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+}
 
 /* Modes encore à écrire : le bouton existe, on le dit sans prétendre qu'il agit. */
 .soon {
@@ -1126,7 +1131,10 @@ legend { padding: 0 .4rem; color: var(--muted); font-size: .78rem; text-transfor
   padding: .6rem .9rem; border-radius: var(--r-sm); cursor: pointer;
   background: var(--surface-3); border: 1px solid var(--line);
 }
-.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 650; }
+/* `.actions button` (0,1,1) l'emportait sur `.primary` (0,1,0) : le fond d'accent était
+   écrasé par le gris `--surface-3`, et le bouton semblait désactivé. On rétablit l'accent
+   avec un sélecteur au moins aussi spécifique. */
+.primary, .actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 650; }
 .primary:disabled { opacity: .45; cursor: not-allowed; }
 .danger { border-color: #6b2b2b; color: #ffb4b4; }
 .big { width: 100%; margin-top: .8rem; padding: 1rem; font-size: 1.1rem; }

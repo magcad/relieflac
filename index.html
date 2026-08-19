@@ -176,6 +176,13 @@
     <circle cx="12" cy="7.9" r="1.15" fill="currentColor"/>
   </symbol>
 
+  <symbol id="i-mail" viewBox="0 0 24 24">
+    <g stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round">
+      <rect x="3.2" y="5.4" width="17.6" height="13.2" rx="2.2"/>
+      <path d="M4.2 7.2 12 13l7.8-5.8" stroke-linecap="round"/>
+    </g>
+  </symbol>
+
   <symbol id="i-back" viewBox="0 0 24 24">
     <path d="M15 4.8 7.6 12 15 19.2" stroke="currentColor" stroke-width="1.9"
           stroke-linecap="round" stroke-linejoin="round" fill="none"/>
@@ -529,6 +536,13 @@
           <span class="tile__label">Ouvrir les paramètres</span>
           <span class="tile__sub">bateau, couleurs, cote, partage</span>
         </a>
+        <!-- Contact remonté au niveau du menu : le seul canal de retour ne doit pas être
+             enfoui dans la page de réglages. Le mail part pré-rempli du diagnostic. -->
+        <button class="tile tile--wide tile--contact" id="btn-feedback-menu" type="button">
+          <svg class="ico ico--tile" aria-hidden="true"><use href="#i-mail"/></svg>
+          <span class="tile__label">Nous contacter</span>
+          <span class="tile__sub">signaler un bug ou une idée</span>
+        </button>
         <a class="sheet__link" href="#/a-propos">
           <svg class="ico" aria-hidden="true"><use href="#i-info"/></svg>
           À propos, sources et limites du modèle
