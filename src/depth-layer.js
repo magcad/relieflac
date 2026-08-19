@@ -267,6 +267,29 @@ export class DepthLayer {
     this.bed = bed;
     this.style = style; // voir setStyle()
     this.ready = false;
+
+    // Uniformes de paliers, tenus une fois pour toutes plutôt que réalloués à chaque image.
+    // Ils ne changent qu'au changement de style (#packBands), pas soixante fois par seconde.
+    this._bandsU = new Float32Array(MAX_BANDS);
+    this._bandColorsU = new Float32Array(MAX_BANDS * 4);
+    this._bandCountU = 0;
+    this.#packBands();
+  }
+
+  /** Recompacte les bornes et couleurs de paliers dans les tampons d'uniformes. */
+  #packBands() {
+    const s = this.style || {};
+    const bands = s.bands ?? [];
+    const colors = s.bandColors ?? [];
+    const n = Math.min(bands.length, MAX_BANDS);
+    this._bandsU.fill(0);
+    this._bandColorsU.fill(0);
+    for (let i = 0; i < n; i += 1) {
+      this._bandsU[i] = bands[i];
+      const rgba = colors[i];
+      if (rgba) this._bandColorsU.set(rgba, i * 4);
+    }
+    this._bandCountU = n;
   }
 
   /**
@@ -279,6 +302,7 @@ export class DepthLayer {
    */
   setStyle(style) {
     this.style = { ...this.style, ...style };
+    if (style.bands || style.bandColors) this.#packBands();
     if (this.ready && style.lut) this.#uploadLut();
     this.map?.triggerRepaint();
   }
@@ -446,15 +470,9 @@ export class DepthLayer {
     gl.uniform4fv(u.u_outline, s.outline);
     gl.uniform4fv(u.u_safetyColor, s.safetyColor);
 
-    const bands = new Float32Array(MAX_BANDS);
-    s.bands.slice(0, MAX_BANDS).forEach((limit, i) => { bands[i] = limit; });
-    gl.uniform1fv(u.u_bands, bands);
-
-    const colours = new Float32Array(MAX_BANDS * 4);
-    (s.bandColors ?? []).slice(0, MAX_BANDS).forEach((rgba, i) => colours.set(rgba, i * 4));
-    gl.uniform4fv(u.u_bandColors, colours);
-
-    gl.uniform1i(u.u_bandCount, Math.min(s.bands.length, MAX_BANDS));
+    gl.uniform1fv(u.u_bands, this._bandsU);
+    gl.uniform4fv(u.u_bandColors, this._bandColorsU);
+    gl.uniform1i(u.u_bandCount, this._bandCountU);
     gl.uniform1i(u.u_showOutlines, s.showOutlines ? 1 : 0);
     gl.uniform1i(u.u_showSafety, s.showSafety ? 1 : 0);
 

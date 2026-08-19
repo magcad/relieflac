@@ -1295,6 +1295,15 @@ body.mode-go .hist,
 body.mode-go .maplibregl-ctrl-bottom-left { display: none !important; }
 body.mode-go .navstrip { border-bottom-color: color-mix(in srgb, var(--m-nav) 45%, transparent); }
 
+/* Batterie : en navigation, la carte défile à 60 fps, et re-flouter le fond derrière chaque
+   panneau posé dessus (bandeau de cap, HUD) à chaque image est un des premiers postes GPU du
+   téléphone. On coupe le flou le temps de la sortie — `--blur` étant lu par toutes les
+   surfaces, une seule surcharge suffit, exactement comme le mode plein soleil. Les fonds de
+   verre restent assez opaques (≈0,9) pour rester parfaitement lisibles sans lui. Hors Go, au
+   repos, le flou revient : le fond est alors figé, donc le compositeur le calcule une fois et
+   il ne coûte plus rien. */
+body.mode-go { --blur: none; }
+
 .go__exit {
   position: absolute; top: calc(var(--strip) + .5rem); left: .6rem;
   display: inline-flex; align-items: center; gap: .3rem;
