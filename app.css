@@ -477,7 +477,11 @@ a { color: var(--accent); }
 .modepane[hidden] { display: none; }
 .modepane--carte { --m: var(--m-carte); }
 .modepane--nav   { --m: var(--m-nav); }
-.modepane--param { --m: var(--m-param); }
+/* Empilement d'actions (tuiles + lien) : écart fixe entre chaque, sinon deux tuiles
+   adjacentes se touchaient bord à bord. `[hidden]` reste prioritaire (règle globale
+   `!important`), donc passer en flex ne rouvre pas le piège du `display`. */
+.modepane--param { --m: var(--m-param); display: flex; flex-direction: column; gap: .5rem; }
+.modepane--param .sheet__link { margin-top: 0; }
 .modepane .tile .ico { color: var(--m); }
 .modepane .tile.is-on { border-color: var(--m); background: color-mix(in srgb, var(--m) 20%, var(--surface-2)); }
 .modepane .tile.is-on .tile__label { color: var(--m); }
