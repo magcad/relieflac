@@ -2,7 +2,7 @@
   "schema": "relieflac.corrections/1",
   "waterbody": "vassiviere",
   "datum": "NGF-IGN69",
-  "updated_at": "2026-08-20T18:04:40.035Z",
+  "updated_at": "2026-08-20T18:04:58.487Z",
   "zones": [
     {
       "id": "5b8d372e-545f-4970-bc1e-f657a881bb77",
@@ -711,6 +711,19 @@
       "radius_m": 20,
       "position_source": "gps",
       "at": "2026-08-20T18:04:38.524Z",
+      "by": null
+    },
+    {
+      "id": "9b0cccfb-a165-439f-afec-766c6d2503c8",
+      "lon": 1.8922865213505422,
+      "lat": 45.791837327316706,
+      "depth_m": -1,
+      "cote_m_ngf": 646.13,
+      "transducer_m": 0.3,
+      "z_fond_m_ngf": 647.13,
+      "radius_m": 20,
+      "position_source": "gps",
+      "at": "2026-08-20T18:04:56.977Z",
       "by": null
     }
   ]
