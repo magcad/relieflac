@@ -1,7 +1,7 @@
 {
   "schema": "relieflac.trips-index/1",
   "waterbody": "vassiviere",
-  "updated_at": "2026-08-18T17:14:07.871Z",
+  "updated_at": "2026-08-20T15:13:33.271Z",
   "trips": [
     {
       "id": "121a44cd-c840-42ca-8602-b9990d106169",
@@ -154,6 +154,35 @@
         ]
       },
       "file": "5954fdab-9ac1-4922-bbd1-eabfff6c5ce2.json"
+    },
+    {
+      "id": "baa86c06-074e-4460-89ef-722289352748",
+      "name": "Ski libre · Wakeboard",
+      "at": "2026-08-20T15:13:09.369Z",
+      "ended_at": "2026-08-20T15:13:31.790Z",
+      "length_m": 66,
+      "points": 12,
+      "route_id": null,
+      "by": null,
+      "ski": {
+        "activity": "wakeboard",
+        "activityName": "Wakeboard",
+        "who": "adulte",
+        "min_kmh": 30,
+        "max_kmh": 38,
+        "open_ended": false,
+        "target_s": 600,
+        "chrono_s": 0,
+        "chrono_runs": 0,
+        "falls": 0,
+        "avg_kmh": 10.57,
+        "top_kmh": 11.7,
+        "in_zone_pct": 0,
+        "laps": 0,
+        "best_lap_s": null,
+        "lap_times_s": []
+      },
+      "file": "baa86c06-074e-4460-89ef-722289352748.json"
     }
   ]
 }
