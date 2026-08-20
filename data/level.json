@@ -7,8 +7,9 @@
     "delicate_below": 643.0,
     "normal_max": 650.0
   },
-  "fetched_at": "2026-08-20T03:53:41+00:00",
-  "stale": false,
+  "fetched_at": "2026-08-20T04:45:33+00:00",
+  "stale": true,
   "source": "EDF — Ma Rivière et Moi — Lac de Vassivière",
-  "source_url": "https://mariviereetmoi.edf.fr/#/map/place/PRACTICABILITY/31856100"
+  "source_url": "https://mariviereetmoi.edf.fr/#/map/place/PRACTICABILITY/31856100",
+  "last_error": "Expecting value: line 1 column 1 (char 0)"
 }
