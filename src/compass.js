@@ -74,6 +74,17 @@ export class Compass extends EventTarget {
   // Champ fléché plutôt que méthode privée : `this` reste lié quand on l'ajoute/retire
   // comme écouteur, et une méthode privée n'est de toute façon pas réassignable.
   #onEvent = (event) => {
+    // Instantané brut du dernier événement, pour le diagnostic (mail de retour). Capturé
+    // avant tout tri, y compris pour les événements relatifs qu'on ignorera ensuite.
+    this.lastEvent = {
+      type: event.type,
+      absolute: event.absolute,
+      alpha: Number.isFinite(event.alpha) ? Math.round(event.alpha) : null,
+      webkit: Number.isFinite(event.webkitCompassHeading)
+        ? Math.round(event.webkitCompassHeading) : null,
+      screen: screenAngle(),
+    };
+
     let heading = null;
     let source = null;
 

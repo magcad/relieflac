@@ -349,6 +349,18 @@ export class DepthLayer {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
     gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
 
+    // Deux triangles EXPLICITES, et non plus un TRIANGLE_STRIP.
+    //
+    // Chrome ≥ 151 sur Android (backend ANGLE/Vulkan) repliait la couche sur la diagonale
+    // partagée du strip : la moitié basse s'affichait en miroir de la moitié haute. Le strip
+    // impose au pilote d'alterner le sens de parcours entre ses deux triangles ; ce backend
+    // interpolait alors les varyings du second à l'envers. En donnant les deux triangles avec
+    // le même sens de parcours (0,1,2 puis 2,1,3, tous deux antihoraires en UV), l'ambiguïté
+    // disparaît. Samsung Internet, moteur Chromium plus ancien, n'avait jamais montré le défaut.
+    this.indexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0, 1, 2, 2, 1, 3]), gl.STATIC_DRAW);
+
     this.bedTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.bedTexture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
@@ -492,20 +504,27 @@ export class DepthLayer {
     gl.vertexAttribPointer(this.attributes.uv, 2, gl.FLOAT, false, 16, 8);
 
     gl.disable(gl.DEPTH_TEST);
+    // Culling explicitement coupé : le quad se voit des deux faces, et on ne dépend plus de
+    // l'état que MapLibre laisse derrière lui (CULL_FACE + frontFace pouvant écarter un des
+    // deux triangles selon son sens de parcours à l'écran).
+    gl.disable(gl.CULL_FACE);
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+    gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
 
-    // On rend l'état d'attributs à MapLibre : laisser ces tableaux activés et ce tampon lié
+    // On rend l'état d'attributs à MapLibre : laisser ces tableaux activés et ces tampons liés
     // peut brouiller le tracé des couches dessinées juste au-dessus (sondes, trace, repères).
     gl.disableVertexAttribArray(this.attributes.pos);
     gl.disableVertexAttribArray(this.attributes.uv);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
   }
 
   onRemove(map, gl) {
     gl.deleteProgram(this.program);
     gl.deleteBuffer(this.buffer);
+    gl.deleteBuffer(this.indexBuffer);
     gl.deleteTexture(this.bedTexture);
     gl.deleteTexture(this.lutTexture);
     if (this.coverageTexture) gl.deleteTexture(this.coverageTexture);

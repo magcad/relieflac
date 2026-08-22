@@ -5143,6 +5143,29 @@ function registerServiceWorker() {
 
 const FEEDBACK_EMAIL = 'magcadsupport@gmail.com';
 
+/** Carte graphique et version WebGL, lues sur un contexte jetable pour ne pas toucher la carte. */
+function gpuInfo() {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    if (!gl) return 'WebGL2 indisponible';
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    const vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+    return `${renderer} — ${vendor} — ${gl.getParameter(gl.VERSION)}`;
+  } catch (err) {
+    return `lecture impossible (${err.message})`;
+  }
+}
+
+/** Dernier événement d'orientation reçu, mis en forme pour le diagnostic. */
+function compassInfo() {
+  const e = app.compass?.lastEvent;
+  if (!e) return `aucun événement (source ${app.compass?.source ?? '—'})`;
+  return `type=${e.type} absolute=${e.absolute} alpha=${e.alpha} webkit=${e.webkit} `
+    + `écran=${e.screen}° → source=${app.compass?.source ?? '—'} cap=${
+      app.compass?.heading == null ? '—' : Math.round(app.compass.heading)}°`;
+}
+
 function openFeedback() {
   const level = currentLevel().value;
   const cote = Number.isFinite(level) ? `${level.toFixed(2)} m NGF` : 'indisponible';
@@ -5155,6 +5178,8 @@ function openFeedback() {
     `Cote affichée : ${cote}`,
     `Fond : ${fond}`,
     `Appareil : ${navigator.userAgent}`,
+    `GPU : ${gpuInfo()}`,
+    `Boussole : ${compassInfo()}`,
   ].join('\n');
   const href = `mailto:${FEEDBACK_EMAIL}`
     + `?subject=${encodeURIComponent(`ReliefLac — retour (v${VERSION})`)}`
