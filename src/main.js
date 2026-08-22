@@ -5168,7 +5168,22 @@ function compassInfo() {
       app.compass?.heading == null ? '—' : Math.round(app.compass.heading)}°`;
 }
 
-function openFeedback() {
+/** État de la géolocalisation, pour le diagnostic — distingue permission, précision, timeout. */
+async function geoInfo() {
+  const g = app.geo;
+  let perm = '?';
+  try {
+    if (navigator.permissions?.query) {
+      perm = (await navigator.permissions.query({ name: 'geolocation' })).state;
+    }
+  } catch { perm = 'inconnu'; }
+  const err = g?.lastError ? `${g.lastError.code}:${g.lastError.message}` : 'aucune';
+  const acc = Number.isFinite(g?.lastAccuracy) ? `±${Math.round(g.lastAccuracy)} m` : '—';
+  return `statut=${g?.status ?? '—'} perm=${perm} sécurisé=${window.isSecureContext} `
+    + `échantillons=${g?.sampleCount ?? 0} dernière précision=${acc} erreur=${err}`;
+}
+
+async function openFeedback() {
   const level = currentLevel().value;
   const cote = Number.isFinite(level) ? `${level.toFixed(2)} m NGF` : 'indisponible';
   const fond = BED_SOURCES[app.bed?.source]?.label ?? app.bed?.source ?? '—';
@@ -5182,6 +5197,7 @@ function openFeedback() {
     `Appareil : ${navigator.userAgent}`,
     `GPU : ${gpuInfo()}`,
     `Boussole : ${compassInfo()}`,
+    `GPS : ${await geoInfo()}`,
   ].join('\n');
   const href = `mailto:${FEEDBACK_EMAIL}`
     + `?subject=${encodeURIComponent(`ReliefLac — retour (v${VERSION})`)}`

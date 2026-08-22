@@ -19,6 +19,14 @@ export class Geolocator extends EventTarget {
     this.previous = null;
     this.lastFixAt = 0;
     this.watchdog = null;
+    // Traces pour le diagnostic (mail de retour). `sampleCount` = nombre de retours de
+    // position reçus, toutes précisions confondues ; `lastAccuracy` = précision du dernier,
+    // même s'il a été rejeté ; `lastError` = dernière erreur du navigateur. Ensemble, ils
+    // distinguent « aucun retour » (permission/fournisseur) de « retours trop imprécis »
+    // (GPS qui n'accroche pas) et d'un refus explicite.
+    this.sampleCount = 0;
+    this.lastAccuracy = null;
+    this.lastError = null;
   }
 
   get available() {
@@ -70,6 +78,8 @@ export class Geolocator extends EventTarget {
 
   #onPosition(pos) {
     const { longitude, latitude, accuracy, speed, heading } = pos.coords;
+    this.sampleCount += 1;
+    this.lastAccuracy = accuracy ?? null;
 
     // Une position à ±200 m ferait sauter le bateau d'une rive à l'autre.
     if (accuracy != null && accuracy > MAX_ACCURACY_M) {
@@ -99,6 +109,7 @@ export class Geolocator extends EventTarget {
   }
 
   #onError(err) {
+    this.lastError = { code: err.code, message: err.message };
     const messages = {
       1: "Autorisation refusée. Activez la localisation pour cette page dans les réglages du navigateur.",
       2: 'Position indisponible. Essayez à ciel ouvert.',
