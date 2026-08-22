@@ -345,6 +345,8 @@ function styleFromSettings() {
     showSafety: app.settings.get('showSafety'),
     showVoids: app.settings.get('showVoids'),
     voidRadius: app.settings.get('voidRadius_m'),
+    // Diagnostic : ?bedtest dans l'URL peint le quad en dégradé UV (voir depth-layer.js).
+    debug: new URLSearchParams(location.search).has('bedtest'),
   };
 }
 

@@ -13,6 +13,11 @@ import { MAX_BANDS } from './palette.js';
 const EARTH_CIRCUMFERENCE = 40075016.685578488;
 const ORIGIN_SHIFT = EARTH_CIRCUMFERENCE / 2;
 
+// Nombre de carreaux par côté de l'emprise. Pave le quad en petits triangles pour éviter
+// l'artefact des « grands triangles » sur certains GPU mobiles (voir onAdd). 32×32 suffit
+// largement — l'erreur d'interpolation résiduelle éventuelle tombe sous 1/32 de l'UV.
+const GRID_TESS = 32;
+
 /** EPSG:3857 → coordonnées mercator [0,1] attendues par la matrice de MapLibre. */
 function toUnitMercator(x, y) {
   return [(x + ORIGIN_SHIFT) / EARTH_CIRCUMFERENCE, (ORIGIN_SHIFT - y) / EARTH_CIRCUMFERENCE];
@@ -88,6 +93,7 @@ uniform float u_bands[${MAX_BANDS}];
 uniform vec4 u_bandColors[${MAX_BANDS}];
 uniform bool u_showOutlines;
 uniform bool u_showSafety;
+uniform bool u_debug;
 
 in vec2 v_uv;
 out vec4 fragColor;
@@ -163,6 +169,12 @@ float contourLine(float value, float target, float widthPx, float slope) {
 }
 
 void main() {
+  // Mode diagnostic (?bedtest) : peint le quad avec ses coordonnées UV brutes — rouge = U
+  // (0 à l'ouest → 1 à l'est), vert = V (0 au nord → 1 au sud). Une capture révèle sans
+  // ambiguïté comment le GPU mappe l'emprise : un dégradé propre = correct ; un pli ou une
+  // transposition = l'artefact recherché, indépendamment de la donnée des fonds.
+  if (u_debug) { fragColor = vec4(v_uv, 0.0, 0.92); return; }
+
   float coverage;
   float bed = bedAltitude(v_uv, coverage);
   if (coverage <= 0.001) { fragColor = vec4(0.0); return; }
@@ -257,6 +269,7 @@ const UNIFORMS = [
   'u_level', 'u_offset', 'u_waterPlane', 'u_lutMax', 'u_safe', 'u_opacity', 'u_emerged',
   'u_outline', 'u_safetyColor', 'u_bandCount', 'u_bands', 'u_bandColors',
   'u_showOutlines', 'u_showSafety', 'u_voidRadius', 'u_showVoids', 'u_hasCoverage',
+  'u_debug',
 ];
 
 export class DepthLayer {
@@ -339,27 +352,56 @@ export class DepthLayer {
     this.anchorX = (ax + bx) / 2;
     this.anchorY = (ay + by) / 2;
     this.matrix = new Float32Array(16);
-    const vertices = new Float32Array([
-      ax - this.anchorX, ay - this.anchorY, 0, 0,
-      bx - this.anchorX, ay - this.anchorY, 1, 0,
-      ax - this.anchorX, by - this.anchorY, 0, 1,
-      bx - this.anchorX, by - this.anchorY, 1, 1,
-    ]);
+
+    // Emprise subdivisée en grille, et non plus un simple rectangle de deux triangles.
+    //
+    // Au zoom de navigation, ce quad est BIEN plus grand que l'écran : ses deux triangles
+    // sont gigantesques. Sur le backend ANGLE/Vulkan de Chrome Android (Xclipse 920), un tel
+    // triangle voyait l'interpolation de ses varyings dégénérer et la couche se repliait en
+    // miroir sur sa diagonale — moitié correcte, moitié réfléchie. Ni le passage strip →
+    // triangles explicites, ni la coupe du culling n'y changeaient rien : c'est la TAILLE des
+    // triangles qui déclenche l'artefact, un piège connu des GPU mobiles. En pavant l'emprise
+    // en petits carreaux, chaque triangle reste local : l'erreur d'interpolation résiduelle
+    // tombe sous le carreau (1/GRID_TESS de l'UV) et l'artefact disparaît. Le tampon est
+    // statique, construit une fois — le surcoût est nul à l'affichage.
+    const N = GRID_TESS;
+    const stride = N + 1;
+    const vertices = new Float32Array(stride * stride * 4);
+    let v = 0;
+    for (let j = 0; j <= N; j += 1) {
+      const tv = j / N;
+      const y = (ay + (by - ay) * tv) - this.anchorY;
+      for (let i = 0; i <= N; i += 1) {
+        const tu = i / N;
+        vertices[v] = (ax + (bx - ax) * tu) - this.anchorX;
+        vertices[v + 1] = y;
+        vertices[v + 2] = tu;
+        vertices[v + 3] = tv;
+        v += 4;
+      }
+    }
     this.buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
     gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
 
-    // Deux triangles EXPLICITES, et non plus un TRIANGLE_STRIP.
-    //
-    // Chrome ≥ 151 sur Android (backend ANGLE/Vulkan) repliait la couche sur la diagonale
-    // partagée du strip : la moitié basse s'affichait en miroir de la moitié haute. Le strip
-    // impose au pilote d'alterner le sens de parcours entre ses deux triangles ; ce backend
-    // interpolait alors les varyings du second à l'envers. En donnant les deux triangles avec
-    // le même sens de parcours (0,1,2 puis 2,1,3, tous deux antihoraires en UV), l'ambiguïté
-    // disparaît. Samsung Internet, moteur Chromium plus ancien, n'avait jamais montré le défaut.
+    const indices = new Uint16Array(N * N * 6);
+    let k = 0;
+    for (let j = 0; j < N; j += 1) {
+      for (let i = 0; i < N; i += 1) {
+        const a = j * stride + i;      // coin haut-gauche du carreau
+        const b = a + 1;               // haut-droit
+        const c = a + stride;          // bas-gauche
+        const d = c + 1;               // bas-droit
+        // Deux triangles, même sens de parcours antihoraire en UV que l'ancien quad.
+        indices[k] = a; indices[k + 1] = b; indices[k + 2] = c;
+        indices[k + 3] = c; indices[k + 4] = b; indices[k + 5] = d;
+        k += 6;
+      }
+    }
+    this.indexCount = indices.length;
     this.indexBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0, 1, 2, 2, 1, 3]), gl.STATIC_DRAW);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
 
     this.bedTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.bedTexture);
@@ -496,6 +538,7 @@ export class DepthLayer {
     gl.uniform1i(u.u_bandCount, this._bandCountU);
     gl.uniform1i(u.u_showOutlines, s.showOutlines ? 1 : 0);
     gl.uniform1i(u.u_showSafety, s.showSafety ? 1 : 0);
+    gl.uniform1i(u.u_debug, s.debug ? 1 : 0);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
     gl.enableVertexAttribArray(this.attributes.pos);
@@ -511,7 +554,7 @@ export class DepthLayer {
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
-    gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+    gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
 
     // On rend l'état d'attributs à MapLibre : laisser ces tableaux activés et ces tampons liés
     // peut brouiller le tracé des couches dessinées juste au-dessus (sondes, trace, repères).
