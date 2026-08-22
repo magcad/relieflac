@@ -434,7 +434,20 @@ function onPosition(event) {
 
 function onGeoStatus(event) {
   const { status, message } = event.detail;
-  if (message) toast(message, status === 'denied' ? 8000 : 3000);
+  // « imprécise » et « refusée » sont des états sur lesquels l'utilisateur doit agir : toast
+  // plus long, et affichage PERSISTANT (le toast disparaît, pas le bandeau).
+  const actionable = status === 'denied' || status === 'imprecise';
+  if (message) toast(message, actionable ? 8000 : 3000);
+
+  if (status === 'imprecise') {
+    // Chrome ne livre qu'une position réseau (~km) : on le montre en clair, au lieu du muet
+    // « position en attente », pour qu'on voie tout de suite qu'il manque la localisation précise.
+    const acc = Math.round(app.geo?.lastAccuracy ?? 0);
+    $('prof-label').textContent = `localisation imprécise · ±${acc} m`;
+    setGpsState(app.geo?.lastAccuracy, null); // la puce du haut affiche ±X m (état « coarse »)
+    return;
+  }
+
   if (status !== 'active') $('prof-label').textContent = 'position en attente';
   if (status === 'denied' || status === 'unsupported') setGpsState(null, status);
   else if (status !== 'active') setGpsState(null, 'searching');

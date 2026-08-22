@@ -6,6 +6,11 @@
 // tournoie sur place, ce qui est pire que pas de cap du tout.
 
 const MAX_ACCURACY_M = 50;
+// Au-delà, une position ne vient plus du GPS mais du réseau (antennes/Wi-Fi) : c'est la
+// signature d'une « localisation approximative » (permission Android non « précise », ou GPS
+// coupé). On le dit clairement plutôt que de rester sur un « signal imprécis » qui laisse
+// croire à un GPS qui cherche encore.
+const COARSE_ACCURACY_M = 300;
 const HEADING_MIN_SPEED_MS = 0.7; // ~2,5 km/h
 const SMOOTHING = 0.35;
 
@@ -14,7 +19,7 @@ export class Geolocator extends EventTarget {
     super();
     this.watchId = null;
     this.position = null;   // { lon, lat, accuracy, speed, heading, timestamp }
-    this.status = 'idle';   // idle | locating | active | denied | error | unsupported
+    this.status = 'idle';   // idle | locating | imprecise | active | denied | error | unsupported
     this.message = '';
     this.previous = null;
     this.lastFixAt = 0;
@@ -71,6 +76,9 @@ export class Geolocator extends EventTarget {
   }
 
   #setStatus(status, message) {
+    // Rien de neuf : on ne re-notifie pas. Sans ça, une position grossière qui se répète à
+    // l'identique redéclencherait le bandeau et le toast en boucle.
+    if (status === this.status && message === this.message) return;
     this.status = status;
     this.message = message;
     this.dispatchEvent(new CustomEvent('status', { detail: { status, message } }));
@@ -84,7 +92,13 @@ export class Geolocator extends EventTarget {
     // Une position à ±200 m ferait sauter le bateau d'une rive à l'autre.
     if (accuracy != null && accuracy > MAX_ACCURACY_M) {
       if (this.status !== 'active') {
-        this.#setStatus('locating', `Signal imprécis (±${Math.round(accuracy)} m)…`);
+        const coarse = accuracy > COARSE_ACCURACY_M;
+        this.#setStatus(
+          coarse ? 'imprecise' : 'locating',
+          coarse
+            ? `Localisation approximative (±${Math.round(accuracy)} m) — activez la localisation précise du navigateur dans les réglages Android.`
+            : `Signal imprécis (±${Math.round(accuracy)} m)…`,
+        );
       }
       return;
     }
