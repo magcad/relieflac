@@ -355,7 +355,8 @@ export class DepthLayer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.bed.bitmap);
+    // Le contenu est chargé plus bas par updateBed(), depuis un tampon d'octets et non
+    // depuis l'ImageBitmap : voir la note d'orientation en tête de #upload.
 
     this.lutTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.lutTexture);
@@ -373,11 +374,13 @@ export class DepthLayer {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.bed.coverageBitmap);
+      // Contenu chargé par #uploadCoverage() (via updateBed) — tampon d'octets, pas l'ImageBitmap.
     }
 
     this.ready = true;
     this.#uploadLut();
+    // Premier chargement des fonds ET de la couverture par le chemin déterministe.
+    this.updateBed();
   }
 
   #uploadLut() {
@@ -407,6 +410,10 @@ export class DepthLayer {
       buf[o] = (v >> 16) & 255; buf[o + 1] = (v >> 8) & 255; buf[o + 2] = v & 255; buf[o + 3] = a;
     }
     gl.bindTexture(gl.TEXTURE_2D, this.bedTexture);
+    // Orientation forcée : MapLibre bascule UNPACK_FLIP_Y_WEBGL pour ses propres textures
+    // et peut le laisser actif. Sans ce garde-fou, la ligne 0 (bord nord) atterrirait en bas.
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, buf);
     this.#uploadCoverage();
     this.map?.triggerRepaint();
@@ -428,6 +435,8 @@ export class DepthLayer {
       buf[o + 2] = 0; buf[o + 3] = 255;
     }
     gl.bindTexture(gl.TEXTURE_2D, this.coverageTexture);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, buf);
   }
 

@@ -85,7 +85,15 @@ export class Compass extends EventTarget {
       // de l'appareil (nez du téléphone) est 360 − alpha, ajusté de l'orientation écran.
       const screen = (screenAngle() || 0);
       heading = (360 - event.alpha + screen) % 360;
-      source = event.absolute ? 'absolute' : 'relative';
+      // L'événement `deviceorientationabsolute` est référencé au nord PAR DÉFINITION. On se
+      // fie donc à son TYPE, et pas seulement au drapeau `event.absolute` : plusieurs moteurs
+      // récents (Chromium sous One UI / Android récent) émettent bien l'événement absolu mais
+      // laissent son drapeau à false. Avec l'ancien test, cette unique source vraie-nord était
+      // reclassée « relative » puis ignorée, et l'aiguille retombait sur l'alpha à origine
+      // arbitraire de `deviceorientation` — un cap qui suit l'orientation posée du téléphone.
+      source = (event.type === 'deviceorientationabsolute' || event.absolute)
+        ? 'absolute'
+        : 'relative';
     }
     if (heading == null) return;
 
