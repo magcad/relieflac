@@ -1,13 +1,13 @@
 {
-  "level_m_ngf": 641.6,
-  "measured_at": "2026-10-03T17:00:00Z",
+  "level_m_ngf": 641.57,
+  "measured_at": "2026-10-03T21:00:00Z",
   "condition": "NOT_APPROPRIATE",
   "thresholds": {
     "forbidden_below": 642.0,
     "delicate_below": 643.0,
     "normal_max": 650.0
   },
-  "fetched_at": "2026-10-03T17:10:16+00:00",
+  "fetched_at": "2026-10-03T21:05:47+00:00",
   "stale": false,
   "source": "EDF — Ma Rivière et Moi — Lac de Vassivière",
   "source_url": "https://mariviereetmoi.edf.fr/#/map/place/PRACTICABILITY/31856100"
